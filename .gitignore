@@ -11,6 +11,9 @@ Thumbs.db
 .superpowers/
 .omo/
 
+# Knowledge graph
+graphify-out/
+
 # Throwaway experiments
 scratch/
 

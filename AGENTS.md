@@ -188,3 +188,37 @@ summarizing user-visible changes. Keep the newest version first.
 After a successful CI run for a push to `main`, `.github/workflows/release-tag.yml`
 creates the missing annotated `v<project.version>` tag. Existing tags are never
 moved; a version/tag collision fails the workflow.
+
+## Documentation governance
+
+Applied on 2026-08-10, modeled on the gorani project's `PROMPT.md` agent rules,
+with one deliberate deviation: **all documentation and commit messages are in
+English** (the gorani template defaults to Korean; the project owner overrode
+that for compman). Rules:
+
+- The six mandatory root documents must always exist: `AGENTS.md`, `BACKLOG.md`,
+  `CHANGELOG.md`, `README.md`, `SECURITY.md`, `SOLUTION.md`. If any is missing,
+  analyze the codebase and recreate it before starting work.
+- The root directory holds only those six `.md` files; any other Markdown file
+  lives under `docs/`.
+- `BACKLOG.md` items use priority labels `[H1]`/`[M1]`/`[L1]` (High/Medium/Lower)
+  with `- [ ]` checkboxes; completed items are marked `- [x]` and never deleted.
+- `CHANGELOG.md` keeps dated, semantic-versioned sections (`## [x.y.z] - YYYY-MM-DD`)
+  with `### Added` / `### Changed` / `### Fixed` / `### Removed` subsections.
+- `SECURITY.md` documents authentication/authorization, secret management,
+  vulnerability reporting, and code-writing security rules; never hardcode real
+  credentials — use placeholders.
+- `SOLUTION.md` records problems as topics with symptom/cause/solution/prevention;
+  troubleshooting content from other documents is consolidated here.
+- Codebase questions: if `graphify-out/` exists, query the knowledge graph first
+  (`graphify query "<question>"`); after code changes, sync it with `graphify --update`.
+- When packages are added, architecture changes, or bug-fix approaches are learned,
+  record them immediately in the Execution Log below.
+
+## Execution Log
+
+- **2026-08-10** — Applied the gorani governance rules in English: audited the six
+  mandatory root documents (all present, already English), rewrote `SECURITY.md`
+  from the GitHub template into a real policy, restructured `BACKLOG.md` into the
+  labeled H/M/L checklist format, and confirmed the `graphify-out/` knowledge graph
+  (graphifyy v0.9.38) is built and current.

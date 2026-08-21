@@ -113,8 +113,8 @@ compman stats -f</code></pre>
       <div class="shell">
         <div class="section-heading">
           <p class="eyebrow">Bring your own release source</p>
-          <h2>Deploy from S3 or a public HTTP archive.</h2>
-          <p>S3 supports prefixes and archives. HTTP and HTTPS accept <code>.tar.gz</code>, <code>.tgz</code>, and <code>.zip</code> archives.</p>
+          <h2>Deploy from S3, HTTP, or local — per-profile.</h2>
+          <p>S3 supports prefixes and archives. HTTP and HTTPS accept <code>.tar.gz</code>, <code>.tgz</code>, and <code>.zip</code> archives. Local accepts <code>file://</code> and bare paths, per-profile <code>deploy</code> lets each profile use a different source, with optional <code>checksum</code> and <code>strategy</code>.</p>
         </div>
         <div class="deploy-grid">
           <article><h3>S3-compatible storage</h3><pre><code>compman deploy --path \
@@ -123,6 +123,19 @@ compman stats -f</code></pre>
           <article><h3>Public HTTP / HTTPS</h3><pre><code>compman deploy --path \
   https://example.com/releases/app.zip \
   --build --tag my-app</code></pre><p>Streams the archive with standard TLS verification. Authenticated URLs are not yet supported.</p></article>
+          <article><h3>per-profile deploy</h3><pre><code># compman.yml
+deploy:
+  default: s3://my-bucket/releases/app.tar.gz
+  dev:
+    source: file://./dist/app.tar.gz
+  prod:
+    source: s3://my-bucket/releases/app.tar.gz
+    checksum: sha256:e3b0c4...b855
+    strategy: recreate</code></pre><p>String form stays valid and is normalized to <code>default</code>. CLI <code>--profile</code> picks the matching entry.</p></article>
+          <article><h3>Local + dry-run</h3><pre><code>compman deploy --path ./dist/app.tar.gz --dry-run
+compman deploy --profile prod --strategy pull-only --keep 5</code></pre><p><code>--dry-run</code> verifies checksum and limits, prints a diff, then exits before swapping. <code>pull-only</code> skips builds.</p></article>
+          <article><h3>Rollback</h3><pre><code>compman rollback 20260820_120000
+compman rollback --profile prod</code></pre><p>Restores <code>backup/.versions/&lt;TIMESTAMP&gt;</code> (kept 3 by default, <code>--keep 1-10</code>). Omit the timestamp for an interactive pick. <code>doctor</code> warns when a profile lacks <code>checksum</code>.</p></article>
         </div>
       </div>
     </section>

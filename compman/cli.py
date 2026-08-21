@@ -50,10 +50,26 @@ def _deploy(
     s3_path: str | None,
     config: Config | None = None,
     runtime: ContainerRuntime | None = None,
+    profile: str | None = None,
+    dry_run: bool = False,
+    strategy: str | None = None,
+    keep: int = 3,
+    no_build: bool = False,
 ) -> None:
     from compman.deploy import deploy
 
-    deploy(build=build, tag=tag, s3_path=s3_path, config=config, runtime=runtime)
+    deploy(
+        build=build,
+        tag=tag,
+        s3_path=s3_path,
+        config=config,
+        runtime=runtime,
+        profile=profile,
+        dry_run=dry_run,
+        strategy=strategy,
+        keep=keep,
+        no_build=no_build,
+    )
 
 
 def collect_doctor(config_path: str | None, profile: str | None):
@@ -219,8 +235,57 @@ def deploy_cmd(
     path: Annotated[str | None, typer.Option("--path", help=t("opt.path"))] = None,
     build: Annotated[bool, typer.Option("--build", help=t("opt.build"))] = False,
     tag: Annotated[str | None, typer.Option("--tag", help=t("opt.tag"))] = None,
+    profile: Annotated[str | None, typer.Option("--profile", help=t("opt.profile"))] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=t("opt.dry_run"))] = False,
+    strategy: Annotated[
+        str | None, typer.Option("--strategy", help=t("opt.strategy"), case_sensitive=False)
+    ] = None,
+    keep: Annotated[int, typer.Option("--keep", help=t("opt.keep"), min=1, max=10)] = 3,
+    no_build: Annotated[bool, typer.Option("--no-build", help=t("opt.no_build"))] = False,
 ) -> None:
-    _deploy(build=build, tag=tag, s3_path=path)
+    if strategy is not None and strategy.lower() not in ("recreate", "pull-only"):
+        raise typer.BadParameter("strategy must be 'recreate' or 'pull-only'")
+    normalized_strategy = strategy.lower() if strategy is not None else None
+    _deploy(
+        build=build,
+        tag=tag,
+        s3_path=path,
+        profile=profile,
+        dry_run=dry_run,
+        strategy=normalized_strategy,
+        keep=keep,
+        no_build=no_build,
+    )
+
+
+# ---- rollback ----
+@app.command("rollback", help=t("cmd.rollback"))
+def rollback_cmd(
+    timestamp: Annotated[str | None, typer.Argument(help=t("opt.rollback_timestamp"))] = None,
+    profile: Annotated[str | None, typer.Option("--profile", help=t("opt.profile"))] = None,
+    config: Annotated[str | None, typer.Option("--config", "-c", help=t("opt.config"))] = None,
+    yes: Annotated[bool, typer.Option("--yes", help=t("opt.rollback_yes"))] = False,
+) -> None:
+    ctx = _load(config)
+    cfg = ctx["config"]
+    if timestamp is None:
+        from compman.ops.common import prompt_select, select_backup_timestamp
+
+        backup_versions = cfg.backup_dir / ".versions"
+        versions = sorted(p.name for p in backup_versions.iterdir() if p.is_dir()) if backup_versions.is_dir() else []
+        if versions:
+            idx = prompt_select(
+                t("msg.available_backups_title", kind="rollback"),
+                versions,
+                default_index=len(versions) - 1,
+            )
+            timestamp = versions[idx]
+            typer.echo(t("msg.selected_backup", name=timestamp))
+        else:
+            timestamp = select_backup_timestamp(cfg, "rollback")
+    from compman.deploy import rollback as _rollback
+
+    _rollback(cfg, timestamp)
 
 
 # ---- update ----
@@ -232,7 +297,14 @@ def update_cmd(
     ctx = _load(config)
     cfg = ctx["config"]
     if cfg.deploy:
-        _deploy(build=True, tag=None, s3_path=cfg.deploy, config=cfg, runtime=ctx["runtime"])
+        _deploy(
+            build=True,
+            tag=None,
+            s3_path=None,
+            config=cfg,
+            runtime=ctx["runtime"],
+            profile=profile,
+        )
         _stack_ops().up(ctx["runtime"], cfg, profile=profile)
     else:
         _stack_ops().update(ctx["runtime"], cfg, profile=profile)

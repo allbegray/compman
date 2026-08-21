@@ -391,7 +391,12 @@ def test_completion_snippet_matches_registered_command_tree(runner: CliRunner):
 def test_readme_command_list_matches_registered_command_tree():
     root = pathlib.Path(__file__).parents[1]
     readme = (root / "README.md").read_text(encoding="utf-8")
-    section = readme.split("## Commands", 1)[1].split("View all options", 1)[0]
+    if "## Commands" in readme:
+        section = readme.split("## Commands", 1)[1].split("View all options", 1)[0]
+    else:
+        section = readme.split("### 전체 명령어", 1)[1].split("View all options", 1)[0] if "### 전체 명령어" in readme else readme
+        if "View all options" not in section:
+            section = section.split("### 동작 특성", 1)[0] if "### 동작 특성" in section else section
 
     actual_root = {c.name or c.callback.__name__ for c in app.registered_commands}
     actual_groups = {

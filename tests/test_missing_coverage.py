@@ -49,6 +49,11 @@ def test_cli_lazy_wrappers_delegate_to_command_modules():
         s3_path="s3://bucket/key",
         config=None,
         runtime=None,
+        profile=None,
+        dry_run=False,
+        strategy=None,
+        keep=3,
+        no_build=False,
     )
 
     with patch("compman.diagnostics.collect_doctor", return_value=doctor_report):
@@ -490,3 +495,460 @@ def test_volume_all_remaining_paths(dummy_runtime, temp_dir):
     with patch.object(dummy_runtime, "run_cli", return_value=mount_result):
         assert volume._inspect_mount(dummy_runtime, "c", "v")["destination"] == "/d"
     volume._list_backups(cfg, "volume")
+
+
+def test_config_env_file_string_parses(temp_dir):
+    cfg_path = temp_dir / "compman.yml"
+    cfg_path.write_text(
+        "compman:\n  name: app\n  compose:\n    default:\n      file: docker-compose.yml\n      env_file: .env\n",
+        encoding="utf-8",
+    )
+    cfg = load_config(str(cfg_path))
+    assert cfg.profiles["default"].env_file == [".env"]
+
+
+def test_config_env_file_list_parses(temp_dir):
+    cfg_path = temp_dir / "compman.yml"
+    cfg_path.write_text(
+        "compman:\n  name: app\n  compose:\n    default:\n      file: docker-compose.yml\n      env_file: [.env, other.env]\n",
+        encoding="utf-8",
+    )
+    cfg = load_config(str(cfg_path))
+    assert cfg.profiles["default"].env_file == [".env", "other.env"]
+
+
+def test_config_env_file_absent_defaults_empty(temp_dir):
+    cfg_path = temp_dir / "compman.yml"
+    cfg_path.write_text(
+        "compman:\n  name: app\n  compose:\n    default:\n      file: docker-compose.yml\n",
+        encoding="utf-8",
+    )
+    cfg = load_config(str(cfg_path))
+    assert cfg.profiles["default"].env_file == []
+
+
+@pytest.mark.parametrize("bad", ["", "   ", "\t\n"])
+def test_config_env_file_string_blank_raises(temp_dir, bad):
+    cfg_path = temp_dir / "compman.yml"
+    import yaml as _yaml
+
+    data = {"compman": {"name": "app", "compose": {"default": {"file": "docker-compose.yml", "env_file": bad}}}}
+    cfg_path.write_text(_yaml.safe_dump(data), encoding="utf-8")
+    with pytest.raises(ConfigError, match="env_file"):
+        load_config(str(cfg_path))
+
+
+def test_config_env_file_list_with_blank_raises(temp_dir):
+    cfg_path = temp_dir / "compman.yml"
+    import yaml as _yaml
+
+    data = {
+        "compman": {"name": "app", "compose": {"default": {"file": "docker-compose.yml", "env_file": [".env", "   "]}}}
+    }
+    cfg_path.write_text(_yaml.safe_dump(data), encoding="utf-8")
+    with pytest.raises(ConfigError, match="env_file"):
+        load_config(str(cfg_path))
+
+
+def test_config_env_file_list_with_empty_string_raises(temp_dir):
+    cfg_path = temp_dir / "compman.yml"
+    import yaml as _yaml
+
+    data = {
+        "compman": {"name": "app", "compose": {"default": {"file": "docker-compose.yml", "env_file": [""]}}}
+    }
+    cfg_path.write_text(_yaml.safe_dump(data), encoding="utf-8")
+    with pytest.raises(ConfigError, match="env_file"):
+        load_config(str(cfg_path))
+
+
+def test_config_env_file_list_with_non_string_raises(temp_dir):
+    cfg_path = temp_dir / "compman.yml"
+    import yaml as _yaml
+
+    data = {
+        "compman": {"name": "app", "compose": {"default": {"file": "docker-compose.yml", "env_file": [".env", 123]}}}
+    }
+    cfg_path.write_text(_yaml.safe_dump(data), encoding="utf-8")
+    with pytest.raises(ConfigError, match="env_file"):
+        load_config(str(cfg_path))
+
+
+def test_config_env_file_list_all_non_string_raises(temp_dir):
+    cfg_path = temp_dir / "compman.yml"
+    cfg_path.write_text(
+        "compman:\n  name: app\n  compose:\n    default:\n      file: docker-compose.yml\n      env_file: [123, 456]\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigError, match="env_file"):
+        load_config(str(cfg_path))
+
+
+@pytest.mark.parametrize("bad_val", ["123", "dict: {}", "float: 1.5"])
+def test_config_env_file_invalid_type_raises(temp_dir, bad_val):
+    cfg_path = temp_dir / "compman.yml"
+    if bad_val.startswith("dict"):
+        cfg_path.write_text(
+            "compman:\n  name: app\n  compose:\n    default:\n      file: docker-compose.yml\n      env_file: {a: b}\n",
+            encoding="utf-8",
+        )
+    elif bad_val.startswith("float"):
+        cfg_path.write_text(
+            "compman:\n  name: app\n  compose:\n    default:\n      file: docker-compose.yml\n      env_file: 1.5\n",
+            encoding="utf-8",
+        )
+    else:
+        cfg_path.write_text(
+            "compman:\n  name: app\n  compose:\n    default:\n      file: docker-compose.yml\n      env_file: 123\n",
+            encoding="utf-8",
+        )
+    with pytest.raises(ConfigError, match="env_file"):
+        load_config(str(cfg_path))
+
+
+def test_load_env_file_empty(temp_dir):
+    from compman.docker import _load_env_file
+
+    f = temp_dir / ".env"
+    f.write_text("", encoding="utf-8")
+    assert _load_env_file(f) == {}
+
+
+def test_load_env_file_comments_and_empty(temp_dir):
+    from compman.docker import _load_env_file
+
+    f = temp_dir / ".env"
+    f.write_text("\n# comment\n   # indented\n\n   \n", encoding="utf-8")
+    assert _load_env_file(f) == {}
+
+
+def test_load_env_file_export_variants(temp_dir):
+    from compman.docker import _load_env_file
+
+    f = temp_dir / ".env"
+    f.write_text(
+        "export FOO=bar\n"
+        "export   SPACED=val\n"
+        "export \n"
+        "export # comment after export\n"
+        "export   # also comment\n",
+        encoding="utf-8",
+    )
+    assert _load_env_file(f) == {"FOO": "bar", "SPACED": "val"}
+
+
+def test_load_env_file_no_equals_ignored(temp_dir):
+    from compman.docker import _load_env_file
+
+    f = temp_dir / ".env"
+    f.write_text("NOEQUALS\nFOO=bar\n", encoding="utf-8")
+    assert _load_env_file(f) == {"FOO": "bar"}
+
+
+def test_load_env_file_empty_key_ignored(temp_dir):
+    from compman.docker import _load_env_file
+
+    f = temp_dir / ".env"
+    f.write_text("=value\n   =other\nFOO=ok\n", encoding="utf-8")
+    assert _load_env_file(f) == {"FOO": "ok"}
+
+
+def test_load_env_file_empty_value_and_quoted(temp_dir):
+    from compman.docker import _load_env_file
+
+    f = temp_dir / ".env"
+    f.write_text(
+        "EMPTY=\n"
+        'QUOTED_D="hello"\n'
+        "QUOTED_S='world'\n"
+        'EMPTY_Q=""\n'
+        "EMPTY_Q2=''\n"
+        'SPACED_Q=" a b "\n'
+        'MISMATCH="value\n'
+        "MISMATCH2='value\n"
+        "UNQUOTED=  spaced  \n",
+        encoding="utf-8",
+    )
+    data = _load_env_file(f)
+    assert data["EMPTY"] == ""
+    assert data["QUOTED_D"] == "hello"
+    assert data["QUOTED_S"] == "world"
+    assert data["EMPTY_Q"] == ""
+    assert data["EMPTY_Q2"] == ""
+    assert data["SPACED_Q"] == " a b "
+    assert data["MISMATCH"] == '"value'
+    assert data["MISMATCH2"] == "'value"
+    assert data["UNQUOTED"] == "spaced"
+
+
+def test_load_env_file_key_trim_and_value_trim(temp_dir):
+    from compman.docker import _load_env_file
+
+    f = temp_dir / ".env"
+    f.write_text("  KEY  =  value  \n", encoding="utf-8")
+    assert _load_env_file(f) == {"KEY": "value"}
+
+
+def test_load_env_file_export_quoted(temp_dir):
+    from compman.docker import _load_env_file
+
+    f = temp_dir / ".env"
+    f.write_text('export KEY="quoted"\n', encoding="utf-8")
+    assert _load_env_file(f) == {"KEY": "quoted"}
+
+
+def test_resolve_profile_env_missing_file_raises(temp_dir):
+    from compman.config import Config, Profile
+    from compman.docker import _resolve_profile_env
+
+    cfg = Config(name="app", root_dir=temp_dir, profiles={"default": Profile(file="docker-compose.yml", env_file=["missing.env"])})
+    with pytest.raises(ConfigError, match="Env file not found"):
+        _resolve_profile_env(cfg, cfg.profiles["default"])
+
+
+def test_resolve_profile_env_relative_and_absolute(temp_dir, tmp_path):
+    from compman.config import Config, Profile
+    from compman.docker import _resolve_profile_env
+
+    rel = temp_dir / "rel.env"
+    rel.write_text("FOO=rel\n", encoding="utf-8")
+    cfg = Config(name="app", root_dir=temp_dir, profiles={"default": Profile(file="docker-compose.yml", env_file=["rel.env"])})
+    assert _resolve_profile_env(cfg, cfg.profiles["default"]) == {"FOO": "rel"}
+
+    abs_file = tmp_path / "abs.env"
+    abs_file.write_text("BAR=abs\n", encoding="utf-8")
+    cfg2 = Config(
+        name="app", root_dir=temp_dir, profiles={"default": Profile(file="docker-compose.yml", env_file=[str(abs_file)])}
+    )
+    assert _resolve_profile_env(cfg2, cfg2.profiles["default"]) == {"BAR": "abs"}
+
+
+def test_resolve_profile_env_merge_order_and_explicit_override(temp_dir):
+    from compman.config import Config, Profile
+    from compman.docker import resolve_compose_context
+
+    (temp_dir / "docker-compose.yml").write_text("services: {}", encoding="utf-8")
+    (temp_dir / "a.env").write_text("KEY=first\nSHARED=a\n", encoding="utf-8")
+    (temp_dir / "b.env").write_text("KEY=second\nONLY_B=b\n", encoding="utf-8")
+    cfg = Config(
+        name="app",
+        root_dir=temp_dir,
+        source_path=temp_dir / "compman.yml",
+        profiles={
+            "default": Profile(file="docker-compose.yml", env={"KEY": "explicit", "ONLY_EXPLICIT": "e"}, env_file=["a.env", "b.env"])
+        },
+    )
+    ctx = resolve_compose_context(cfg, "default")
+    assert ctx.env["KEY"] == "explicit"
+    assert ctx.env["SHARED"] == "a"
+    assert ctx.env["ONLY_B"] == "b"
+    assert ctx.env["ONLY_EXPLICIT"] == "e"
+
+
+def test_resolve_profile_env_second_file_overrides_first(temp_dir):
+    from compman.config import Config, Profile
+    from compman.docker import _resolve_profile_env
+
+    (temp_dir / "a.env").write_text("KEY=first\n", encoding="utf-8")
+    (temp_dir / "b.env").write_text("KEY=second\n", encoding="utf-8")
+    cfg = Config(
+        name="app", root_dir=temp_dir, profiles={"default": Profile(file="docker-compose.yml", env_file=["a.env", "b.env"])}
+    )
+    assert _resolve_profile_env(cfg, cfg.profiles["default"])["KEY"] == "second"
+
+
+def test_resolve_compose_context_with_env_file_and_secrets(temp_dir):
+    from unittest.mock import patch
+
+    from compman.config import Config, Profile, SecretRef
+    from compman.docker import resolve_compose_context
+
+    (temp_dir / "docker-compose.yml").write_text("services: {}", encoding="utf-8")
+    (temp_dir / ".env").write_text("PLAIN=fromfile\n", encoding="utf-8")
+    cfg = Config(
+        name="app",
+        root_dir=temp_dir,
+        source_path=temp_dir / "compman.yml",
+        profiles={
+            "default": Profile(
+                file="docker-compose.yml",
+                env={"COMBINED": "prefix-${secrets:MY_SEC}-suffix", "PLAIN": "explicit"},
+                env_file=[".env"],
+            )
+        },
+        secrets={"MY_SEC": SecretRef(arn="arn:aws:secretsmanager:ap-northeast-2:123:secret:app", key="k")},
+    )
+    with patch("compman.docker.resolve_secrets", return_value={"MY_SEC": "secretval"}):
+        ctx = resolve_compose_context(cfg, "default")
+    assert ctx.env["COMBINED"] == "prefix-secretval-suffix"
+    assert ctx.env["PLAIN"] == "explicit"
+
+
+def test_resolve_compose_files_with_env_file(temp_dir):
+    from compman.config import Config, Profile
+    from compman.docker import resolve_compose_files
+
+    (temp_dir / "docker-compose.yml").write_text("services: {}", encoding="utf-8")
+    (temp_dir / ".env").write_text("FOO=bar\n", encoding="utf-8")
+    cfg = Config(
+        name="app", root_dir=temp_dir, profiles={"default": Profile(file="docker-compose.yml", env_file=[".env"])}
+    )
+    files, env = resolve_compose_files(cfg, "default")
+    assert env == {"FOO": "bar"}
+    assert files[0].name == "docker-compose.yml"
+
+
+def test_resolve_compose_context_without_source_path_uses_env_file(temp_dir):
+    from compman.config import Config, Profile
+    from compman.docker import resolve_compose_context
+
+    (temp_dir / "docker-compose.yml").write_text("services: {}", encoding="utf-8")
+    (temp_dir / ".env").write_text("FOO=bar\n", encoding="utf-8")
+    cfg = Config(
+        name="app",
+        root_dir=temp_dir,
+        source_path=None,
+        profiles={"default": Profile(file="docker-compose.yml", env_file=[".env"])},
+    )
+    ctx = resolve_compose_context(cfg, "default")
+    assert ctx.env == {"FOO": "bar"}
+
+
+def test_deploy_swap_cleans_symlink_and_missing(tmp_path):
+    import pathlib as _pl
+
+    import compman.deploy as _deploy
+
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "newfile").write_text("new", encoding="utf-8")
+    dst = tmp_path / "dst"
+    dst.mkdir()
+    old = dst / "oldfile"
+    old.write_text("old", encoding="utf-8")
+    trigger = src / "trigger"
+    trigger.write_text("trigger", encoding="utf-8")
+    real_move = shutil.move
+
+    def fail_on_trigger(s, d):
+        if _pl.Path(s) == trigger:
+            raise OSError("fail trigger")
+        return real_move(s, d)
+
+    def ordered(p):
+        if p == src:
+            return iter((src / "newfile", trigger))
+        return _pl.Path.iterdir(p)
+
+    with patch.object(type(src), "iterdir", autospec=True, side_effect=ordered), patch(
+        "compman.deploy.shutil.move", side_effect=fail_on_trigger
+    ):
+        with pytest.raises(OSError):
+            _deploy._swap(src, dst)
+    assert (dst / "oldfile").read_text(encoding="utf-8") == "old"
+
+
+def test_deploy_swap_missing_dest_branch(tmp_path):
+    import pathlib as _pl
+
+    import compman.deploy as _deploy
+
+    src = tmp_path / "src2"
+    src.mkdir()
+    (src / "newfile").write_text("new", encoding="utf-8")
+    dst = tmp_path / "dst2"
+    dst.mkdir()
+    (dst / "oldfile").write_text("old", encoding="utf-8")
+    trigger = src / "trigger"
+    trigger.write_text("trigger", encoding="utf-8")
+
+    def fake_move(s, d):
+        if _pl.Path(s) == trigger:
+            raise OSError("fail trigger")
+        return None
+
+    def ordered2(p):
+        if p == src:
+            return iter((src / "newfile", trigger))
+        return _pl.Path.iterdir(p)
+
+    with patch.object(type(src), "iterdir", autospec=True, side_effect=ordered2), patch(
+        "compman.deploy.shutil.move", side_effect=fake_move
+    ):
+        with pytest.raises(OSError):
+            _deploy._swap(src, dst)
+    assert (dst / "oldfile").read_text(encoding="utf-8") == "old"
+
+
+def test_deploy_swap_symlink_branch(tmp_path):
+    import pathlib as _pl
+
+    import compman.deploy as _deploy
+
+    src = tmp_path / "src3"
+    src.mkdir()
+    target = tmp_path / "targetdir"
+    target.mkdir()
+    link = src / "newlink"
+    try:
+        link.symlink_to(target)
+    except OSError:
+        pytest.skip("symlink not supported")
+    dst = tmp_path / "dst3"
+    dst.mkdir()
+    (dst / "oldfile").write_text("old", encoding="utf-8")
+    trigger = src / "trigger"
+    trigger.write_text("trigger", encoding="utf-8")
+    real_move = shutil.move
+
+    def fail_on_trigger3(s, d):
+        if _pl.Path(s) == trigger:
+            raise OSError("fail trigger")
+        return real_move(s, d)
+
+    def ordered3(p):
+        if p == src:
+            return iter((link, trigger))
+        return _pl.Path.iterdir(p)
+
+    with patch.object(type(src), "iterdir", autospec=True, side_effect=ordered3), patch(
+        "compman.deploy.shutil.move", side_effect=fail_on_trigger3
+    ):
+        with pytest.raises(OSError):
+            _deploy._swap(src, dst)
+    assert not (dst / "newlink").exists()
+    assert (dst / "oldfile").read_text(encoding="utf-8") == "old"
+
+
+def test_get_key_win32_digit_branch():
+    fake_msvcrt = MagicMock()
+    fake_msvcrt.getch.side_effect = [b"5", b"\x00", b"H", b"\xe0", b"P", b"\r", b"\x1b", b"\x03"]
+    with patch("sys.platform", "win32"), patch.dict("sys.modules", {"msvcrt": fake_msvcrt}):
+        import compman.ops.common as _common
+
+        assert _common.get_key() == "5"
+        assert _common.get_key() == "up"
+        assert _common.get_key() == "down"
+        assert _common.get_key() == "enter"
+        assert _common.get_key() == "esc"
+        with pytest.raises(KeyboardInterrupt):
+            _common.get_key()
+    fake_msvcrt2 = MagicMock()
+    fake_msvcrt2.getch.return_value = b"9"
+    with patch("sys.platform", "win32"), patch.dict("sys.modules", {"msvcrt": fake_msvcrt2}):
+        import compman.ops.common as _common2
+
+        assert _common2.get_key() == "9"
+
+
+def test_cli_deploy_strategy_validation():
+    from typer.testing import CliRunner as _Runner
+
+    from compman.cli import app as _app
+
+    _runner = _Runner()
+    res = _runner.invoke(_app, ["deploy", "--strategy", "invalid"])
+    assert res.exit_code == 2
+    res2 = _runner.invoke(_app, ["deploy", "--strategy", "RECREATE", "--help"])
+    assert res2.exit_code == 0
+

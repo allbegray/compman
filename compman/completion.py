@@ -91,7 +91,7 @@ def _ps_completion_snippet() -> str:
         "\n# compman shell completion\n"
         "Register-ArgumentCompleter -Native -CommandName compman -ScriptBlock {\n"
         "    param($wordToComplete, $commandAst, $cursorPosition)\n"
-        "    $subcommands = @('init', 'clear', 'deploy', 'update', 'doctor', 'status', 'ps', 'stats', 'upgrade', 'completion', 'lang', 'version', 'stack', 'service', 'volume', 'image')\n"
+        "    $subcommands = @('init', 'clear', 'deploy', 'rollback', 'update', 'doctor', 'status', 'ps', 'stats', 'upgrade', 'completion', 'lang', 'version', 'stack', 'service', 'volume', 'image')\n"
         "    $words = $commandAst.ToString().Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries)\n"
         "    if ($words.Count -le 2) {\n"
         "        $subcommands | Where-Object { $_ -like \"$wordToComplete*\" } | ForEach-Object {\n"

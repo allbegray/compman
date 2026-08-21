@@ -883,6 +883,70 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "en": "Unsupported shell: {shell}",
         "ko": "지원하지 않는 셸: {shell}",
     },
+    "check.env_file_missing": {
+        "en": "Env file not found: {path}",
+        "ko": "환경 파일을 찾을 수 없습니다: {path}",
+    },
+    "check.deploy_checksum": {
+        "en": "{count} deploy profile(s) without checksum",
+        "ko": "체크섬이 없는 배포 프로파일 {count}개",
+    },
+    "opt.dry_run": {
+        "en": "Show what would be deployed without changing files",
+        "ko": "실제 파일을 변경하지 않고 배포될 내용을 표시합니다",
+    },
+    "opt.strategy": {
+        "en": "Deployment strategy: recreate or pull-only",
+        "ko": "배포 전략: recreate 또는 pull-only",
+    },
+    "opt.keep": {
+        "en": "Number of versions to keep",
+        "ko": "보관할 버전 수",
+    },
+    "opt.no_build": {
+        "en": "Skip building image",
+        "ko": "이미지 빌드 건너뛰기",
+    },
+    "cmd.rollback": {
+        "en": "Rollback to a previous deployment",
+        "ko": "이전 배포로 롤백합니다",
+    },
+    "msg.deploy_dry_run": {
+        "en": "Dry run: no files were changed",
+        "ko": "드라이런: 파일이 변경되지 않았습니다",
+    },
+    "msg.deploy_checksum_mismatch": {
+        "en": "Checksum mismatch: expected {expected}, got {actual}",
+        "ko": "체크섬 불일치: 예상 {expected}, 실제 {actual}",
+    },
+    "msg.deploy_checksum_ok": {
+        "en": "Checksum verified: {checksum}",
+        "ko": "체크섬 검증 완료: {checksum}",
+    },
+    "msg.rollback_done": {
+        "en": "Rollback done: {timestamp}",
+        "ko": "롤백 완료: {timestamp}",
+    },
+    "msg.versions_pruned": {
+        "en": "Pruned old versions, kept {keep}",
+        "ko": "오래된 버전을 정리하고 {keep}개를 유지했습니다",
+    },
+    "msg.deploy_diff_header": {
+        "en": "Changes to be deployed:",
+        "ko": "배포될 변경 사항:",
+    },
+    "msg.deploy_unsupported": {
+        "en": "Unsupported deploy source: {source}",
+        "ko": "지원하지 않는 배포 소스입니다: {source}",
+    },
+    "opt.rollback_timestamp": {
+        "en": "Timestamp of deployment to rollback to (YYYYMMDD_HHMMSS)",
+        "ko": "롤백할 배포 타임스탬프 (YYYYMMDD_HHMMSS)",
+    },
+    "opt.rollback_yes": {
+        "en": "Confirm rollback without prompt",
+        "ko": "프롬프트 없이 롤백 확인",
+    },
 }
 
 

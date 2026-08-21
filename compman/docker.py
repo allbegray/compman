@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Sequence
 
-from compman.config import Config, ConfigError
+from compman.config import Config, ConfigError, Profile
 from compman.env_source import interpolate_secrets, resolve_secrets
 
 
@@ -465,6 +465,46 @@ def _parse_service_status(payload: str | None) -> list[dict[str, object]]:
     return normalized
 
 
+def _load_env_file(path: Path) -> dict[str, str]:
+    data: dict[str, str] = {}
+    text = path.read_text(encoding="utf-8")
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export ") :].lstrip()
+            if not line or line.startswith("#"):
+                continue
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if not key:
+            continue
+        value = value.strip()
+        if len(value) >= 2 and (
+            (value[0] == '"' and value[-1] == '"') or (value[0] == "'" and value[-1] == "'")
+        ):
+            value = value[1:-1]
+        data[key] = value
+    return data
+
+
+def _resolve_profile_env(config: Config, prof: Profile) -> dict[str, str]:
+    merged: dict[str, str] = {}
+    for p in prof.env_file:
+        candidate = Path(p)
+        if not candidate.is_absolute():
+            candidate = config.root_dir / p
+        if not candidate.is_file():
+            raise ConfigError(f"Env file not found: {p}")
+        data = _load_env_file(candidate)
+        merged.update(data)
+    merged.update(prof.env)
+    return merged
+
+
 def resolve_compose_files(
     config: Config, profile: str
 ) -> tuple[list[Path], dict[str, str]]:
@@ -486,7 +526,8 @@ def resolve_compose_files(
             raise ConfigError(f"Base compose file not found: {base}")
         files.insert(0, base)
 
-    return files, dict(prof.env)
+    env = _resolve_profile_env(config, prof)
+    return files, env
 
 
 @dataclass(frozen=True)
@@ -509,7 +550,7 @@ def resolve_compose_context(config: Config, profile: str | None = None) -> Compo
     else:
         file_name = prof.file or config.compose_base or "docker-compose.yml"
         files = [config.project_dir / file_name]
-        env = dict(prof.env)
+        env = _resolve_profile_env(config, prof)
 
     if any("${secrets:" in v for v in env.values()):
         merged = {**config.secrets, **prof.secrets}

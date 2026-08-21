@@ -1,0 +1,25 @@
+compman:
+  name: per-profile-demo
+  deploy:
+    default: s3://my-bucket/releases/app.tar.gz
+    dev:
+      source: file://./dist/app.tar.gz
+    staging:
+      source: ./dist/app.tar.gz
+      strategy: pull-only
+    prod:
+      source: s3://my-bucket/releases/app.tar.gz
+      checksum: sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+      strategy: recreate
+  dirs:
+    project: project
+    backup: backup
+  compose:
+    default:
+      file: docker-compose.yml
+    dev:
+      file: docker-compose.dev.yml
+    staging:
+      file: docker-compose.staging.yml
+    prod:
+      file: docker-compose.prod.yml

@@ -3,6 +3,25 @@
 Major user-visible changes to compman are recorded here, with the newest release
 first.
 
+## [1.5.0] - 2026-08-20
+
+### 추가
+
+- `compman.yml`의 `deploy`가 프로파일별 맵(`str | {source, checksum, strategy}`)을 지원하며 ` --profile`과 ` --path` 우선순위로 해석하고 기존 문자열은 `default`로 정규화한다.
+- 로컬 배포 소스(`file://`와 베어 경로 `./dist/app.tar.gz`, `/abs/path`, 디렉터리)를 S3와 HTTP와 동일한 `fetch` 인터페이스로 지원한다.
+- `compman deploy`에 ` --dry-run`(검증+diff 후 교체 없이 종료), ` --strategy recreate|pull-only`, ` --keep 1-10`, ` --no-build`를 추가하고 `source`+`size` provenance를 항시 출력한다.
+- `backup/.versions/<YYYYMMDD_HHMMSS>`에 최대 3개(기본값) 버전을 보관하고 `compman rollback [TIMESTAMP]`로 복원하며 초과 시 LRU로 정리, `doctor`는 `checksum` 누락 시 경고와 보관 개수를 표시한다.
+
+## [1.4.1] - 2026-08-20
+
+### 추가
+
+- `compose.<profile>.env_file`이 문자열 또는 리스트로 `.env` 파일을 지정할 수 있으며 빈 줄과 `#` 주석과 `export` 접두사, 따옴표 값을 처리하고 뒤 파일이 앞 파일을 덮은 뒤 `env`가 최종으로 덮고 `${secrets:NAME}`을 치환한다.
+
+### 수정
+
+- `deploy _swap`이 `src/.git`을 스킵해 배포 교체 시 기존 저장소 메타데이터를 보존한다.
+
 ## [1.4.0] - 2026-08-03
 
 ### Breaking

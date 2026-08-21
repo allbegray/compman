@@ -7,12 +7,13 @@ from typing import Literal
 
 from compman.config import Config, ConfigError, load_config
 from compman.docker import ContainerRuntime, detect_runtime, resolve_compose_context
+from compman.i18n import t
 
 
 @dataclass(frozen=True)
 class CheckResult:
     id: str
-    severity: Literal["required", "warning"]
+    severity: Literal["required", "warning", "info"]
     ok: bool
     message: str
 
@@ -90,6 +91,12 @@ def collect_doctor(config_path: str | None, profile: str | None = None) -> Docto
     _collect_aws(checks)
     if config is not None:
         _collect_secrets(config, checks)
+    if config is not None:
+        _collect_env_files(config, checks)
+    if config is not None:
+        _collect_deploy_checksum(config, checks)
+    if config is not None:
+        _collect_versions(config, checks)
     return DoctorReport(tuple(checks))
 
 
@@ -244,3 +251,50 @@ def _collect_secrets(config: Config, checks: list[CheckResult]) -> None:
         else "Secrets configured but AWS credentials or region are missing."
     )
     checks.append(CheckResult("secrets", "warning", ok, message))
+
+
+def _collect_env_files(config: Config, checks: list[CheckResult]) -> None:
+    for prof in config.profiles.values():
+        for p in prof.env_file:
+            candidate = config.root_dir / p
+            if not candidate.exists():
+                msg = t("check.env_file_missing", path=p)
+                if msg == "check.env_file_missing":
+                    msg = f"Env file not found: {p}"
+                checks.append(CheckResult("env_file", "warning", False, msg))
+
+
+def _collect_deploy_checksum(config: Config, checks: list[CheckResult]) -> None:
+    deploy = config.deploy
+    if deploy is None:
+        return
+    try:
+        values = list(deploy.values())
+    except Exception:
+        return
+    missing = 0
+    for spec in values:
+        try:
+            if getattr(spec, "checksum", None) is None:
+                missing += 1
+        except Exception:
+            missing += 1
+    if missing == 0:
+        return
+    msg = t("check.deploy_checksum", count=missing)
+    if msg == "check.deploy_checksum":
+        msg = f"{missing} deploy profile(s) without checksum"
+    checks.append(CheckResult("deploy_checksum", "warning", False, msg))
+
+
+def _collect_versions(config: Config, checks: list[CheckResult]) -> None:
+    backup_versions = config.backup_dir / ".versions"
+    try:
+        if backup_versions.is_dir():
+            count = len(list(backup_versions.iterdir()))
+            msg = f"{count} versions kept"
+            checks.append(CheckResult("versions", "info", True, msg))
+        else:
+            checks.append(CheckResult("versions", "info", True, "no versions"))
+    except OSError:
+        checks.append(CheckResult("versions", "info", True, "no versions"))

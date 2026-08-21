@@ -461,3 +461,250 @@ def test_status_report_json_keys_are_stable(tmp_path, dummy_runtime, monkeypatch
         "services",
         "error",
     ]
+
+
+def test_env_file_missing_is_warning(tmp_path, monkeypatch, dummy_runtime):
+    (tmp_path / "compman.yml").write_text(
+        "compman:\n"
+        "  name: test-app\n"
+        "  compose:\n"
+        "    default:\n"
+        "      file: docker-compose.yml\n"
+        "    prod:\n"
+        "      file: docker-compose.yml\n"
+        "      env_file: missing.env\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("compman.diagnostics.detect_runtime", lambda: dummy_runtime)
+
+    report = collect_doctor(None)
+
+    env_checks = [c for c in report.checks if c.id == "env_file"]
+    assert len(env_checks) == 1
+    assert env_checks[0].severity == "warning"
+    assert env_checks[0].ok is False
+    assert "missing.env" in env_checks[0].message
+    assert report.ok is True
+
+
+def test_env_file_exists_no_warning(tmp_path, monkeypatch, dummy_runtime):
+    (tmp_path / "compman.yml").write_text(
+        "compman:\n"
+        "  name: test-app\n"
+        "  compose:\n"
+        "    default:\n"
+        "      file: docker-compose.yml\n"
+        "      env_file: existing.env\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+    (tmp_path / "existing.env").write_text("FOO=bar\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("compman.diagnostics.detect_runtime", lambda: dummy_runtime)
+
+    report = collect_doctor(None)
+
+    assert all(c.id != "env_file" for c in report.checks)
+    assert report.ok is True
+
+
+def test_env_file_missing_multiple_profiles(tmp_path, monkeypatch, dummy_runtime):
+    (tmp_path / "compman.yml").write_text(
+        "compman:\n"
+        "  name: test-app\n"
+        "  compose:\n"
+        "    default:\n"
+        "      file: docker-compose.yml\n"
+        "    dev:\n"
+        "      file: docker-compose.yml\n"
+        "      env_file: missing.env\n"
+        "    prod:\n"
+        "      file: docker-compose.yml\n"
+        "      env_file: [existing.env, also-missing.env]\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+    (tmp_path / "existing.env").write_text("FOO=bar\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("compman.diagnostics.detect_runtime", lambda: dummy_runtime)
+
+    report = collect_doctor(None)
+
+    env_checks = [c for c in report.checks if c.id == "env_file"]
+    assert len(env_checks) == 2
+    paths = [c.message for c in env_checks]
+    assert any("missing.env" in m for m in paths)
+    assert any("also-missing.env" in m for m in paths)
+    assert report.ok is True
+
+
+def test_env_file_missing_fallback_when_translation_missing(tmp_path, monkeypatch, dummy_runtime):
+    from unittest.mock import patch
+
+    from compman.diagnostics import collect_doctor
+
+    (tmp_path / "compman.yml").write_text(
+        "compman:\n"
+        "  name: test-app\n"
+        "  compose:\n"
+        "    default:\n"
+        "      file: docker-compose.yml\n"
+        "      env_file: missing.env\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("compman.diagnostics.detect_runtime", lambda: dummy_runtime)
+
+    with patch("compman.diagnostics.t", return_value="check.env_file_missing"):
+        report = collect_doctor(None)
+
+    env_checks = [c for c in report.checks if c.id == "env_file"]
+    assert len(env_checks) == 1
+    assert "missing.env" in env_checks[0].message
+    assert env_checks[0].message == "Env file not found: missing.env"
+
+
+def test_doctor_warns_missing_checksum(tmp_path, monkeypatch, dummy_runtime):
+    (tmp_path / "compman.yml").write_text(
+        "compman:\n"
+        "  name: test-app\n"
+        "  deploy:\n"
+        "    default: s3://bucket/app.tar.gz\n"
+        "    dev:\n"
+        "      source: s3://bucket/dev.tar.gz\n"
+        "      checksum: sha256:" + "a" * 64 + "\n"
+        "  compose:\n"
+        "    default:\n"
+        "      file: docker-compose.yml\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("compman.diagnostics.detect_runtime", lambda: dummy_runtime)
+    report = collect_doctor(None)
+    deploy_checks = [c for c in report.checks if c.id == "deploy_checksum"]
+    assert len(deploy_checks) == 1
+    assert deploy_checks[0].severity == "warning"
+    assert deploy_checks[0].ok is False
+    assert report.ok is True
+
+
+def test_doctor_no_warning_when_checksum_present(tmp_path, monkeypatch, dummy_runtime):
+    (tmp_path / "compman.yml").write_text(
+        "compman:\n"
+        "  name: test-app\n"
+        "  deploy:\n"
+        "    default:\n"
+        "      source: s3://bucket/app.tar.gz\n"
+        "      checksum: sha256:" + "b" * 64 + "\n"
+        "  compose:\n"
+        "    default:\n"
+        "      file: docker-compose.yml\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("compman.diagnostics.detect_runtime", lambda: dummy_runtime)
+    report = collect_doctor(None)
+    assert all(c.id != "deploy_checksum" for c in report.checks)
+    assert report.ok is True
+
+
+def test_doctor_no_deploy_no_checksum_check(tmp_path, monkeypatch, dummy_runtime):
+    (tmp_path / "compman.yml").write_text(
+        "compman:\n  name: test-app\n  compose:\n    default:\n      file: docker-compose.yml\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("compman.diagnostics.detect_runtime", lambda: dummy_runtime)
+    report = collect_doctor(None)
+    assert all(c.id != "deploy_checksum" for c in report.checks)
+
+
+def test_collect_deploy_checksum_branches(tmp_path):
+    from unittest.mock import patch
+
+    from compman.config import Config
+    from compman.diagnostics import _collect_deploy_checksum
+
+    cfg_none = Config(name="app", deploy=None)
+    checks: list = []
+    _collect_deploy_checksum(cfg_none, checks)
+    assert not checks
+
+    class BadDeploy:
+        def values(self):
+            raise RuntimeError("boom")
+
+    cfg_bad = Config(name="app", deploy=BadDeploy())  # type: ignore[arg-type]
+    checks = []
+    _collect_deploy_checksum(cfg_bad, checks)
+    assert not checks
+
+    class ExplodingSpec:
+        @property
+        def checksum(self):
+            raise RuntimeError("exploding")
+
+    class GoodDeploy:
+        def values(self):
+            return [ExplodingSpec(), ExplodingSpec()]  # type: ignore[return-value]
+
+    cfg_exploding = Config(name="app", deploy=GoodDeploy())  # type: ignore[arg-type]
+    checks = []
+    _collect_deploy_checksum(cfg_exploding, checks)
+    assert len(checks) == 1
+    assert checks[0].id == "deploy_checksum"
+
+    cfg_ok = Config(name="app", deploy={"default": __import__("compman.config", fromlist=["DeploySpec"]).DeploySpec(source="s3://b/a.tar.gz", checksum="sha256:" + "a" * 64)})
+    checks = []
+    _collect_deploy_checksum(cfg_ok, checks)
+    assert not checks
+
+    with patch("compman.diagnostics.t", return_value="check.deploy_checksum"):
+        checks = []
+        _collect_deploy_checksum(cfg_exploding, checks)
+        assert checks[0].message == "2 deploy profile(s) without checksum"
+
+
+@pytest.mark.parametrize("has_versions", [True, False])
+def test_collect_versions_branches(tmp_path, monkeypatch, dummy_runtime, has_versions):
+    (tmp_path / "compman.yml").write_text(
+        "compman:\n  name: test-app\n  compose:\n    default:\n      file: docker-compose.yml\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+    if has_versions:
+        vdir = tmp_path / "backup" / ".versions"
+        vdir.mkdir(parents=True)
+        (vdir / "20200101_000000").mkdir()
+        (vdir / "20200102_000000").mkdir()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("compman.diagnostics.detect_runtime", lambda: dummy_runtime)
+    report = collect_doctor(None)
+    v_checks = [c for c in report.checks if c.id == "versions"]
+    assert len(v_checks) == 1
+    if has_versions:
+        assert "2 versions" in v_checks[0].message
+    else:
+        assert v_checks[0].message == "no versions"
+
+
+def test_collect_versions_oserror_branch(tmp_path):
+    from pathlib import Path as _Path
+    from unittest.mock import patch
+
+    from compman.config import Config
+    from compman.diagnostics import _collect_versions
+
+    cfg = Config(name="app", root_dir=tmp_path)
+    with patch.object(_Path, "is_dir", side_effect=OSError("denied")):
+        checks: list = []
+        _collect_versions(cfg, checks)
+        assert len(checks) == 1
+        assert checks[0].id == "versions"
+        assert checks[0].message == "no versions"

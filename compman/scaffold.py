@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import shutil
 from pathlib import Path
+from typing import Any
 
 import typer
 import yaml
@@ -51,7 +52,7 @@ def generate(root: Path, project_subfolder: str, s3_path: str, image: str) -> No
         typer.echo(f"----------------------------------------\n{compose_content.strip()}\n----------------------------------------")
 
 
-def update_deploy(compman_yml: Path, s3_path: str) -> None:
+def update_deploy(compman_yml: Path, s3_path: str | dict[str, Any]) -> None:
     content = compman_yml.read_text(encoding="utf-8-sig")
     try:
         raw = yaml.safe_load(content)
@@ -61,6 +62,24 @@ def update_deploy(compman_yml: Path, s3_path: str) -> None:
     if isinstance(raw, dict) and isinstance(raw.get("compman"), dict):
         if raw["compman"].get("deploy") == s3_path:
             return
+
+    if isinstance(s3_path, dict):
+        deploy_dict: dict[str, Any] = s3_path
+        if isinstance(raw, dict) and isinstance(raw.get("compman"), dict):
+            raw["compman"]["deploy"] = deploy_dict
+            dumped = yaml.safe_dump(raw, sort_keys=False, allow_unicode=True)
+            assert yaml.safe_load(dumped)["compman"]["deploy"] == deploy_dict
+            compman_yml.write_text(dumped, encoding="utf-8")
+            typer.echo(t("msg.updated_deploy", s3_path=deploy_dict))
+            typer.echo(f"----------------------------------------\n{dumped.strip()}\n----------------------------------------")
+            return
+        minimal: dict[str, Any] = {"compman": {"deploy": deploy_dict}}
+        dumped = yaml.safe_dump(minimal, sort_keys=False, allow_unicode=True)
+        assert yaml.safe_load(dumped)["compman"]["deploy"] == deploy_dict
+        compman_yml.write_text(dumped, encoding="utf-8")
+        typer.echo(t("msg.updated_deploy", s3_path=deploy_dict))
+        typer.echo(f"----------------------------------------\n{dumped.strip()}\n----------------------------------------")
+        return
 
     lines = content.splitlines(keepends=True)
     updated = False

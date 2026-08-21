@@ -30,12 +30,72 @@ class Profile:
     file: str | None = None
     env: dict[str, str] = field(default_factory=dict)
     secrets: dict[str, SecretRef] = field(default_factory=dict)
+    env_file: list[str] = field(default_factory=list)
 
 
 @dataclass
 class SecretRef:
     arn: str
     key: str
+
+
+@dataclass(frozen=True)
+class DeploySpec:
+    source: str
+    checksum: str | None = None
+    strategy: str | None = None
+
+
+class _DeployMap(str):
+    """Hybrid str/dict for backward-compatible deploy field.
+
+    Behaves as str (default source) for legacy ``config.deploy`` usage
+    (e.g. ``urlparse(config.deploy)``) while also supporting dict
+    access ``config.deploy[profile]``.
+    """
+
+    _data: dict[str, DeploySpec]
+
+    def __new__(cls, source: str, data: dict[str, DeploySpec]) -> _DeployMap:
+        obj = super().__new__(cls, source)
+        object.__setattr__(obj, "_data", data)
+        return obj
+
+    def __getitem__(self, key: Any) -> Any:
+        if isinstance(key, str):
+            return self._data[key]
+        return super().__getitem__(key)
+
+    def __contains__(self, key: object) -> bool:
+        return key in self._data
+
+    def __iter__(self):
+        return iter(self._data)
+
+    def __len__(self) -> int:
+        return len(self._data)
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, dict):
+            return self._data == other
+        if isinstance(other, _DeployMap):
+            return self._data == other._data and str(self) == str(other)
+        return super().__eq__(other)
+
+    def __hash__(self) -> int:
+        return super().__hash__()
+
+    def get(self, key: str, default: DeploySpec | None = None) -> DeploySpec | None:
+        return self._data.get(key, default)
+
+    def keys(self):
+        return self._data.keys()
+
+    def items(self):
+        return self._data.items()
+
+    def values(self):
+        return self._data.values()
 
 
 @dataclass
@@ -50,7 +110,7 @@ class Config:
     compose_base: str | None = None
     profiles: dict[str, Profile] = field(default_factory=dict)
     secrets: dict[str, SecretRef] = field(default_factory=dict)
-    deploy: str | None = None
+    deploy: Any = None
     limits: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -69,6 +129,9 @@ class Config:
     def deploy_dir(self) -> Path:
         return self._managed_path(self.dirs.get("project", "project"), "dirs.project")
 
+    # NOTE: _managed_path validates dirs.* / folder confinement.
+    # Deploy source absolute paths (e.g. file:///abs/path, /abs/path) are
+    # allowed for source resolution and must NOT be validated via _managed_path.
     def _managed_path(self, value: str, field_name: str, allow_root: bool = False) -> Path:
         root = self.root_dir.resolve()
         target = (root / value).resolve()
@@ -77,6 +140,85 @@ class Config:
                 f"'{field_name}' must be a child directory inside the config directory: {value}"
             )
         return target
+
+
+_CHECKSUM_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+_ALLOWED_STRATEGIES = {"recreate", "pull-only"}
+
+
+def _parse_deploy(raw: object) -> Any:
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        if not raw.strip():
+            raise ConfigError("'deploy' must be a non-empty string.")
+        data = {"default": DeploySpec(source=raw)}
+        return _DeployMap(raw, data)
+    if not isinstance(raw, dict):
+        raise ConfigError("'deploy' must be a string or mapping of profiles.")
+    if not raw:
+        raise ConfigError("'deploy' must be a non-empty mapping.")
+    result: dict[str, DeploySpec] = {}
+    for key, value in raw.items():
+        if not isinstance(key, str) or not key.strip():
+            raise ConfigError("'deploy' keys must be non-empty strings.")
+        if isinstance(value, str):
+            if not value.strip():
+                raise ConfigError(f"'deploy.{key}' must be a non-empty string.")
+            result[str(key)] = DeploySpec(source=value)
+        elif isinstance(value, dict):
+            raw_source = value.get("source")
+            if not isinstance(raw_source, str) or not raw_source.strip():
+                raise ConfigError(f"'deploy.{key}.source' must be a string.")
+            checksum = value.get("checksum")
+            if checksum is not None:
+                if not isinstance(checksum, str) or not _CHECKSUM_RE.fullmatch(checksum):
+                    raise ConfigError(
+                        f"'deploy.{key}.checksum' must match '^sha256:[0-9a-f]{{64}}$'."
+                    )
+            strategy = value.get("strategy")
+            if strategy is not None:
+                if not isinstance(strategy, str) or strategy not in _ALLOWED_STRATEGIES:
+                    raise ConfigError(f"'deploy.{key}.strategy' must be 'recreate' or 'pull-only'.")
+            allowed = {"source", "checksum", "strategy"}
+            extra = set(value.keys()) - allowed
+            if extra:
+                raise ConfigError(f"'deploy.{key}' has unknown keys: {', '.join(sorted(extra))}")
+            result[str(key)] = DeploySpec(
+                source=raw_source, checksum=checksum, strategy=strategy
+            )
+        else:
+            raise ConfigError(f"'deploy.{key}' must be a string or mapping.")
+    default_source = result.get("default", next(iter(result.values()))).source if result else ""
+    return _DeployMap(default_source, result)
+
+
+def resolve_deploy(
+    deploy: Any, profile: str | None
+) -> DeploySpec:
+    """Resolve deploy source with priority: cli --path > deploy[profile] > deploy[default].
+
+    ``cli --path`` is expected to be handled by the caller before invoking.
+    This helper implements ``deploy[profile]`` -> ``deploy["default"]`` ->
+    ``ConfigError("Unknown deploy profile")``.
+    """
+    if deploy is None:
+        raise ConfigError("Unknown deploy profile")
+    if isinstance(deploy, _DeployMap):
+        if profile is not None and profile in deploy:
+            return deploy[profile]
+        if "default" in deploy:
+            return deploy["default"]
+        raise ConfigError("Unknown deploy profile")
+    if isinstance(deploy, str):
+        return DeploySpec(source=deploy)
+    if isinstance(deploy, dict):
+        if profile is not None and profile in deploy:
+            return deploy[profile]
+        if "default" in deploy:
+            return deploy["default"]
+        raise ConfigError("Unknown deploy profile")
+    raise ConfigError("Unknown deploy profile")
 
 
 def _parse_secrets(raw: object, field_name: str) -> dict[str, SecretRef]:
@@ -151,19 +293,33 @@ def load_config(config_path: str | None = None) -> Config:
             raw_env = val.get("env", {})
             if not isinstance(raw_env, dict):
                 raise ConfigError(f"'compose.{key}.env' must be a mapping.")
+            raw_env_file = val.get("env_file")
+            if raw_env_file is None:
+                env_file: list[str] = []
+            elif isinstance(raw_env_file, str):
+                if not raw_env_file.strip():
+                    raise ConfigError(f"'compose.{key}.env_file' must be a string or list of strings.")
+                env_file = [raw_env_file]
+            elif isinstance(raw_env_file, list):
+                if not all(isinstance(item, str) for item in raw_env_file):
+                    raise ConfigError(f"'compose.{key}.env_file' must be a string or list of strings.")
+                if any(not item.strip() for item in raw_env_file):
+                    raise ConfigError(f"'compose.{key}.env_file' must be a string or list of strings.")
+                env_file = list(raw_env_file)
+            else:
+                raise ConfigError(f"'compose.{key}.env_file' must be a string or list of strings.")
             profiles[key] = Profile(
                 file=str(f) if f else None,
                 env={str(k): str(v) for k, v in raw_env.items()},
                 secrets=_parse_secrets(val.get("secrets"), f"compose.{key}.secrets"),
+                env_file=env_file,
             )
         else:
             raise ConfigError(
                 f"Invalid value for 'compose.{key}': expected string or object."
             )
 
-    raw_deploy = root.get("deploy")
-    if raw_deploy is not None and not isinstance(raw_deploy, str):
-        raise ConfigError("'deploy' must be a string (e.g. 's3://bucket/app').")
+    deploy = _parse_deploy(root.get("deploy"))
 
     raw_secrets = root.get("secrets", {})
     if not isinstance(raw_secrets, dict):
@@ -191,7 +347,7 @@ def load_config(config_path: str | None = None) -> Config:
         compose_base=compose_base,
         profiles=profiles,
         secrets=secrets,
-        deploy=raw_deploy,
+        deploy=deploy,
         limits=limits,
     )
     # Resolve all paths while loading so unsafe configuration fails before a

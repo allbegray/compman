@@ -37,6 +37,8 @@ injected value. A plain `environment:` entry without `${...}` stays literal.
 | [06](compman-config/06-secrets.md) | AWS Secrets Manager | `${secrets:NAME}` markers in profile `env` |
 | [07](compman-config/07-secrets-profile.md) | Secrets + profiles | Per-profile `secrets` override; `${secrets:NAME}` markers |
 | [08](compman-config/08-full.md) | Full example | Everything combined |
+| [09](compman-config/09-env-file.md) | env_file injection | `env_file`로 `.env` 주입, 다중 파일 덮어쓰기와 Secrets 결합 |
+| [10](compman-config/10-per-profile-deploy.md) | per-profile deploy | 프로파일별 `deploy`, 로컬 소스, `checksum`/`strategy`, `dry-run`, `rollback`과 버전 보관 ([raw YAML](compman-config/per-profile-deploy.yml)) |
 
 Run any example from the directory that contains its `compman.yml`:
 

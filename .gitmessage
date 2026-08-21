@@ -1,0 +1,27 @@
+# <type>(<scope>): <subject>
+# 예시:
+# feat(deploy): per-profile deploy 지원
+# fix(config): checksum 검증 오류 수정
+# docs(readme): per-profile deploy 가이드 추가
+# refactor(deploy): fetch 파이프라인 분리
+# test(config): per-profile deploy 분기 커버리지
+# chore(deps): uv.lock 동기화
+#
+# 규칙:
+# 1. 제목은 "<type>(<scope>): <subject>" 형식을 따른다 (conventional commits)
+#    - type: feat, fix, docs, refactor, test, chore, ci, perf, build 등
+#    - scope는 선택이며 대상 모듈을 적는다 (예: deploy, config, scaffold)
+# 2. 본문은 한국어를 원칙으로 하며 코드·용어는 영문을 유지한다
+# 3. 제목은 72자 이내, 본문은 100자 단위로 줄바꿈한다
+#
+# 자주 쓰는 type:
+# feat      — 새 기능
+# fix       — 버그 수정
+# docs      — 문서
+# refactor  — 리팩터링
+# test      — 테스트
+# chore     — 빌드/설정/잡무
+# ci        — CI 설정
+# perf      — 성능 개선
+# build     — 빌드 시스템
+# revert    — 되돌리기

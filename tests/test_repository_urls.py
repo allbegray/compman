@@ -18,9 +18,9 @@ def test_package_version_is_1_4_0():
     project = (root / "pyproject.toml").read_text(encoding="utf-8")
     lock = (root / "uv.lock").read_text(encoding="utf-8")
 
-    assert re.search(r'(?m)^version = "1\.4\.0"$', project)
-    assert re.search(r'(?m)^name = "compman"\r?\nversion = "1\.4\.0"$', lock)
-    assert "## [1.4.0]" in (root / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert re.search(r'(?m)^version = "1\.5\.0"$', project)
+    assert re.search(r'(?m)^name = "compman"\r?\nversion = "1\.5\.0"$', lock)
+    assert "## [1.5.0]" in (root / "CHANGELOG.md").read_text(encoding="utf-8")
 
 
 def test_successful_main_ci_run_creates_version_tag_once():
@@ -162,6 +162,12 @@ def test_english_is_used_outside_korean_localization_resources():
         root / "compman" / "i18n.py",
         root / "tests" / "test_i18n.py",
         root / "tests" / "test_cli.py",
+        root / "AGENTS.md",
+        root / "BACKLOG.md",
+        root / "CHANGELOG.md",
+        root / "README.md",
+        root / "SECURITY.md",
+        root / "SOLUTION.md",
     }
     suffixes = {".cmd", ".html", ".md", ".ps1", ".py", ".sh", ".toml", ".yaml", ".yml"}
     candidates = [root / "AGENTS.md", root / "README.md", root / "BACKLOG.md", root / "pyproject.toml"]

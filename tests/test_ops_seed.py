@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import pathlib
 
+import pytest
+
+from compman.errors import CommandError
 from compman.ops import seed
 
 
@@ -32,5 +35,6 @@ def test_generate_seed_archive(temp_dir: pathlib.Path):
 
 def test_generate_seed_existing(temp_dir: pathlib.Path):
     (temp_dir / "compman.yml").touch()
-    # Should skip without error unless force
-    seed.generate_seed(output="my_project", archive=False, port=18080, force=False)
+    # Existing files without --force now fail with the command error contract
+    with pytest.raises(CommandError, match="already exists"):
+        seed.generate_seed(output="my_project", archive=False, port=18080, force=False)

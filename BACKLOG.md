@@ -39,7 +39,7 @@ Root causes and reusable lessons for everything below live in [SOLUTION.md](SOLU
   `tests/test_docker.py` (851 lines) — split the `ensure_ready_for_start`
   cluster into a `test_docker_desktop.py` once it passes ~900 lines.
 
-- [ ] [M2] Unify subprocess timeout policy and the ops error contract —
+- [x] [M2] Unify subprocess timeout policy and the ops error contract —
   `_passthru` hardcodes timeout=3600 ignoring COMPMAN_TIMEOUT
   (`docker.py:384`, message text `docker.py:388`); `_run_upgrade_command`
   and the completion PowerShell probe run with no timeout (`cli.py:331-338`,
@@ -49,7 +49,7 @@ Root causes and reusable lessons for everything below live in [SOLUTION.md](SOLU
   `--install` print errors yet exit 0 (`ops/seed.py:27-32`,
   `completion.py:41-42`), against compman/ops/AGENTS.md conventions.
 
-- [ ] [M3] Lazy-import boto3/botocore off non-AWS command paths —
+- [x] [M3] Lazy-import boto3/botocore off non-AWS command paths —
   `docker.py:14` eagerly pulls env_source (boto3/botocore) into every
   runtime-touching command (~300-600ms each), and `deploy.py:9-17` loads
   boto3 even for HTTP-only deploys; move imports into the secret-resolution

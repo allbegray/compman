@@ -236,7 +236,7 @@ compman:
       file: docker-compose.yml
 ```
 
-Long-running Docker/subprocess operations use a 300-second timeout by default; override it per process with `COMPMAN_TIMEOUT=<seconds>` (e.g. `COMPMAN_TIMEOUT=600`).
+Long-running Docker/subprocess operations use a 300-second timeout by default; override it per process with `COMPMAN_TIMEOUT=<seconds>` (e.g. `COMPMAN_TIMEOUT=600`). Streaming commands (`service log -f`, `service connect`, `stats -f`) intentionally run without a timeout.
 
 ### Environment variables from AWS Secrets Manager
 
@@ -359,6 +359,7 @@ View all options for a command with `compman <command> --help`.
 ### Behavioral notes
 
 - `update`: When `deploy` is configured, it downloads the S3 or HTTP source, builds images, and starts the stack. Otherwise, it updates the local Compose project with `up -d --build`.
+- `stack down`: Shutting down a stack that does not exist is not an error; compman prints a notice and exits 0, so scripts can call it idempotently.
 - `service log`: Displays the last 50 lines by default and streams output with `-f`. Accepts a Compose service name, resolved to its container via `compose ps -q`; scaled services with multiple instances ask for the exact container name.
 - `ps`: Lists running containers in the selected compman project. Use `-a` to include stopped containers.
 - `stats`: Prints one resource-usage snapshot for the selected project's running containers. Use `-f` to stream continuously.

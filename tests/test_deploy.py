@@ -332,7 +332,7 @@ def test_deploy_prefix_download(dummy_runtime, temp_dir: pathlib.Path):
         assert (temp_dir / "project" / "file1.txt").exists()
 
 
-def test_deploy_rejects_source_over_archive_limit(temp_dir: pathlib.Path, capsys):
+def test_deploy_rejects_source_over_archive_limit(temp_dir: pathlib.Path):
     (temp_dir / "compman.yml").write_text(
         "compman:\n  name: app\n  limits:\n    max_archive_mb: 1\n  compose:\n    default:\n      file: docker-compose.yml\n",
         encoding="utf-8",
@@ -348,11 +348,9 @@ def test_deploy_rejects_source_over_archive_limit(temp_dir: pathlib.Path, capsys
 
     mock_s3.download_file = MagicMock(side_effect=download)
 
-    with patch("boto3.client", return_value=mock_s3), pytest.raises(SystemExit):
+    with patch("boto3.client", return_value=mock_s3), pytest.raises(CommandError, match="1 MB size limit"):
         deploy.deploy(s3_path="s3://my-bucket/my-prefix")
 
-    error = capsys.readouterr().err
-    assert "1 MB size limit" in error
     assert not (temp_dir / "project").exists()
 
 
@@ -454,7 +452,7 @@ def test_deploy_recursive_aborts_over_listed_size(temp_dir: pathlib.Path):
     assert downloaded == ["p/small.bin"]
 
 
-def test_deploy_aborts_extraction_over_member_total(temp_dir: pathlib.Path, capsys):
+def test_deploy_aborts_extraction_over_member_total(temp_dir: pathlib.Path):
     (temp_dir / "compman.yml").write_text(
         "compman:\n  name: app\n  limits:\n    max_archive_mb: 1\n  compose:\n    default:\n      file: docker-compose.yml\n",
         encoding="utf-8",
@@ -468,11 +466,9 @@ def test_deploy_aborts_extraction_over_member_total(temp_dir: pathlib.Path, caps
     mock_s3.head_object.return_value = {"ContentLength": len(tar_buffer.getvalue())}
     mock_s3.download_file.side_effect = lambda _b, _k, dst: pathlib.Path(dst).write_bytes(tar_buffer.getvalue())
 
-    with patch("boto3.client", return_value=mock_s3), pytest.raises(SystemExit):
+    with patch("boto3.client", return_value=mock_s3), pytest.raises(CommandError, match="size limit"):
         deploy.deploy(s3_path="s3://my-bucket/huge.tar.gz")
 
-    error = capsys.readouterr().err
-    assert "size limit" in error
     assert not (temp_dir / "project").exists()
 
 

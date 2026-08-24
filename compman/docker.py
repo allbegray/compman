@@ -10,8 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Sequence
 
+from compman._proc import PASSTHRU_UNBOUNDED, _env_timeout
 from compman.config import Config, ConfigError
-from compman.env_source import interpolate_secrets, resolve_secrets
 
 
 @dataclass
@@ -111,15 +111,20 @@ class ContainerRuntime:
         cmd = self._compose_cmd(project, compose_files) + list(args)
         return _passthru(cmd, extra_env=env)
 
-    def passthru_cli(self, args: Sequence[str], cwd: Path | str | None = None) -> int:
-        return _passthru(self.cli + list(args), cwd=cwd)
+    def passthru_cli(
+        self,
+        args: Sequence[str],
+        cwd: Path | str | None = None,
+        timeout: float | None = None,
+    ) -> int:
+        return _passthru(self.cli + list(args), cwd=cwd, timeout=timeout)
 
     def logs(self, container: str, follow: bool = False, tail: int = 50) -> int:
         args = ["logs"]
         if follow:
             args.append("-f")
         args.extend(["-n", str(tail), container])
-        return self.passthru_cli(args)
+        return self.passthru_cli(args, timeout=PASSTHRU_UNBOUNDED if follow else None)
 
     def exec_shell(self, container: str) -> int:
         return self.passthru_cli(
@@ -130,7 +135,8 @@ class ContainerRuntime:
                 "sh",
                 "-c",
                 "if command -v bash >/dev/null 2>&1; then exec bash; else exec sh; fi",
-            ]
+            ],
+            timeout=PASSTHRU_UNBOUNDED,
         )
 
     def inspect_container(self, container: str, check: bool = True) -> subprocess.CompletedProcess:
@@ -323,19 +329,6 @@ def detect_runtime() -> ContainerRuntime:
     raise RuntimeError(msg)
 
 
-def _env_timeout() -> float:
-    raw = os.environ.get("COMPMAN_TIMEOUT")
-    if raw is None:
-        return 300.0
-    try:
-        value = float(raw)
-    except ValueError:
-        return 300.0
-    if value <= 0:
-        return 300.0
-    return value
-
-
 def _check_cmd(cmd: list[str]) -> tuple[bool, str]:
     try:
         r = subprocess.run(
@@ -378,14 +371,19 @@ def _passthru(
     cmd: Sequence[str],
     extra_env: dict[str, str] | None = None,
     cwd: Path | str | None = None,
+    timeout: float | None = None,
 ) -> int:
     env = _merged_env(extra_env)
+    resolved = _env_timeout() if timeout is None else timeout
+    kwargs: dict = {"env": env, "cwd": cwd}
+    if resolved != PASSTHRU_UNBOUNDED:
+        kwargs["timeout"] = resolved
     try:
-        r = subprocess.run(list(cmd), env=env, cwd=cwd, timeout=3600)
+        r = subprocess.run(list(cmd), **kwargs)
     except FileNotFoundError:
         raise RuntimeError(f"Command not found: {cmd[0]}")
     except subprocess.TimeoutExpired as e:
-        raise RuntimeError(f"Command timed out after 3600 seconds: {' '.join(cmd)}") from e
+        raise RuntimeError(f"Command timed out after {resolved:g} seconds: {' '.join(cmd)}") from e
     if r.returncode != 0:
         _die(cmd, r)
     return r.returncode
@@ -512,6 +510,8 @@ def resolve_compose_context(config: Config, profile: str | None = None) -> Compo
         env = dict(prof.env)
 
     if any("${secrets:" in v for v in env.values()):
+        from compman.env_source import interpolate_secrets, resolve_secrets
+
         merged = {**config.secrets, **prof.secrets}
         env = interpolate_secrets(env, resolve_secrets(merged))
     return ComposeContext(config.name, tuple(files), env)

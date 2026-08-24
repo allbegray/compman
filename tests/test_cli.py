@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import re
 import subprocess
@@ -47,6 +48,21 @@ def test_importing_cli_does_not_load_command_only_modules():
     )
 
     assert result.stdout.strip() == "[]"
+
+
+def test_version_command_does_not_import_aws_sdk(runner: CliRunner):
+    saved = {
+        name: sys.modules.pop(name)
+        for name in ("boto3", "botocore", "botocore.exceptions")
+        if name in sys.modules
+    }
+    try:
+        result = runner.invoke(app, ["version"])
+        assert result.exit_code == 0
+        assert "boto3" not in sys.modules
+        assert "botocore" not in sys.modules
+    finally:
+        sys.modules.update(saved)
 
 
 def test_cli_version(runner: CliRunner):
@@ -312,9 +328,9 @@ def test_cli_unknown_subcommand_shows_group_help(runner: CliRunner):
 def test_cli_upgrade_uses_uv_tool_upgrade_with_utf8_decoding(runner: CliRunner):
     result = MagicMock(returncode=0, stdout="", stderr="")
     repo = "https://example.test/custom/compman.git"
-    with patch("compman.cli._find_uv", return_value="/fake/uv"), patch(
-        "subprocess.run", return_value=result
-    ) as run:
+    with patch.dict(os.environ, {"COMPMAN_TIMEOUT": "42"}), patch(
+        "compman.cli._find_uv", return_value="/fake/uv"
+    ), patch("subprocess.run", return_value=result) as run:
         res = runner.invoke(app, ["upgrade", "--repo", repo])
     assert res.exit_code == 0
     assert "Upgrading compman CLI..." in res.output
@@ -335,6 +351,7 @@ def test_cli_upgrade_uses_uv_tool_upgrade_with_utf8_decoding(runner: CliRunner):
         text=True,
         encoding="utf-8",
         errors="replace",
+        timeout=42.0,
     )
 
 
@@ -452,7 +469,8 @@ def test_cli_completion_install_fish(runner: CliRunner, temp_dir: pathlib.Path):
 def test_cli_completion_install_ps_error(runner: CliRunner):
     with patch("subprocess.check_output", side_effect=Exception("mock fail")):
         res = runner.invoke(app, ["completion", "powershell", "--install"])
-        assert res.exit_code == 0
+        assert res.exit_code == 1
+        assert "mock fail" in res.output
 
 
 def test_doctor_json_is_single_document(runner: CliRunner, monkeypatch):
@@ -601,9 +619,9 @@ def test_cli_upgrade_uv_failure_reports_diagnostics_without_fallback(runner: Cli
 def test_cli_upgrade_missing_uv_falls_back_to_pip_with_custom_repo(runner: CliRunner):
     pip_result = MagicMock(returncode=0, stdout="", stderr="")
     repo = "https://example.test/custom/compman.git"
-    with patch("compman.cli._find_uv", return_value="uv"), patch(
-        "subprocess.run", side_effect=[FileNotFoundError(), pip_result]
-    ) as run:
+    with patch.dict(os.environ, {"COMPMAN_TIMEOUT": "42"}), patch(
+        "compman.cli._find_uv", return_value="uv"
+    ), patch("subprocess.run", side_effect=[FileNotFoundError(), pip_result]) as run:
         res = runner.invoke(app, ["upgrade", "--repo", repo])
     assert res.exit_code == 0
     assert "compman CLI upgraded successfully!" in res.output
@@ -620,6 +638,7 @@ def test_cli_upgrade_missing_uv_falls_back_to_pip_with_custom_repo(runner: CliRu
         "text": True,
         "encoding": "utf-8",
         "errors": "replace",
+        "timeout": 42.0,
     }
 
 

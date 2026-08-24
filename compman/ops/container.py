@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import typer
 
+from compman._proc import PASSTHRU_UNBOUNDED
 from compman.config import Config
 from compman.docker import ContainerRuntime, resolve_compose_context
 from compman.i18n import t
@@ -45,4 +46,6 @@ def stats(
     args = ["stats"]
     if not follow:
         args.append("--no-stream")
-    runtime.passthru_cli([*args, *container_ids])
+    runtime.passthru_cli(
+        [*args, *container_ids], timeout=PASSTHRU_UNBOUNDED if follow else None
+    )

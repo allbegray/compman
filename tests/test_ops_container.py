@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pytest
 
 from compman.config import Config, Profile
@@ -52,6 +54,24 @@ def test_stats_follow_streams_continuously(dummy_runtime, config):
     container.stats(dummy_runtime, config, follow=True)
 
     assert dummy_runtime.commands_run[-1] == ["stats", "cid-one"]
+
+
+def test_stats_timeout_follows_streaming_classification(dummy_runtime, config):
+    from compman._proc import PASSTHRU_UNBOUNDED
+
+    dummy_runtime.compose_stdout = "cid-one\n"
+    timeouts: list[float | None] = []
+    original_passthru = dummy_runtime.passthru_cli
+
+    def record_timeout(*args, **kwargs):
+        timeouts.append(kwargs.get("timeout"))
+        return original_passthru(*args, **kwargs)
+
+    with patch.object(dummy_runtime, "passthru_cli", side_effect=record_timeout):
+        container.stats(dummy_runtime, config, follow=True)
+        container.stats(dummy_runtime, config)
+
+    assert timeouts == [PASSTHRU_UNBOUNDED, None]
 
 
 def test_stats_empty_project_does_not_run_global_stats(dummy_runtime, config, capsys):

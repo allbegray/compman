@@ -14,6 +14,7 @@ import typer
 from typer import _click
 from typer.core import TyperGroup
 
+from compman._proc import _env_timeout
 from compman.completion import register as register_completion
 from compman.errors import CommandError, ConfigError
 from compman.i18n import get_lang, set_lang, t
@@ -335,6 +336,7 @@ def _run_upgrade_command(cmd: list[str]) -> subprocess.CompletedProcess[str]:
         text=True,
         encoding="utf-8",
         errors="replace",
+        timeout=_env_timeout(),
     )
 
 

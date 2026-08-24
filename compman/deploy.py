@@ -6,14 +6,7 @@ import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
 
-import boto3
 import typer
-from botocore.exceptions import (
-    ClientError,
-    EndpointConnectionError,
-    NoCredentialsError,
-    PartialCredentialsError,
-)
 
 from compman.archive_source import has_archive_suffix
 from compman.config import Config, ConfigError, load_config, sanitize_project_name
@@ -85,6 +78,14 @@ def deploy(
             if not bucket:
                 raise ValueError(f"Invalid S3 path: {s3_path}")
             stage = "downloading from S3"
+            import boto3
+            from botocore.exceptions import (
+                ClientError,
+                EndpointConnectionError,
+                NoCredentialsError,
+                PartialCredentialsError,
+            )
+
             try:
                 s3 = boto3.client("s3", endpoint_url=endpoint or None)
                 project_root = _fetch(s3, bucket, key, tmp, max_bytes=max_bytes)
@@ -119,9 +120,11 @@ def deploy(
         typer.echo(t("msg.deploy_done"))
     except SystemExit:
         raise
+    except CommandError:
+        raise
     except Exception as e:
         typer.echo(t("msg.deploy_failed_stage", stage=stage, error=e), err=True)
-        raise SystemExit(1)
+        raise SystemExit(1) from e
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -158,6 +161,13 @@ def _swap(src: Path, root: Path) -> None:
 
 
 def _handle_s3_error(e: Exception, s3_path: str) -> None:
+    from botocore.exceptions import (
+        ClientError,
+        EndpointConnectionError,
+        NoCredentialsError,
+        PartialCredentialsError,
+    )
+
     typer.echo(t("msg.s3_failed", path=s3_path), err=True)
     if isinstance(e, (NoCredentialsError, PartialCredentialsError)):
         typer.echo(t("msg.s3_no_creds"), err=True)

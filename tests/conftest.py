@@ -56,7 +56,12 @@ class DummyRuntime(ContainerRuntime):
         m.stdout = self.compose_stdout
         return m
 
-    def passthru_cli(self, args: Any, cwd: pathlib.Path | str | None = None) -> int:
+    def passthru_cli(
+        self,
+        args: Any,
+        cwd: pathlib.Path | str | None = None,
+        timeout: float | None = None,
+    ) -> int:
         self.commands_run.append(list(args))
         return 0
 

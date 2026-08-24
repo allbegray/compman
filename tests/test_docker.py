@@ -10,12 +10,12 @@ from unittest.mock import MagicMock, call, patch
 
 import pytest
 
+from compman._proc import PASSTHRU_UNBOUNDED, _env_timeout
 from compman.config import Config, ConfigError, Profile, SecretRef
 from compman.docker import (
     ContainerRuntime,
     _check_cmd,
     _die,
-    _env_timeout,
     _merged_env,
     _parse_service_status,
     _passthru,
@@ -170,6 +170,51 @@ def test_passthru_failure_is_raised(mock_run):
 def test_passthru_timeout_is_raised(mock_run):
     with pytest.raises(RuntimeError, match="timed out"):
         _passthru(["docker", "compose", "up"])
+
+
+@patch("subprocess.run")
+def test_passthru_resolves_bounded_timeout_from_env(mock_run):
+    mock_run.return_value = MagicMock(returncode=0)
+    with patch.dict(os.environ, {"COMPMAN_TIMEOUT": "42"}):
+        _passthru(["docker", "ps"])
+
+    assert mock_run.call_args.kwargs["timeout"] == 42.0
+
+
+@patch("subprocess.run")
+def test_passthru_explicit_timeout_overrides_env(mock_run):
+    mock_run.return_value = MagicMock(returncode=0)
+    with patch.dict(os.environ, {"COMPMAN_TIMEOUT": "42"}):
+        _passthru(["docker", "ps"], timeout=7.5)
+
+    assert mock_run.call_args.kwargs["timeout"] == 7.5
+
+
+@patch("subprocess.run")
+def test_passthru_unbounded_omits_timeout_kwarg(mock_run):
+    mock_run.return_value = MagicMock(returncode=0)
+    _passthru(["docker", "logs", "-f"], timeout=PASSTHRU_UNBOUNDED)
+
+    assert "timeout" not in mock_run.call_args.kwargs
+
+
+@patch("subprocess.run", side_effect=subprocess.TimeoutExpired(["docker", "logs", "-f"], 42))
+def test_passthru_timeout_message_interpolates_resolved_value(mock_run):
+    with patch.dict(os.environ, {"COMPMAN_TIMEOUT": "42"}):
+        with pytest.raises(RuntimeError, match=r"timed out after 42 seconds: docker logs -f"):
+            _passthru(["docker", "logs", "-f"])
+
+
+def test_logs_and_exec_shell_classify_streaming_timeouts():
+    runtime = ContainerRuntime("docker", ["docker"], ["docker", "compose"])
+    with patch.object(runtime, "passthru_cli", return_value=0) as passthru:
+        runtime.logs("cid", follow=True)
+        runtime.logs("cid", follow=False)
+        runtime.exec_shell("cid")
+
+    assert passthru.call_args_list[0].kwargs["timeout"] == PASSTHRU_UNBOUNDED
+    assert passthru.call_args_list[1].kwargs["timeout"] is None
+    assert passthru.call_args_list[2].kwargs["timeout"] == PASSTHRU_UNBOUNDED
 
 
 def test_fix_permissions_handles_failure_and_parse_branches():
@@ -763,7 +808,7 @@ def test_ensure_ready_for_start_times_out_before_poll_when_no_time_remains(monke
     run_cli.assert_called_once_with(["info"], capture=True, check=False, timeout=5.0)
 
 
-@patch("compman.docker.resolve_secrets")
+@patch("compman.env_source.resolve_secrets")
 def test_resolve_compose_context_secrets_not_injected_without_markers(
     mock_resolve, temp_dir: pathlib.Path
 ):
@@ -781,7 +826,7 @@ def test_resolve_compose_context_secrets_not_injected_without_markers(
     mock_resolve.assert_not_called()
 
 
-@patch("compman.docker.resolve_secrets", return_value={"DB_URL": "sec"})
+@patch("compman.env_source.resolve_secrets", return_value={"DB_URL": "sec"})
 def test_resolve_compose_context_default_profile(mock_resolve, temp_dir: pathlib.Path):
     (temp_dir / "docker-compose.yml").touch()
     cfg = Config(
@@ -798,7 +843,7 @@ def test_resolve_compose_context_default_profile(mock_resolve, temp_dir: pathlib
     mock_resolve.assert_called_once_with(cfg.secrets)
 
 
-@patch("compman.docker.resolve_secrets", return_value={"DB_USER": "admin", "DB_PASS": "s3cret"})
+@patch("compman.env_source.resolve_secrets", return_value={"DB_USER": "admin", "DB_PASS": "s3cret"})
 def test_resolve_compose_context_interpolates_secrets_in_profile_env(
     mock_resolve, temp_dir: pathlib.Path
 ):
@@ -822,7 +867,7 @@ def test_resolve_compose_context_interpolates_secrets_in_profile_env(
 
 
 @patch(
-    "compman.docker.resolve_secrets",
+    "compman.env_source.resolve_secrets",
     return_value={"DB_USER": "common", "DB_PASS": "profile-pass"},
 )
 def test_resolve_compose_context_profile_secrets_override_common(

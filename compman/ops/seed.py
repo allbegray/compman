@@ -25,11 +25,7 @@ def generate_seed(
     compose_yml = cwd / "docker-compose.yml"
 
     if (compman_yml.exists() or compose_yml.exists()) and not force:
-        typer.echo(
-            t("msg.seed_exists", path="compman.yml / docker-compose.yml"),
-            err=True,
-        )
-        return
+        raise CommandError(t("msg.seed_exists", path="compman.yml / docker-compose.yml"))
 
     target_dir.mkdir(parents=True, exist_ok=True)
 

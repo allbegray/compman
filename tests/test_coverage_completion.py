@@ -135,7 +135,9 @@ def test_config_rejects_non_string_folder(temp_dir):
 
 
 def test_deploy_handles_s3_exception_at_boundary(temp_dir):
-    with patch("boto3.client", side_effect=deploy.NoCredentialsError()):
+    from botocore.exceptions import NoCredentialsError
+
+    with patch("boto3.client", side_effect=NoCredentialsError()):
         with pytest.raises(SystemExit):
             deploy.deploy(s3_path="s3://bucket/key")
 

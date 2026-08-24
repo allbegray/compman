@@ -6,6 +6,7 @@ from typing import Annotated
 
 import typer
 
+from compman._proc import _env_timeout
 from compman.errors import CommandError
 from compman.i18n import t
 
@@ -23,7 +24,9 @@ def completion_cmd(
         if install:
             try:
                 ps_profile = subprocess.check_output(
-                    ["powershell", "-NoProfile", "-Command", "echo $PROFILE"], text=True
+                    ["powershell", "-NoProfile", "-Command", "echo $PROFILE"],
+                    text=True,
+                    timeout=_env_timeout(),
                 ).strip()
                 profile_path = pathlib.Path(ps_profile)
                 profile_path.parent.mkdir(parents=True, exist_ok=True)
@@ -39,7 +42,7 @@ def completion_cmd(
                 else:
                     typer.echo(t("msg.completion_exists", path="PowerShell profile"))
             except Exception as e:
-                typer.echo(t("msg.completion_error", error=e), err=True)
+                raise CommandError(t("msg.completion_error", error=e)) from e
         else:
             typer.echo(snippet.strip())
     elif shell == "bash":

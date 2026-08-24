@@ -34,11 +34,11 @@ def register(app: typer.Typer, deploy_cb, dump_config_cb) -> None:
         else:
             # Interactive mode selection
             modes = [
-                "1. Create scaffold config (compman.yml)",
-                "2. Fetch package from S3 URL",
-                "3. Generate test seed project (app.py, Dockerfile, compose)",
+                t("msg.init_mode_scaffold"),
+                t("msg.init_mode_s3"),
+                t("msg.init_mode_seed"),
             ]
-            choice = prompt_select("Select initialization mode", modes, default_index=0)
+            choice = prompt_select(t("msg.init_select_mode"), modes, default_index=0)
 
         if choice == 0:
             # Mode 1: Scaffold compman.yml

@@ -217,6 +217,25 @@ def test_logs_and_exec_shell_classify_streaming_timeouts():
     assert passthru.call_args_list[2].kwargs["timeout"] == PASSTHRU_UNBOUNDED
 
 
+def test_logs_and_exec_shell_pass_verbatim_argv():
+    runtime = ContainerRuntime("docker", ["docker"], ["docker", "compose"])
+    with patch.object(runtime, "passthru_cli", return_value=0) as passthru:
+        runtime.logs("cid", follow=True)
+        runtime.logs("cid", follow=False, tail=7)
+        runtime.exec_shell("cid")
+
+    assert passthru.call_args_list[0].args[0] == ["logs", "-f", "-n", "50", "cid"]
+    assert passthru.call_args_list[1].args[0] == ["logs", "-n", "7", "cid"]
+    assert passthru.call_args_list[2].args[0] == [
+        "exec",
+        "-it",
+        "cid",
+        "sh",
+        "-c",
+        "if command -v bash >/dev/null 2>&1; then exec bash; else exec sh; fi",
+    ]
+
+
 def test_fix_permissions_handles_failure_and_parse_branches():
     runtime = ContainerRuntime(name="docker", cli=["docker"], compose=["docker", "compose"])
     failed = MagicMock(returncode=1, stdout="")
@@ -226,10 +245,12 @@ def test_fix_permissions_handles_failure_and_parse_branches():
     with patch.object(runtime, "run_cli", side_effect=[failed]) as run:
         runtime.fix_permissions("c", "/data")
         assert run.call_count == 1
+        assert run.call_args.args[0] == ["exec", "c", "stat", "-c", "%U %G", "/data"]
 
     with patch.object(runtime, "run_cli", side_effect=[single]) as run:
         runtime.fix_permissions("c", "/data")
         assert run.call_count == 1
+        assert run.call_args.args[0] == ["exec", "c", "stat", "-c", "%U %G", "/data"]
 
     with patch.object(runtime, "run_cli", side_effect=[pair, None]) as run:
         runtime.fix_permissions("c", "/data")
@@ -711,40 +732,34 @@ def test_run_compose_explicit_timeout_overrides_runtime_default():
     assert run.call_args.kwargs["timeout"] == 7.5
 
 
-def test_env_timeout_defaults_to_300_when_unset():
-    with patch.dict(os.environ, {}, clear=True):
-        assert _env_timeout() == 300.0
+@pytest.mark.parametrize(
+    ("env_value", "expected"),
+    [
+        (None, 300.0),
+        ("42", 42.0),
+        ("not-a-number", 300.0),
+        ("0", 300.0),
+    ],
+)
+def test_env_timeout_parses_env_value(env_value, expected):
+    env = {} if env_value is None else {"COMPMAN_TIMEOUT": env_value}
+    with patch.dict(os.environ, env, clear=True):
+        assert _env_timeout() == expected
 
 
-def test_env_timeout_reads_valid_value():
-    with patch.dict(os.environ, {"COMPMAN_TIMEOUT": "42"}, clear=True):
-        assert _env_timeout() == 42.0
-
-
-def test_env_timeout_defaults_to_300_for_invalid_value():
-    with patch.dict(os.environ, {"COMPMAN_TIMEOUT": "not-a-number"}, clear=True):
-        assert _env_timeout() == 300.0
-
-
-def test_env_timeout_defaults_to_300_for_non_positive_value():
-    with patch.dict(os.environ, {"COMPMAN_TIMEOUT": "0"}, clear=True):
-        assert _env_timeout() == 300.0
-
-
+@pytest.mark.parametrize(
+    ("env_value", "expected"),
+    [
+        ("42", 42.0),
+        ("oops", 300.0),
+    ],
+)
 @patch("compman.docker._check_cmd")
-def test_detect_runtime_applies_env_timeout(mock_check):
+def test_detect_runtime_applies_env_timeout(mock_check, env_value, expected):
     mock_check.return_value = (True, "Docker version 20.10.0")
-    with patch.dict(os.environ, {"COMPMAN_TIMEOUT": "42"}, clear=True):
+    with patch.dict(os.environ, {"COMPMAN_TIMEOUT": env_value}, clear=True):
         rt = detect_runtime()
-    assert rt.timeout == 42.0
-
-
-@patch("compman.docker._check_cmd")
-def test_detect_runtime_falls_back_to_default_timeout_for_invalid_env(mock_check):
-    mock_check.return_value = (True, "Docker version 20.10.0")
-    with patch.dict(os.environ, {"COMPMAN_TIMEOUT": "oops"}, clear=True):
-        rt = detect_runtime()
-    assert rt.timeout == 300.0
+    assert rt.timeout == expected
 
 
 def test_ensure_ready_for_start_caps_probes_at_remaining_deadline(monkeypatch):

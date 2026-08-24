@@ -247,11 +247,11 @@ def _render_doctor(report: DoctorReport) -> None:
 
 
 def _render_status(report: StatusReport) -> None:
-    header = f"Status: {report.stack or 'unknown'}"
+    header = f"{t('msg.status_header')} {report.stack or 'unknown'}"
     if report.runtime:
-        header += f" (runtime: {report.runtime})"
+        header += f" ({t('msg.status_runtime')} {report.runtime})"
     if report.profile:
-        header += f" (profile: {report.profile})"
+        header += f" ({t('msg.status_profile')} {report.profile})"
     if report.error:
         header += f" - {report.error}"
     typer.echo(header)

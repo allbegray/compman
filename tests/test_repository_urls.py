@@ -110,49 +110,96 @@ def test_project_uses_mit_license():
 
 def test_user_facing_echo_strings_are_translated():
     root = Path(__file__).parents[1]
-    # Intentionally untranslated: shell/command usage examples.
+    # Intentionally untranslated: shell/command usage examples and verbatim
+    # completion snippets (bash/zsh/fish eval lines are shell code, not prose).
     allowlist = {
         '  PowerShell : $env:COMPMAN_LANG="ko"',
         "  CMD        : set COMPMAN_LANG=ko",
         "  Bash/Zsh   : export COMPMAN_LANG=ko",
+        'eval "$(_COMPMAN_COMPLETE=bash_source compman)"',
+        'eval "$(_COMPMAN_COMPLETE=zsh_source compman)"',
+        "_COMPMAN_COMPLETE=fish_source compman | source",
+        "     compman deploy --path s3://<your-bucket>/path/to/app.tar.gz",
+        "     compman init",
+        "compman ",
     }
 
     def sentence_like(text: str) -> bool:
         stripped = text.lstrip()
-        return len(stripped) >= 4 and " " in stripped and stripped[0].isupper()
+        if len(stripped) < 4 or " " not in stripped:
+            return False
+        if sum(character.isalpha() for character in stripped) < 3:
+            return False
+        return stripped[0].isalnum()
 
-    def add(text: str, location: str) -> None:
-        if sentence_like(text):
-            offenders.append(f"{location}: {text!r}")
+    def collect_strings(node: ast.AST) -> list[str]:
+        return [
+            sub.value
+            for sub in ast.walk(node)
+            if isinstance(sub, ast.Constant) and isinstance(sub.value, str)
+        ]
 
     offenders: list[str] = []
     for path in (root / "compman").rglob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"))
+
+        # assigned[name] holds every string literal ever bound to that name,
+        # including literals nested in literal containers and += targets.
+        assigned: dict[str, list[str]] = {}
         for node in ast.walk(tree):
+            if isinstance(node, ast.Assign):
+                strings = collect_strings(node.value)
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        assigned.setdefault(target.id, []).extend(strings)
+            elif isinstance(node, ast.AugAssign) and isinstance(node.target, ast.Name):
+                assigned.setdefault(node.target.id, []).extend(collect_strings(node.value))
+
+        def flag(text: str, location: str) -> None:
+            if text not in allowlist and sentence_like(text):
+                offenders.append(f"{location}: {text!r}")
+
+        def handle(arg: ast.expr, location: str) -> None:
+            texts: list[str] = []
+            if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                texts.append(arg.value)
+            elif isinstance(arg, ast.JoinedStr):
+                texts.extend(
+                    value.value
+                    for value in arg.values
+                    if isinstance(value, ast.Constant) and isinstance(value.value, str)
+                )
+            elif isinstance(arg, ast.Name):
+                texts.extend(assigned.get(arg.id, []))
+            elif isinstance(arg, ast.Subscript):
+                base = arg
+                while isinstance(base, ast.Subscript):
+                    base = base.value
+                if isinstance(base, ast.Name):
+                    texts.extend(assigned.get(base.id, []))
+            for text in texts:
+                flag(text, location)
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "prompt_select":
+                if node.args:
+                    handle(node.args[0], f"{path.relative_to(root)}:{node.lineno}")
+                    if len(node.args) > 1:
+                        handle(node.args[1], f"{path.relative_to(root)}:{node.lineno}")
+                continue
             if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
                 continue
             if not isinstance(node.func.value, ast.Name) or node.func.value.id != "typer":
                 continue
+            location = f"{path.relative_to(root)}:{node.lineno}"
             if node.func.attr in ("echo", "confirm", "prompt"):
                 if not node.args:
                     continue
-                arg = node.args[0]
-                texts: list[str] = []
-                if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
-                    texts.append(arg.value)
-                elif isinstance(arg, ast.JoinedStr):
-                    texts.extend(
-                        value.value
-                        for value in arg.values
-                        if isinstance(value, ast.Constant) and isinstance(value.value, str)
-                    )
-                for text in texts:
-                    if text not in allowlist:
-                        add(text, f"{path.relative_to(root)}:{node.lineno}")
+                handle(node.args[0], location)
             elif node.func.attr in ("Option", "Argument"):
                 for kw in node.keywords:
                     if kw.arg == "help" and isinstance(kw.value, ast.Constant) and isinstance(kw.value.value, str):
-                        add(kw.value.value, f"{path.relative_to(root)}:{node.lineno}")
+                        flag(kw.value.value, location)
     assert offenders == []
 
 

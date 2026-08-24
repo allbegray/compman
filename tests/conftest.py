@@ -11,6 +11,14 @@ from typer.testing import CliRunner
 from compman import i18n
 from compman.docker import ContainerRuntime
 
+DEFAULT_CONFIG_YAML = "compman:\n  name: app\n  compose:\n    default:\n      file: docker-compose.yml\n"
+
+
+def write_config(path: pathlib.Path, yaml_text: str = DEFAULT_CONFIG_YAML) -> pathlib.Path:
+    """Write a compman.yml (Shape-A default) and return its path."""
+    path.write_text(yaml_text, encoding="utf-8")
+    return path
+
 
 class DummyRuntime(ContainerRuntime):
     def __init__(self) -> None:

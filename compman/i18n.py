@@ -891,6 +891,34 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "en": "Volume map references unknown container {container} in project {name}.",
         "ko": "볼륨 맵이 프로젝트 {name}의 알 수 없는 컨테이너 {container}을(를) 참조합니다.",
     },
+    "msg.init_select_mode": {
+        "en": "Select initialization mode",
+        "ko": "초기화 모드를 선택하세요",
+    },
+    "msg.init_mode_scaffold": {
+        "en": "1. Create scaffold config (compman.yml)",
+        "ko": "1. 스캐폴드 설정 생성 (compman.yml)",
+    },
+    "msg.init_mode_s3": {
+        "en": "2. Fetch package from S3 URL",
+        "ko": "2. S3 URL에서 패키지 가져오기",
+    },
+    "msg.init_mode_seed": {
+        "en": "3. Generate test seed project (app.py, Dockerfile, compose)",
+        "ko": "3. 테스트 시드 프로젝트 생성 (app.py, Dockerfile, compose)",
+    },
+    "msg.status_header": {
+        "en": "Status:",
+        "ko": "상태:",
+    },
+    "msg.status_runtime": {
+        "en": "runtime:",
+        "ko": "런타임:",
+    },
+    "msg.status_profile": {
+        "en": "profile:",
+        "ko": "프로필:",
+    },
 }
 
 

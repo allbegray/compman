@@ -55,7 +55,7 @@ Root causes and reusable lessons for everything below live in [SOLUTION.md](SOLU
   boto3 even for HTTP-only deploys; move imports into the secret-resolution
   and S3 branches.
 
-- [ ] [M4] Close test-contract gaps — the bash-to-sh connect fallback built
+- [x] [M4] Close test-contract gaps — the bash-to-sh connect fallback built
   in `docker.py:124-132` is never asserted (tests only check
   `passthru.call_count == 5`, `tests/test_coverage_completion.py:197-205`,
   with further count-only asserts in `tests/test_docker.py:183-191` and
@@ -65,7 +65,7 @@ Root causes and reusable lessons for everything below live in [SOLUTION.md](SOLU
   (`.github/workflows/ci.yml:57-92`), leaving volume/image backup, ps/stats,
   doctor/status --json and service log/connect without real-runtime checks.
 
-- [ ] [M5] Route remaining hardcoded user-facing strings through t() — the
+- [x] [M5] Route remaining hardcoded user-facing strings through t() — the
   interactive init menu (`init_cmd.py:36-41`) and the status header labels
   (`cli.py:249-256`) bypass translation because they reach echo/prompt via
   variables; extend the AST literal scan (tests/test_repository_urls.py) to
@@ -114,7 +114,7 @@ Root causes and reusable lessons for everything below live in [SOLUTION.md](SOLU
   18080 literals; they should reuse `ops.common.DEFAULT_SEED_PORT` when those
   CLI/scaffold surfaces are next touched.
 
-- [ ] [L8] Test-suite hygiene — extract a conftest helper for the 34
+- [x] [L8] Test-suite hygiene — extract a conftest helper for the 34
   identical compman.yml write_text blobs across five test files; add
   filterwarnings=["error"] and strict addopts/markers to
   [tool.pytest.ini_options]; parametrize the six near-duplicate

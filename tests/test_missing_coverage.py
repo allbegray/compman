@@ -188,6 +188,9 @@ def test_runtime_command_branches():
         runtime.run_cli(["ps"], capture=False, check=False)
         runtime.run_compose(["ps"], project="p", compose_files=[pathlib.Path("a.yml")], env={"X": "1"}, capture=False, check=False)
         assert run.call_count == 2
+        assert run.call_args_list[0].args[0][:2] == ["docker", "ps"]
+        assert run.call_args_list[1].args[0][:4] == ["docker", "compose", "-p", "p"]
+        assert run.call_args_list[1].args[0][-1] == "ps"
     with patch("subprocess.run", return_value=MagicMock(returncode=1, stderr="bad", stdout="out")):
         with pytest.raises(RuntimeError):
             _run(["bad"])

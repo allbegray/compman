@@ -13,6 +13,7 @@ from botocore.exceptions import (
     NoCredentialsError,
     PartialCredentialsError,
 )
+from conftest import write_config
 
 from compman import deploy, http_source
 from compman.archive_source import extract_archive, has_archive_suffix
@@ -195,10 +196,7 @@ def test_deploy_empty_dir_help_exit(temp_dir: pathlib.Path):
 
 
 def test_deploy_config_without_path_exits(temp_dir: pathlib.Path, capsys):
-    (temp_dir / "compman.yml").write_text(
-        "compman:\n  name: app\n  compose:\n    default:\n      file: docker-compose.yml\n",
-        encoding="utf-8",
-    )
+    write_config(temp_dir / "compman.yml")
     with pytest.raises(SystemExit):
         deploy.deploy(s3_path=None)
     assert "not configured" in capsys.readouterr().err
@@ -380,10 +378,7 @@ def test_deploy_echoes_provenance_under_limit(dummy_runtime, temp_dir: pathlib.P
 
 
 def test_deploy_without_limits_no_provenance(dummy_runtime, temp_dir: pathlib.Path, capsys):
-    (temp_dir / "compman.yml").write_text(
-        "compman:\n  name: app\n  compose:\n    default:\n      file: docker-compose.yml\n",
-        encoding="utf-8",
-    )
+    write_config(temp_dir / "compman.yml")
     mock_s3 = MagicMock()
     mock_s3.get_paginator.return_value.paginate.return_value = [
         {"Contents": [{"Key": "my-prefix/file1.txt"}]}

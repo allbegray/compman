@@ -3,6 +3,7 @@ from __future__ import annotations
 import pathlib
 
 import pytest
+from conftest import write_config
 
 from compman.config import (
     Config,
@@ -139,11 +140,7 @@ def test_load_config_deploy_not_string(temp_dir: pathlib.Path):
 
 
 def test_load_config_limits_absent_ok(temp_dir: pathlib.Path):
-    config_file = temp_dir / "compman.yml"
-    config_file.write_text(
-        "compman:\n  name: app\n  compose:\n    default:\n      file: docker-compose.yml\n",
-        encoding="utf-8",
-    )
+    config_file = write_config(temp_dir / "compman.yml")
     cfg = load_config(str(config_file))
     assert cfg.limits == {}
 

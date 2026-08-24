@@ -35,6 +35,12 @@ warn_unused_ignores = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+markers = [
+    "integration: drives a real container runtime; deselected by default, run with -m integration",
+]
+addopts = "-ra --strict-markers -m 'not integration'"
+xfail_strict = true
+filterwarnings = ["error"]
 
 [tool.coverage.run]
 source = ["compman"]

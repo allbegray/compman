@@ -42,10 +42,16 @@ def test_service_log_auto_select(dummy_runtime, temp_dir: pathlib.Path):
     assert dummy_runtime.commands_run[-1] == ["logs", "-n", "50", "single_container"]
 
 
-def test_service_log_multiple_containers(dummy_runtime, temp_dir: pathlib.Path):
+def test_service_log_multiple_containers(dummy_runtime, temp_dir: pathlib.Path, capsys):
     cfg = Config(name="my_stack", profiles={"default": Profile(file="docker-compose.yml")})
     dummy_runtime.list_containers = MagicMock(return_value=["c1", "c2"])
     service.log(dummy_runtime, cfg, service=None)
+
+    assert dummy_runtime.commands_run == []
+    out = capsys.readouterr().out
+    assert "Available containers:" in out
+    assert "  c1" in out
+    assert "  c2" in out
 
 
 def test_service_log_no_containers(dummy_runtime, temp_dir: pathlib.Path):

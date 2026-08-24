@@ -5,15 +5,17 @@ from pathlib import Path
 
 import typer
 
+from compman._seed_assets import SEED_INDEX_HTML
 from compman.config import sanitize_project_name
 from compman.errors import CommandError
 from compman.i18n import t
+from compman.ops.common import DEFAULT_SEED_PORT
 
 
 def generate_seed(
     output: str = "project",
     archive: bool = False,
-    port: int = 18080,
+    port: int = DEFAULT_SEED_PORT,
     force: bool = False,
 ) -> None:
     if not 1 <= port <= 65535:
@@ -29,42 +31,7 @@ def generate_seed(
 
     target_dir.mkdir(parents=True, exist_ok=True)
 
-    index_html_content = (
-        '<!DOCTYPE html>\n'
-        '<html lang="en">\n'
-        '<head>\n'
-        '    <meta charset="UTF-8">\n'
-        '    <meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
-        '    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">\n'
-        '    <meta http-equiv="Pragma" content="no-cache">\n'
-        '    <meta http-equiv="Expires" content="0">\n'
-        '    <title>compman Seed App</title>\n'
-        '    <style>\n'
-        '        body { font-family: system-ui, -apple-system, sans-serif; background: #0f172a; color: #f8fafc; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }\n'
-        '        .card { background: #1e293b; border-radius: 1rem; padding: 2.5rem; border: 1px solid #334155; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); text-align: center; max-width: 480px; width: 100%; }\n'
-        '        h1 { color: #38bdf8; margin-top: 0; font-size: 1.75rem; }\n'
-        '        .badge { background: #0284c7; color: white; padding: 0.25rem 0.75rem; border-radius: 9999px; font-size: 0.875rem; font-weight: 600; }\n'
-        '        .time { font-size: 1.15rem; font-family: monospace; color: #a5f3fc; margin: 1.5rem 0; background: #0f172a; padding: 0.75rem; border-radius: 0.5rem; border: 1px solid #1e293b; }\n'
-        '    </style>\n'
-        '</head>\n'
-        '<body>\n'
-        '    <div class="card">\n'
-        '        <h1>compman Seed App</h1>\n'
-        '        <p><span class="badge">Nginx Alpine High-Performance</span></p>\n'
-        '        <div class="time" id="clock">Loading time...</div>\n'
-        '        <p style="color: #94a3b8; font-size: 0.875rem;">Instant Sub-Millisecond Container Response</p>\n'
-        '    </div>\n'
-        '    <script>\n'
-        '        function updateTime() {\n'
-        '            document.getElementById("clock").innerText = new Date().toLocaleString();\n'
-        '        }\n'
-        '        setInterval(updateTime, 1000);\n'
-        '        updateTime();\n'
-        '    </script>\n'
-        '</body>\n'
-        '</html>\n'
-    )
-    (target_dir / "index.html").write_text(index_html_content, encoding="utf-8")
+    (target_dir / "index.html").write_text(SEED_INDEX_HTML, encoding="utf-8")
 
     dockerfile_content = (
         "FROM nginx:alpine\n"

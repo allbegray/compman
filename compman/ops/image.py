@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import shutil
 import tarfile
-from datetime import datetime
 
 import typer
 
@@ -11,7 +10,7 @@ from compman.config import Config
 from compman.docker import ContainerRuntime, resolve_compose_context
 from compman.errors import CommandError
 from compman.i18n import t
-from compman.ops.common import select_backup_timestamp, validate_timestamp
+from compman.ops.common import select_backup_timestamp, unique_backup_paths, validate_timestamp
 
 
 def backup(
@@ -25,17 +24,7 @@ def backup(
     if not runtime.stack_exists(config.name, context.files, context.env):
         raise CommandError(t("msg.stack_not_running", name=config.name))
 
-    now = datetime.now()
-    timestamp = now.strftime("%Y%m%d_%H%M%S")
-    backup_name = f"{config.name}.image.{timestamp}"
-    backup_dir = config.backup_dir / backup_name
-    tarball = config.backup_dir / f"{backup_name}.tar.gz"
-    if backup_dir.exists() or tarball.exists():
-        timestamp = now.strftime("%Y%m%d_%H%M%S_%f")
-        backup_name = f"{config.name}.image.{timestamp}"
-        backup_dir = config.backup_dir / backup_name
-        tarball = config.backup_dir / f"{backup_name}.tar.gz"
-    backup_dir.mkdir(parents=True)
+    backup_dir, tarball = unique_backup_paths(config, "image")
     backup_tags: list[str] = []
 
     try:

@@ -2,13 +2,34 @@ from __future__ import annotations
 
 import pathlib
 import subprocess
-from typing import Annotated
+from typing import Annotated, Callable
 
 import typer
 
 from compman._proc import _env_timeout
 from compman.errors import CommandError
 from compman.i18n import t
+
+_POSIX_SHELLS: dict[str, tuple[str, Callable[[], pathlib.Path], str, str]] = {
+    "bash": (
+        'eval "$(_COMPMAN_COMPLETE=bash_source compman)"',
+        lambda: pathlib.Path.home() / ".bashrc",
+        "Bash",
+        ".bashrc",
+    ),
+    "zsh": (
+        'eval "$(_COMPMAN_COMPLETE=zsh_source compman)"',
+        lambda: pathlib.Path.home() / ".zshrc",
+        "Zsh",
+        ".zshrc",
+    ),
+    "fish": (
+        "_COMPMAN_COMPLETE=fish_source compman | source",
+        lambda: pathlib.Path.home() / ".config" / "fish" / "config.fish",
+        "Fish",
+        "config.fish",
+    ),
+}
 
 
 def register(app: typer.Typer) -> None:
@@ -45,48 +66,26 @@ def completion_cmd(
                 raise CommandError(t("msg.completion_error", error=e)) from e
         else:
             typer.echo(snippet.strip())
-    elif shell == "bash":
-        snippet = 'eval "$(_COMPMAN_COMPLETE=bash_source compman)"'
+    elif shell in _POSIX_SHELLS:
         if install:
-            rc_path = pathlib.Path.home() / ".bashrc"
-            current_content = rc_path.read_text(encoding="utf-8") if rc_path.exists() else ""
-            if "_COMPMAN_COMPLETE" not in current_content:
-                with rc_path.open("a", encoding="utf-8") as f:
-                    f.write(f"\n{snippet}\n")
-                typer.echo(t("msg.completion_registered", shell="Bash", path=rc_path))
-            else:
-                typer.echo(t("msg.completion_exists", path=".bashrc"))
+            _install_posix(shell)
         else:
-            typer.echo(snippet)
-    elif shell == "zsh":
-        snippet = 'eval "$(_COMPMAN_COMPLETE=zsh_source compman)"'
-        if install:
-            rc_path = pathlib.Path.home() / ".zshrc"
-            current_content = rc_path.read_text(encoding="utf-8") if rc_path.exists() else ""
-            if "_COMPMAN_COMPLETE" not in current_content:
-                with rc_path.open("a", encoding="utf-8") as f:
-                    f.write(f"\n{snippet}\n")
-                typer.echo(t("msg.completion_registered", shell="Zsh", path=rc_path))
-            else:
-                typer.echo(t("msg.completion_exists", path=".zshrc"))
-        else:
-            typer.echo(snippet)
-    elif shell == "fish":
-        snippet = "_COMPMAN_COMPLETE=fish_source compman | source"
-        if install:
-            fish_config = pathlib.Path.home() / ".config" / "fish" / "config.fish"
-            fish_config.parent.mkdir(parents=True, exist_ok=True)
-            current_content = fish_config.read_text(encoding="utf-8") if fish_config.exists() else ""
-            if "_COMPMAN_COMPLETE" not in current_content:
-                with fish_config.open("a", encoding="utf-8") as f:
-                    f.write(f"\n{snippet}\n")
-                typer.echo(t("msg.completion_registered", shell="Fish", path=fish_config))
-            else:
-                typer.echo(t("msg.completion_exists", path="config.fish"))
-        else:
-            typer.echo(snippet)
+            typer.echo(_POSIX_SHELLS[shell][0])
     else:
         raise CommandError(t("msg.unsupported_shell", shell=shell))
+
+
+def _install_posix(shell: str) -> None:
+    snippet, rc_path_fn, display, exists_path = _POSIX_SHELLS[shell]
+    rc_path = rc_path_fn()
+    rc_path.parent.mkdir(parents=True, exist_ok=True)
+    current_content = rc_path.read_text(encoding="utf-8") if rc_path.exists() else ""
+    if "_COMPMAN_COMPLETE" not in current_content:
+        with rc_path.open("a", encoding="utf-8") as f:
+            f.write(f"\n{snippet}\n")
+        typer.echo(t("msg.completion_registered", shell=display, path=rc_path))
+    else:
+        typer.echo(t("msg.completion_exists", path=exists_path))
 
 
 def _ps_completion_snippet() -> str:

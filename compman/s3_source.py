@@ -1,16 +1,27 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, Protocol
 
 from compman.archive_source import extract_archive, has_archive_suffix
 from compman.errors import CommandError
 from compman.i18n import t
 
 
-def fetch(s3, bucket: str, key: str, tmp: Path, max_bytes: int | None = None) -> Path:
+class _S3Client(Protocol):
+    """Minimal structural type for the boto3 S3 client surface we use."""
+
+    def download_file(self, bucket: str, key: str, destination: str) -> None: ...
+
+    def get_paginator(self, operation_name: str) -> Any: ...
+
+    def head_object(self, bucket: str, key: str) -> Any: ...
+
+
+def fetch(s3: _S3Client, bucket: str, key: str, tmp: Path, max_bytes: int | None = None) -> Path:
     if has_archive_suffix(key):
         if max_bytes is not None:
-            _check_size(int(s3.head_object(Bucket=bucket, Key=key)["ContentLength"]), max_bytes)
+            _check_size(int(s3.head_object(bucket, key)["ContentLength"]), max_bytes)
         archive_path = tmp / key.rsplit("/", 1)[-1]
         download(s3, bucket, key, archive_path)
         return extract_archive(archive_path, tmp / "extract", max_bytes=max_bytes)
@@ -20,12 +31,12 @@ def fetch(s3, bucket: str, key: str, tmp: Path, max_bytes: int | None = None) ->
     return source_dir
 
 
-def download(s3, bucket: str, key: str, destination: Path) -> None:
+def download(s3: _S3Client, bucket: str, key: str, destination: Path) -> None:
     s3.download_file(bucket, key, str(destination))
 
 
 def download_recursive(
-    s3, bucket: str, key_prefix: str, destination: Path, max_bytes: int | None = None
+    s3: _S3Client, bucket: str, key_prefix: str, destination: Path, max_bytes: int | None = None
 ) -> None:
     destination.mkdir(parents=True, exist_ok=True)
     paginator = s3.get_paginator("list_objects_v2")

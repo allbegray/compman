@@ -3,7 +3,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 import yaml
 
@@ -25,14 +24,14 @@ def sanitize_project_name(name: str) -> str:
     return s or "compman-app"
 
 
-@dataclass
+@dataclass(frozen=True)
 class Profile:
     file: str | None = None
     env: dict[str, str] = field(default_factory=dict)
     secrets: dict[str, SecretRef] = field(default_factory=dict)
 
 
-@dataclass
+@dataclass(frozen=True)
 class SecretRef:
     arn: str
     key: str
@@ -51,7 +50,12 @@ class Config:
     profiles: dict[str, Profile] = field(default_factory=dict)
     secrets: dict[str, SecretRef] = field(default_factory=dict)
     deploy: str | None = None
-    limits: dict[str, Any] = field(default_factory=dict)
+    max_archive_mb: int | None = None
+
+    @property
+    def limits(self) -> dict[str, int]:
+        """Backward-compatible read view of the configured limits."""
+        return {} if self.max_archive_mb is None else {"max_archive_mb": self.max_archive_mb}
 
     @property
     def project_dir(self) -> Path:
@@ -173,14 +177,12 @@ def load_config(config_path: str | None = None) -> Config:
     raw_limits = root.get("limits", {})
     if not isinstance(raw_limits, dict):
         raise ConfigError("'limits' must be a mapping.")
-    limits: dict[str, Any] = {}
     max_archive_mb = raw_limits.get("max_archive_mb")
     if max_archive_mb is not None:
         if not isinstance(max_archive_mb, int):
             raise ConfigError("'limits.max_archive_mb' must be an integer.")
         if max_archive_mb <= 0:
             raise ConfigError("'limits.max_archive_mb' must be greater than 0.")
-        limits["max_archive_mb"] = max_archive_mb
 
     config = Config(
         name=name,
@@ -192,7 +194,7 @@ def load_config(config_path: str | None = None) -> Config:
         profiles=profiles,
         secrets=secrets,
         deploy=raw_deploy,
-        limits=limits,
+        max_archive_mb=max_archive_mb,
     )
     # Resolve all paths while loading so unsafe configuration fails before a
     # command can create, replace, or recursively delete anything.

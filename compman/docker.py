@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Callable, Sequence
 
 from compman._proc import PASSTHRU_UNBOUNDED, _env_timeout
-from compman.config import Config, ConfigError
+from compman.config import Config, ConfigError, Profile
 
 
 @dataclass
@@ -279,49 +279,24 @@ class ContainerRuntime:
         return result.stdout.strip()
 
 
+_RUNTIME_CANDIDATES: list[tuple[str, str, list[str], list[str], list[str]]] = [
+    ("docker", "docker", ["docker"], ["docker", "compose"], ["docker", "compose", "version"]),
+    ("podman", "podman", ["podman"], ["podman", "compose"], ["podman", "compose", "version"]),
+    ("podman", "podman", ["podman"], ["podman-compose"], ["podman-compose", "--version"]),
+    ("docker", "docker", ["docker"], ["docker-compose"], ["docker-compose", "--version"]),
+]
+
+
 def detect_runtime() -> ContainerRuntime:
     override = os.environ.get("CONTAINER_RUNTIME", "").lower()
     timeout = _env_timeout()
 
-    if not override or override == "docker":
-        ok, _ = _check_cmd(["docker", "compose", "version"])
+    for override_key, name, cli, compose, probe_argv in _RUNTIME_CANDIDATES:
+        if override and override != override_key:
+            continue
+        ok, _ = _check_cmd(probe_argv)
         if ok:
-            return ContainerRuntime(
-                name="docker",
-                cli=["docker"],
-                compose=["docker", "compose"],
-                timeout=timeout,
-            )
-
-    if not override or override == "podman":
-        ok, _ = _check_cmd(["podman", "compose", "version"])
-        if ok:
-            return ContainerRuntime(
-                name="podman",
-                cli=["podman"],
-                compose=["podman", "compose"],
-                timeout=timeout,
-            )
-
-    if not override or override == "podman":
-        ok, _ = _check_cmd(["podman-compose", "--version"])
-        if ok:
-            return ContainerRuntime(
-                name="podman",
-                cli=["podman"],
-                compose=["podman-compose"],
-                timeout=timeout,
-            )
-
-    if not override or override == "docker":
-        ok, _ = _check_cmd(["docker-compose", "--version"])
-        if ok:
-            return ContainerRuntime(
-                name="docker",
-                cli=["docker"],
-                compose=["docker-compose"],
-                timeout=timeout,
-            )
+            return ContainerRuntime(name=name, cli=list(cli), compose=list(compose), timeout=timeout)
 
     msg = "No container runtime found. Install Docker or Podman."
     if override:
@@ -463,17 +438,25 @@ def _parse_service_status(payload: str | None) -> list[dict[str, object]]:
     return normalized
 
 
-def resolve_compose_files(
-    config: Config, profile: str
-) -> tuple[list[Path], dict[str, str]]:
+def _profile_or_error(config: Config, profile: str) -> Profile:
     prof = config.profiles.get(profile)
     if not prof:
         known = ", ".join(config.profiles)
         raise ConfigError(f"Unknown profile: {profile}. Known: {known}")
+    return prof
+
+
+def _fallback_file(prof: Profile, config: Config) -> str:
+    return prof.file or config.compose_base or "docker-compose.yml"
+
+
+def resolve_compose_files(
+    config: Config, profile: str
+) -> tuple[list[Path], dict[str, str]]:
+    prof = _profile_or_error(config, profile)
 
     project_dir = config.project_dir
-    file_name = prof.file or config.compose_base or "docker-compose.yml"
-    compose_file = project_dir / file_name
+    compose_file = project_dir / _fallback_file(prof, config)
     if not compose_file.is_file():
         raise ConfigError(f"Compose file not found: {compose_file}")
 
@@ -497,16 +480,12 @@ class ComposeContext:
 def resolve_compose_context(config: Config, profile: str | None = None) -> ComposeContext:
     if profile is None:
         profile = next(iter(config.profiles))
-    prof = config.profiles.get(profile)
-    if not prof:
-        known = ", ".join(config.profiles)
-        raise ConfigError(f"Unknown profile: {profile}. Known: {known}")
+    prof = _profile_or_error(config, profile)
 
     if config.source_path:
         files, env = resolve_compose_files(config, profile)
     else:
-        file_name = prof.file or config.compose_base or "docker-compose.yml"
-        files = [config.project_dir / file_name]
+        files = [config.project_dir / _fallback_file(prof, config)]
         env = dict(prof.env)
 
     if any("${secrets:" in v for v in env.values()):

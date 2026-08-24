@@ -82,31 +82,37 @@ Root causes and reusable lessons for everything below live in [SOLUTION.md](SOLU
   (command-list validation against the typer tree already exists in
   `tests/test_cli.py`).
 
-- [ ] [L4] Deduplicate ops volume/image logic — backup vs pull repeat the
+- [x] [L4] Deduplicate ops volume/image logic — backup vs pull repeat the
   guard sequence and mount-mapping loop verbatim (`ops/volume.py:29-64` vs
   `138-165`); restore vs push repeat unpack/warn/copy/fix-permissions
   (`:113-131` vs `:183-195`); the timestamp-collision retry block is
   duplicated between `ops/image.py:28-38` and `ops/volume.py:35-45`;
   extract shared helpers into ops/common.py.
 
-- [ ] [L5] Table-drive repetitive branch ladders — completion installs
+- [x] [L5] Table-drive repetitive branch ladders — completion installs
   triplicate read-check-append-echo per shell (`completion.py:45-84`);
   detect_runtime repeats four near-identical probe blocks
   (`docker.py:280-318`); resolve_compose_context re-implements the fallback
   expression and profile lookup of resolve_compose_files
   (`docker.py:471-477` vs `502-512`).
 
-- [ ] [L6] Typing and dataclass-convention cleanup — untyped params
+- [x] [L6] Typing and dataclass-convention cleanup — untyped params
   `_load_mapping(path)` (`ops/volume.py:223`) and the s3 client args
   (`s3_source.py:8`); `limits: dict[str, Any]` instead of a typed field
   (`config.py:54`); SecretRef is a mutable value object contrary to the
   frozen-dataclass convention (`config.py:35-37`), and ContainerRuntime is
   likewise mutable (`docker.py:17`).
+  Follow-up: freezing ContainerRuntime is deferred until the Wave-2
+  timeout/lazy-import work has fully settled; Config intentionally stays
+  mutable.
 
-- [ ] [L7] Move the seed HTML asset out of business logic — generate_seed
+- [x] [L7] Move the seed HTML asset out of business logic — generate_seed
   embeds a 65-line HTML/CSS/JS string (`ops/seed.py:36-70`); hoist it to a
   module constant or template and dedupe the 18080 port default
   (`seed.py:16`, `scaffold.py:46`).
+  Follow-up: `init_cmd.py:19,:32` and `scaffold.py:46` still carry their own
+  18080 literals; they should reuse `ops.common.DEFAULT_SEED_PORT` when those
+  CLI/scaffold surfaces are next touched.
 
 - [ ] [L8] Test-suite hygiene — extract a conftest helper for the 34
   identical compman.yml write_text blobs across five test files; add

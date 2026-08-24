@@ -4,7 +4,6 @@ import json
 import re
 import shutil
 import tarfile
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -15,7 +14,16 @@ from compman.config import Config
 from compman.docker import ComposeContext, ContainerRuntime, resolve_compose_context
 from compman.errors import CommandError
 from compman.i18n import t
-from compman.ops.common import select_backup_timestamp, stack_paused, validate_timestamp
+from compman.ops.common import (
+    collect_mounts,
+    require_stack,
+    resolve_volume_targets,
+    select_backup_timestamp,
+    stack_paused,
+    unique_backup_paths,
+    validate_timestamp,
+    write_volume_map,
+)
 
 
 def backup(
@@ -25,40 +33,22 @@ def backup(
     profile: str | None = None,
     compression_level: int = 6,
 ) -> None:
-    context = resolve_compose_context(config, profile)
-    if not runtime.stack_exists(config.name, context.files, context.env):
-        raise CommandError(t("msg.stack_not_running", name=config.name))
-    volumes = runtime.list_volumes(config.name)
-    if not volumes:
-        typer.echo(t("msg.no_volumes"))
+    targets = resolve_volume_targets(runtime, config, profile)
+    if targets is None:
         return
-    containers = runtime.list_containers(config.name, context.files, context.env)
+    context = targets.context
 
-    now = datetime.now()
-    timestamp = now.strftime("%Y%m%d_%H%M%S")
-    backup_name = f"{config.name}.volume.{timestamp}"
-    backup_dir = config.backup_dir / backup_name
-    tarball = config.backup_dir / f"{backup_name}.tar.gz"
-    if backup_dir.exists() or tarball.exists():
-        timestamp = now.strftime("%Y%m%d_%H%M%S_%f")
-        backup_name = f"{config.name}.volume.{timestamp}"
-        backup_dir = config.backup_dir / backup_name
-        tarball = config.backup_dir / f"{backup_name}.tar.gz"
-    backup_dir.mkdir(parents=True, exist_ok=True)
+    backup_dir, tarball = unique_backup_paths(config, "volume")
     try:
         with stack_paused(runtime, context, enabled=not no_stop):
-            mapping: list[dict[str, str]] = []
-            for volume in volumes:
-                for container in containers:
-                    info = _inspect_mount(runtime, container, volume)
-                    if info:
-                        mapping.append(info)
-                        target = backup_dir / volume
-                        runtime.copy_from_container(container, info["destination"], target)
-
-            map_path = backup_dir / "volume-map.json"
-            merged = _merge_mapping(mapping)
-            map_path.write_text(json.dumps(merged, indent=2, ensure_ascii=False), encoding="utf-8")
+            mapping = collect_mounts(
+                runtime,
+                targets.volumes,
+                targets.containers,
+                backup_dir,
+                inspect_mount=_inspect_mount,
+            )
+            write_volume_map(backup_dir, mapping, merge=_merge_mapping)
 
             with tarfile.open(tarball, "w:gz", compresslevel=compression_level) as tar:
                 tar.add(backup_dir, arcname=".")
@@ -87,8 +77,7 @@ def restore(
         _list_backups(config, "volume")
         raise CommandError(t("msg.backup_not_found", tarball=tarball))
 
-    if not runtime.stack_exists(config.name, context.files, context.env):
-        raise CommandError(t("msg.stack_not_running", name=config.name))
+    require_stack(runtime, config, profile, context=context)
 
     restore_dir = config.backup_dir / backup_name
     restore_dir.mkdir(parents=True, exist_ok=True)
@@ -139,32 +128,23 @@ def restore(
 
 
 def pull(runtime: ContainerRuntime, config: Config, profile: str | None = None) -> None:
-    context = resolve_compose_context(config, profile)
-    if not runtime.stack_exists(config.name, context.files, context.env):
-        raise CommandError(t("msg.stack_not_running", name=config.name))
-    volumes = runtime.list_volumes(config.name)
-    if not volumes:
-        typer.echo(t("msg.no_volumes"))
+    targets = resolve_volume_targets(runtime, config, profile)
+    if targets is None:
         return
-    containers = runtime.list_containers(config.name, context.files, context.env)
 
     volume_dir = config.volume_dir
     if volume_dir.is_dir():
         shutil.rmtree(volume_dir)
     volume_dir.mkdir(parents=True)
 
-    mapping: list[dict[str, str]] = []
-    for volume in volumes:
-        for container in containers:
-            info = _inspect_mount(runtime, container, volume)
-            if info:
-                mapping.append(info)
-                target = volume_dir / volume
-                runtime.copy_from_container(container, info["destination"], target)
-
-    map_path = volume_dir / "volume-map.json"
-    merged = _merge_mapping(mapping)
-    map_path.write_text(json.dumps(merged, indent=2, ensure_ascii=False), encoding="utf-8")
+    mapping = collect_mounts(
+        runtime,
+        targets.volumes,
+        targets.containers,
+        volume_dir,
+        inspect_mount=_inspect_mount,
+    )
+    write_volume_map(volume_dir, mapping, merge=_merge_mapping)
     typer.echo(t("msg.restore_done", kind="Volume pull"))
 
 
@@ -179,8 +159,7 @@ def push(
     map_path = volume_dir / "volume-map.json"
     if not map_path.is_file():
         raise CommandError(t("msg.volume_map_not_found", path=map_path))
-    if not runtime.stack_exists(config.name, context.files, context.env):
-        raise CommandError(t("msg.stack_not_running", name=config.name))
+    require_stack(runtime, config, profile, context=context)
 
     mapping = _load_mapping(map_path)
     _validate_mapping_entries(mapping, volume_dir, config, runtime, context)
@@ -224,7 +203,7 @@ def _merge_mapping(mapping: list[dict[str, str]]) -> list[dict[str, str]]:
     return mapping
 
 
-def _load_mapping(path) -> list[dict[str, str]]:
+def _load_mapping(path: Path) -> list[dict[str, str]]:
     raw: Any = json.loads(path.read_text(encoding="utf-8"))
     if isinstance(raw, list):
         result = raw

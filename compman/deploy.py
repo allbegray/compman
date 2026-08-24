@@ -71,7 +71,7 @@ def deploy(
     key = parsed.path.lstrip("/")
 
     stage = "validating the deploy source"
-    limit_mb = config.limits.get("max_archive_mb") if config else None
+    limit_mb = config.max_archive_mb if config else None
     max_bytes = limit_mb * 1024 * 1024 if limit_mb is not None else None
     try:
         if parsed.scheme == "s3":
@@ -99,7 +99,7 @@ def deploy(
         else:
             raise ValueError(f"Unsupported deploy source: {s3_path}")
 
-        limit = config.limits.get("max_archive_mb") if config else None
+        limit = config.max_archive_mb if config else None
         if limit is not None:
             size = sum(p.stat().st_size for p in project_root.rglob("*") if p.is_file())
             if size > limit * 1024 * 1024:

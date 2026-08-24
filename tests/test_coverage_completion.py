@@ -338,7 +338,7 @@ def test_volume_backup_uses_collision_timestamp(dummy_runtime, temp_dir):
     existing = cfg.backup_dir / "app.volume.20260731_120000.tar.gz"
     existing.parent.mkdir(parents=True)
     existing.touch()
-    with patch("compman.ops.volume.datetime") as dt, patch(
+    with patch("compman.ops.common.datetime") as dt, patch(
         "compman.ops.volume._inspect_mount", return_value=None
     ):
         dt.now.return_value = fixed

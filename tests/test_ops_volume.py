@@ -112,11 +112,14 @@ def test_volume_restore_not_running(dummy_runtime, temp_dir: pathlib.Path):
     backup_dir = cfg.backup_dir
     backup_dir.mkdir(parents=True, exist_ok=True)
     backup_file = backup_dir / "my_stack.volume.20260731_1200.tar.gz"
-    backup_file.touch()
+
+    map_file = temp_dir / "volume-map.json"
+    map_file.write_text('{"container1": {"volume": "vol1", "destination": "/data"}}', encoding="utf-8")
+    with tarfile.open(backup_file, "w:gz") as tar:
+        tar.add(map_file, arcname="volume-map.json")
 
     dummy_runtime.stack_exists = MagicMock(return_value=False)
-    with pytest.raises(CommandError):
-        volume.restore(dummy_runtime, cfg, timestamp="20260731_1200")
+    volume.restore(dummy_runtime, cfg, timestamp="20260731_1200")
 
 
 def test_volume_pull_push(dummy_runtime, temp_dir: pathlib.Path):

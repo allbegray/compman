@@ -77,8 +77,6 @@ def restore(
         _list_backups(config, "volume")
         raise CommandError(t("msg.backup_not_found", tarball=tarball))
 
-    require_stack(runtime, config, profile, context=context)
-
     restore_dir = config.backup_dir / backup_name
     restore_dir.mkdir(parents=True, exist_ok=True)
     try:

@@ -37,6 +37,7 @@ injected value. A plain `environment:` entry without `${...}` stays literal.
 | [06](compman-config/06-secrets.md) | AWS Secrets Manager | `${secrets:NAME}` markers in profile `env` |
 | [07](compman-config/07-secrets-profile.md) | Secrets + profiles | Per-profile `secrets` override; `${secrets:NAME}` markers |
 | [08](compman-config/08-full.md) | Full example | Everything combined |
+| [09](compman-config/09-limits.md) | Deploy size limit | `limits.max_archive_mb` cap + provenance echo |
 
 Run any example from the directory that contains its `compman.yml`:
 

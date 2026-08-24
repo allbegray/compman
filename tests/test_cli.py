@@ -323,6 +323,16 @@ def test_cli_unknown_subcommand_shows_group_help(runner: CliRunner):
     set_lang("en")
 
 
+def test_cli_dash_token_is_rejected_as_unknown_command(runner: CliRunner):
+    set_lang("en")
+    res = runner.invoke(app, ["-"])
+    output = re.sub(r"\x1b\[[0-9;]*m", "", res.output)
+    assert res.exit_code == 2
+    assert "Error: Unknown command '-'." in output
+    assert "Usage: compman" in output
+    assert output.count("Usage: compman") == 1
+
+
 def test_cli_upgrade_uses_uv_tool_upgrade_with_utf8_decoding(runner: CliRunner):
     result = MagicMock(returncode=0, stdout="", stderr="")
     repo = "https://example.test/custom/compman.git"
@@ -570,6 +580,25 @@ def test_top_level_status_failure_exits_one_after_text_report(runner: CliRunner,
 
     assert result.exit_code == 1
     assert "Stack is not running." in result.stdout
+
+
+def test_top_level_status_text_report_shows_error_code(runner: CliRunner, monkeypatch):
+    report = StatusReport(
+        False,
+        None,
+        "app",
+        None,
+        (),
+        (),
+        "Stack 'app' is not running.",
+        "stack-missing",
+    )
+    monkeypatch.setattr("compman.cli.collect_status", lambda *_: report)
+
+    result = runner.invoke(app, ["status"])
+
+    assert result.exit_code == 1
+    assert "[stack-missing]" in result.stdout
 
 
 def test_cli_init_s3_interactive(runner: CliRunner, temp_dir: pathlib.Path):

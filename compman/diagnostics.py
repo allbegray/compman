@@ -2,11 +2,19 @@ from __future__ import annotations
 
 import os
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Literal
 
 from compman.config import Config, ConfigError, load_config
 from compman.docker import ContainerRuntime, detect_runtime, resolve_compose_context
+
+StatusErrorCode = Literal["stack-missing", "runtime-error", "config-error", "compose-error"]
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 @dataclass(frozen=True)
@@ -15,9 +23,18 @@ class CheckResult:
     severity: Literal["required", "warning"]
     ok: bool
     message: str
+    remediation: str | None = None
+    detail: str | None = None
 
     def to_dict(self) -> dict[str, object]:
-        return {"id": self.id, "severity": self.severity, "ok": self.ok, "message": self.message}
+        return {
+            "id": self.id,
+            "severity": self.severity,
+            "ok": self.ok,
+            "message": self.message,
+            "remediation": self.remediation,
+            "detail": self.detail,
+        }
 
 
 @dataclass(frozen=True)
@@ -63,6 +80,9 @@ class StatusReport:
     compose_files: tuple[str, ...]
     services: tuple[ServiceStatus, ...]
     error: str | None = None
+    error_code: StatusErrorCode | None = None
+    generated_at: str = field(default_factory=_utc_now_iso)
+    config_path: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -74,6 +94,9 @@ class StatusReport:
             "compose_files": list(self.compose_files),
             "services": [service.to_dict() for service in self.services],
             "error": self.error,
+            "error_code": self.error_code,
+            "generated_at": self.generated_at,
+            "config_path": self.config_path,
         }
 
 
@@ -94,10 +117,15 @@ def collect_doctor(config_path: str | None, profile: str | None = None) -> Docto
 
 
 def collect_status(config_path: str | None, profile: str | None = None) -> StatusReport:
+    resolved_config_path = str(
+        (Path(config_path) if config_path else Path.cwd() / "compman.yml").resolve()
+    )
     try:
         config = load_config(config_path)
     except (ConfigError, OSError) as exc:
-        return StatusReport(False, None, None, None, (), (), str(exc))
+        return StatusReport(
+            False, None, None, None, (), (), str(exc), "config-error", config_path=resolved_config_path
+        )
 
     effective_profile = profile
     if effective_profile is None:
@@ -105,13 +133,33 @@ def collect_status(config_path: str | None, profile: str | None = None) -> Statu
     try:
         context = resolve_compose_context(config, effective_profile)
     except (ConfigError, OSError) as exc:
-        return StatusReport(False, None, config.name, effective_profile, (), (), str(exc))
+        return StatusReport(
+            False,
+            None,
+            config.name,
+            effective_profile,
+            (),
+            (),
+            str(exc),
+            "compose-error",
+            config_path=resolved_config_path,
+        )
 
     compose_files = tuple(str(path) for path in context.files)
     try:
         runtime = detect_runtime()
     except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
-        return StatusReport(False, None, context.project, effective_profile, compose_files, (), str(exc))
+        return StatusReport(
+            False,
+            None,
+            context.project,
+            effective_profile,
+            compose_files,
+            (),
+            str(exc),
+            "runtime-error",
+            config_path=resolved_config_path,
+        )
 
     try:
         if not runtime.stack_exists(context.project, context.files, context.env):
@@ -123,11 +171,21 @@ def collect_status(config_path: str | None, profile: str | None = None) -> Statu
                 compose_files,
                 (),
                 f"Stack '{context.project}' is not running.",
+                "stack-missing",
+                config_path=resolved_config_path,
             )
         rows = runtime.service_status(context.project, context.files, context.env)
     except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
         return StatusReport(
-            False, runtime.name, context.project, effective_profile, compose_files, (), str(exc)
+            False,
+            runtime.name,
+            context.project,
+            effective_profile,
+            compose_files,
+            (),
+            str(exc),
+            "runtime-error",
+            config_path=resolved_config_path,
         )
 
     services = tuple(
@@ -140,7 +198,15 @@ def collect_status(config_path: str | None, profile: str | None = None) -> Statu
         )
         for row in rows
     )
-    return StatusReport(True, runtime.name, context.project, effective_profile, compose_files, services)
+    return StatusReport(
+        True,
+        runtime.name,
+        context.project,
+        effective_profile,
+        compose_files,
+        services,
+        config_path=resolved_config_path,
+    )
 
 
 def _collect_config(config_path: str | None, checks: list[CheckResult]) -> Config | None:

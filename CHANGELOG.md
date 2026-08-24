@@ -3,6 +3,34 @@
 Major user-visible changes to compman are recorded here, with the newest release
 first.
 
+## Unreleased
+
+### Changed
+
+- Long-running Docker/subprocess operations now all honor `COMPMAN_TIMEOUT`
+  (default 300 seconds). Previously some operations used a hardcoded one-hour
+  timeout that ignored the environment variable.
+- Streaming commands (`service log -f`, `service connect`, `stats -f`) now run
+  without any timeout so they can stream indefinitely.
+- `compman doctor --json` and `compman status --json` (schema version stays `1`)
+  gained additive machine-readable fields: `status` reports an `error_code`
+  (`config-error`, `compose-error`, `runtime-error`, or `stack-missing`) plus
+  `generated_at` (ISO-UTC) and `config_path`; every doctor check reports
+  `remediation` and `detail` keys (null for now).
+- Deploy size-limit enforcement moved earlier: when `limits.max_archive_mb` is
+  configured, oversized sources are aborted during download/extraction with the
+  translated limit message instead of failing after extraction, and other
+  deploy failures now report the stage they failed in.
+
+### Fixed
+
+- `compman init --seed` into a directory that already contains
+  `compman.yml`/`docker-compose.yml` now exits with status `1` instead of `0`.
+- A failed `compman completion --install` now exits with status `1` instead of
+  `0`.
+- Unknown commands print the localized error and root help consistently and
+  exit `2` without depending on typer internals.
+
 ## [1.4.0] - 2026-08-03
 
 ### Breaking

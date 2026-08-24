@@ -45,9 +45,9 @@ SOLUTION.md            # dev/test/debug lessons (read before touching runtime/CL
 - Current package version: `1.4.0`.
 - English is the default UI and documentation language. Korean remains supported through `--lang ko` or `COMPMAN_LANG=ko`; keep Korean text isolated to `i18n.py` TRANSLATIONS and their tests.
 - Build/running is `uv`-based (`pyproject.toml` has `[tool.uv] package = true`).
-- Python >=3.10; runtime deps: typer, PyYAML, boto3, botocore.
+- Python >=3.12; runtime deps: typer, PyYAML, boto3, botocore.
 - Quality gates: full pytest suite under a hard 100% statement/branch coverage gate, Ruff, mypy.
-- CI tests Python 3.10-3.14 on Linux/macOS/Windows and has packaging and Docker/Ministack integration jobs.
+- CI tests Python 3.12-3.14 on Linux/macOS/Windows and has packaging and Docker/Ministack integration jobs.
 
 ## WHERE TO LOOK
 

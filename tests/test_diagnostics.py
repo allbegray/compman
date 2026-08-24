@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -460,4 +461,76 @@ def test_status_report_json_keys_are_stable(tmp_path, dummy_runtime, monkeypatch
         "compose_files",
         "services",
         "error",
+        "error_code",
+        "generated_at",
+        "config_path",
     ]
+    assert report.to_dict()["schema_version"] == 1
+    assert report.to_dict()["error_code"] is None
+    assert report.to_dict()["config_path"] == str((tmp_path / "compman.yml").resolve())
+    assert datetime.fromisoformat(report.to_dict()["generated_at"]).tzinfo is not None
+
+
+def test_doctor_check_result_json_keys_include_remediation_and_detail(tmp_path, monkeypatch, dummy_runtime):
+    write_simple_project(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("compman.diagnostics.detect_runtime", lambda: dummy_runtime)
+
+    report = collect_doctor(None)
+
+    assert list(report.checks[0].to_dict()) == [
+        "id",
+        "severity",
+        "ok",
+        "message",
+        "remediation",
+        "detail",
+    ]
+    assert report.checks[0].remediation is None
+    assert report.checks[0].detail is None
+    assert report.to_dict()["schema_version"] == 1
+
+
+@pytest.mark.parametrize(
+    ("stage", "expected_error_code"),
+    [
+        ("config", "config-error"),
+        ("compose_files", "compose-error"),
+        ("runtime", "runtime-error"),
+        ("stack", "stack-missing"),
+        ("services", "runtime-error"),
+    ],
+)
+def test_status_error_code_maps_each_failure_site(
+    stage, expected_error_code, tmp_path, dummy_runtime, monkeypatch
+):
+    write_simple_project(tmp_path)
+
+    if stage == "config":
+        config_path = str(tmp_path / "missing.yml")
+    elif stage == "compose_files":
+        config_path = str(tmp_path / "compman.yml")
+        (tmp_path / "compman.yml").write_text(
+            "compman:\n  compose:\n    default:\n      file: missing-compose.yml\n",
+            encoding="utf-8",
+        )
+    else:
+        config_path = str(tmp_path / "compman.yml")
+        if stage == "runtime":
+            monkeypatch.setattr(
+                "compman.diagnostics.detect_runtime",
+                lambda: (_ for _ in ()).throw(RuntimeError("no runtime")),
+            )
+        else:
+            monkeypatch.setattr("compman.diagnostics.detect_runtime", lambda: dummy_runtime)
+            if stage == "stack":
+                dummy_runtime.stack_exists = lambda *args: False
+            else:
+                dummy_runtime.service_status = lambda *args: (_ for _ in ()).throw(RuntimeError("boom"))
+
+    report = collect_status(config_path)
+
+    assert report.ok is False
+    assert report.error_code == expected_error_code
+    assert report.config_path == str(Path(config_path).resolve())
+    assert datetime.fromisoformat(report.generated_at).tzinfo is not None

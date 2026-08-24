@@ -1,10 +1,35 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "compman"
 version = "1.4.0"
 description = "Docker Compose stack management CLI"
+readme = "README.md"
 license = "MIT"
-requires-python = ">=3.10"
+authors = [{ name = "allbegray" }]
+keywords = ["docker", "compose", "podman", "cli", "devops", "backup", "deploy"]
+requires-python = ">=3.12"
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: System :: Systems Administration",
+]
 dependencies = ["typer>=0.12.0", "pyyaml>=6.0", "boto3>=1.28.0", "botocore>=1.31.0"]
+
+[project.urls]
+Homepage = "https://allbegray.github.io/compman/"
+Repository = "https://github.com/allbegray/compman"
+Changelog = "https://github.com/allbegray/compman/blob/main/CHANGELOG.md"
 
 [project.scripts]
 compman = "compman.cli:app"
@@ -19,7 +44,7 @@ include = ["compman*"]
 dev = ["pytest>=7.0.0", "pytest-cov>=4.0.0", "ruff>=0.9.0", "mypy>=1.13.0"]
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py312"
 line-length = 120
 
 [tool.ruff.lint]
@@ -27,7 +52,7 @@ select = ["E", "F", "I"]
 ignore = ["E501"]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.12"
 ignore_missing_imports = true
 check_untyped_defs = true
 warn_unused_ignores = true

@@ -23,12 +23,12 @@ If every convenient option has been answered with "not allowed," `compman` is fo
 
 ## Requirements
 
-- Python 3.10 or later
+- Python 3.12 or later
 - Docker Compose or Podman Compose
 - For S3 deployments: accessible S3-compatible storage and AWS credentials
 - For HTTP deployments: a public archive URL (authenticated URLs are not yet supported)
 
-CI verifies Python 3.10–3.14 on Ubuntu, macOS, and Windows. See the `Python version strategy` section of [BACKLOG.md](BACKLOG.md) for the Python 3.14 support plan and upgrade decision.
+CI verifies Python 3.12–3.14 on Ubuntu, macOS, and Windows. See the `Python version strategy` section of [BACKLOG.md](BACKLOG.md) for the Python 3.14 support plan and upgrade decision.
 
 Successful CI for a push to `main` automatically creates an annotated tag from
 the version in `pyproject.toml`. Every version bump must include the matching
@@ -83,7 +83,13 @@ Update an installed CLI using uv's stored tool source with:
 compman upgrade
 ```
 
-This runs `uv tool upgrade compman --reinstall --managed-python`.
+This runs `uv tool upgrade compman --reinstall --managed-python --python 3.13`. To install
+upgrades from a different Git repository, pass `--repo URL` (used only for the pip fallback
+when uv is unavailable):
+
+```bash
+compman upgrade --repo https://github.com/your-fork/compman.git
+```
 
 ### Recover a damaged installation
 
@@ -322,34 +328,34 @@ services:
 ```text
 compman init [--scaffold | --s3 URI | --seed]
 compman deploy [--path SOURCE_URI] [--build] [--tag TAG]
-compman update [PROFILE]
+compman update [PROFILE] [-c|--config PATH]
 compman doctor [--profile PROFILE] [-c|--config PATH] [--json]
 compman status [--profile PROFILE] [-c|--config PATH] [--json]
 compman ps [PROFILE] [-a|--all] [-c|--config PATH]
 compman stats [PROFILE] [-f|--follow] [-c|--config PATH]
-compman upgrade
+compman upgrade [--repo URL]
 compman version
 compman lang [ko|en]
 compman completion [powershell|bash|zsh|fish] --install
 
-compman stack up [PROFILE]
-compman stack update [PROFILE]
-compman stack down [--profile PROFILE] --yes
+compman stack up [PROFILE] [-c|--config PATH]
+compman stack update [PROFILE] [-c|--config PATH]
+compman stack down [--profile PROFILE] [-c|--config PATH] --yes
 
-compman service start [SERVICE...] [--profile PROFILE]
-compman service stop [SERVICE...] [--profile PROFILE]
-compman service restart [SERVICE...] [--profile PROFILE]
-compman service status [--profile PROFILE]
-compman service log [CONTAINER] [-f] [-n 50] [--profile PROFILE]
-compman service connect [CONTAINER] [--profile PROFILE]
+compman service start [SERVICE...] [--profile PROFILE] [-c|--config PATH]
+compman service stop [SERVICE...] [--profile PROFILE] [-c|--config PATH]
+compman service restart [SERVICE...] [--profile PROFILE] [-c|--config PATH]
+compman service status [--profile PROFILE] [-c|--config PATH]
+compman service log [CONTAINER] [-f] [-n 50] [--profile PROFILE] [-c|--config PATH]
+compman service connect [CONTAINER] [--profile PROFILE] [-c|--config PATH]
 
-compman volume backup [-z LEVEL] [--no-stop] [--profile PROFILE]
-compman volume restore [TIMESTAMP] [--no-stop] [--replace] [--profile PROFILE]
-compman volume pull [--profile PROFILE]
-compman volume push [--replace] [--profile PROFILE]
+compman volume backup [-z LEVEL] [--no-stop] [--profile PROFILE] [-c|--config PATH]
+compman volume restore [TIMESTAMP] [--no-stop] [--replace] [--profile PROFILE] [-c|--config PATH]
+compman volume pull [--profile PROFILE] [-c|--config PATH]
+compman volume push [--replace] [--profile PROFILE] [-c|--config PATH]
 
-compman image backup [-z LEVEL] [--source-image] [--profile PROFILE]
-compman image restore [TIMESTAMP] [--profile PROFILE]
+compman image backup [-z LEVEL] [--source-image] [--profile PROFILE] [-c|--config PATH]
+compman image restore [TIMESTAMP] [--profile PROFILE] [-c|--config PATH]
 
 compman clear [--yes]
 ```
@@ -467,7 +473,7 @@ uv run pytest --cov=compman --cov-report=term-missing
 
 CI verifies:
 
-- Ubuntu, macOS, and Windows × Python 3.10–3.14 tests
+- Ubuntu, macOS, and Windows × Python 3.12–3.14 tests
 - 100% statement and branch coverage
 - Ruff and mypy
 - Wheel build, isolated installation, and CLI execution

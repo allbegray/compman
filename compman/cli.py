@@ -11,7 +11,6 @@ from importlib.metadata import version as _pkg_version
 from typing import TYPE_CHECKING, Annotated
 
 import typer
-from typer import _click
 from typer.core import TyperGroup
 
 from compman._proc import _env_timeout
@@ -127,14 +126,13 @@ def _lang_callback(value: str | None) -> None:
 
 
 class HelpOnUnknownCommandGroup(TyperGroup):
-    def resolve_command(self, ctx: _click.Context, args: list[str]):
-        try:
-            return super().resolve_command(ctx, args)
-        except _click.exceptions.UsageError:
-            command = args[0] if args else ""
+    def resolve_command(self, ctx, args):
+        if args and self.get_command(ctx, args[0]) is None:
+            command = args[0]
             typer.echo(t("msg.unknown_command", command=command), err=True)
             typer.echo(ctx.get_help())
-            raise _click.exceptions.Exit(2)
+            raise typer.Exit(2)
+        return super().resolve_command(ctx, args)
 
     def main(self, *args, **kwargs):
         try:
@@ -254,6 +252,8 @@ def _render_status(report: StatusReport) -> None:
         header += f" ({t('msg.status_profile')} {report.profile})"
     if report.error:
         header += f" - {report.error}"
+        if report.error_code:
+            header += f" [{report.error_code}]"
     typer.echo(header)
     for service_status in report.services:
         health = f", health: {service_status.health}" if service_status.health else ""

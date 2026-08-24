@@ -120,7 +120,7 @@ Root causes and reusable lessons for everything below live in [SOLUTION.md](SOLU
   [tool.pytest.ini_options]; parametrize the six near-duplicate
   COMPMAN_TIMEOUT tests (`tests/test_docker.py:651-704`).
 
-- [ ] [L9] Docs and automation ergonomics — document the `upgrade --repo`
+- [x] [L9] Docs and automation ergonomics — document the `upgrade --repo`
   flag (`cli.py:343`) and its pinned `--python 3.13` that README's upgrade
   description omits (`cli.py:357-358`); reconcile the -c/--config listing
   inconsistency in README's Commands block; add remediation/error-code
@@ -128,7 +128,7 @@ Root causes and reusable lessons for everything below live in [SOLUTION.md](SOLU
   JSON schema v1 (`diagnostics.py:12-77`); add a limits.max_archive_mb
   example under examples/compman-config/.
 
-- [ ] [L10] Packaging and CI/release hardening — declare [build-system] and
+- [x] [L10] Packaging and CI/release hardening — declare [build-system] and
   PyPI metadata (readme/urls/classifiers) in pyproject.toml; decide the
   requires-python floor before Python 3.10 EOL (October 2026); add
   concurrency cancel-in-progress to ci.yml, gate publish.yml on CI success,
@@ -176,6 +176,9 @@ Root causes and reusable lessons for everything below live in [SOLUTION.md](SOLU
 - [x] Unsupported completion shell now errors instead of silently succeeding.
 
 ## Python version strategy
+
+DONE (2026-08-24): the floor decision landed — `requires-python = ">=3.12"` in
+pyproject.toml, ruff/mypy target 3.12, and CI tests 3.12–3.14.
 
 As of July 2026, Python 3.14 is the latest stable feature line and Python 3.10
 reaches end of support in October 2026. The project metadata still supports

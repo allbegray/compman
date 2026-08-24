@@ -1,7 +1,11 @@
 # compman Windows One-Line Automatic Installer
-$ErrorActionPreference = "Continue"
+$ErrorActionPreference = "Stop"
 
 Write-Host "🚀 Installing compman CLI..." -ForegroundColor Cyan
+
+# Pinned uv release: versioned download + SHA256 verification (no floating installer URL).
+$UvVersion = "0.12.5"
+$UvInstallerSha256 = "ca1ad558c65d31e2d3a24464638aff90bfb81d6c72428b4e71d6f55944a68541"
 
 # 1. Remove old pip-installed compman from any Python Scripts directory (prevents PATH conflicts)
 $oldPipPaths = @(
@@ -29,11 +33,27 @@ Write-Host "✅ Ensured '$binDir' is at the front of User PATH." -ForegroundColo
 
 # 3. Install compman via uv (uv manages its own Python, so older system Python is fine)
 if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
-    Write-Host "Installing uv (Python package manager)..." -ForegroundColor Yellow
-    irm https://astral.sh/uv/install.ps1 | iex
+    Write-Host "Installing uv v$UvVersion (Python package manager)..." -ForegroundColor Yellow
+    $tmpInstaller = New-Item -ItemType File -Path (Join-Path ([System.IO.Path]::GetTempPath()) "uv-installer-$UvVersion.ps1") -Force
+    try {
+        Invoke-WebRequest -Uri "https://github.com/astral-sh/uv/releases/download/$UvVersion/uv-installer.ps1" -OutFile $tmpInstaller -UseBasicParsing
+        $actualHash = (Get-FileHash -Path $tmpInstaller -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($actualHash -ne $UvInstallerSha256) {
+            throw "uv installer checksum mismatch: expected $UvInstallerSha256, got $actualHash."
+        }
+        & powershell -NoProfile -ExecutionPolicy Bypass -File $tmpInstaller
+        if ($LASTEXITCODE -ne 0) {
+            throw "uv installer failed with exit code $LASTEXITCODE."
+        }
+    } finally {
+        Remove-Item $tmpInstaller -Force -ErrorAction SilentlyContinue
+    }
 }
 # uv tool install places shims in ~/.local/bin (already set at front of PATH above)
 uv tool install --force --reinstall --managed-python git+https://github.com/allbegray/compman.git
+if ($LASTEXITCODE -ne 0) {
+    throw "uv tool install failed with exit code $LASTEXITCODE."
+}
 
 # 4. Automatically register PowerShell Tab auto-completion & execution policy
 if (Get-Command compman -ErrorAction SilentlyContinue) {

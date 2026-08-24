@@ -1,24 +1,46 @@
 name: Publish to PyPI
 
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_run:
+    workflows: [Release tag]
+    types: [completed]
 
 permissions:
   contents: read
 
 jobs:
   publish:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Verify release tag exists at the built commit
+        shell: bash
+        run: |
+          version="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          tag="v$version"
+          tagged_sha="$(git rev-list -n 1 "$tag" 2>/dev/null || true)"
+          if [[ -z "$tagged_sha" ]]; then
+            echo "Tag $tag does not exist in this repository." >&2
+            exit 1
+          fi
+          if [[ "$tagged_sha" != "$(git rev-parse HEAD)" ]]; then
+            echo "Tag $tag points to $tagged_sha, not $(git rev-parse HEAD)." >&2
+            exit 1
+          fi
+
       - uses: astral-sh/setup-uv@v9.0.0
         with:
           python-version: "3.13"
       - run: uv build --wheel --out-dir dist
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@v1.14.2

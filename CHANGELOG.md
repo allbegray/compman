@@ -1,5 +1,8 @@
 # Changelog
 
+Major user-visible changes to compman are recorded here, with the newest release
+first.
+
 ## [1.5.0] - 2026-08-24
 
 ### Added
@@ -10,54 +13,27 @@
 - Integration test module (`pytest -m integration`) with real-Docker volume roundtrip and doctor JSON cases
 - `tests/conftest.py` config YAML builder (`DEFAULT_CONFIG_YAML` + `write_config`)
 - `limits.max_archive_mb` example under `examples/compman-config/`
-- Diagnostics JSON additive fields: `remediation`, `detail`, `error_code`, `generated_at`, `config_path`
+- Diagnostics JSON additive fields (schema version stays `1`): `status` reports an `error_code` (`config-error`, `compose-error`, `runtime-error`, or `stack-missing`) plus `generated_at` (ISO-UTC) and `config_path`; every doctor check reports `remediation` and `detail` keys (null for now)
 
 ### Changed
 - Python support floor raised to >=3.12 (3.10 EOL October 2026)
-- Subprocess timeouts unified: all passthrough/build commands honor `COMPMAN_TIMEOUT`; streaming commands (`logs -f`, `stats --follow`, `connect`) run without timeout
-- `compman init --seed` conflict now exits 1 (was 0)
-- `compman completion --install` failure now exits 1 (was 0)
+- Long-running Docker/subprocess operations now all honor `COMPMAN_TIMEOUT` (default 300 seconds). Previously some operations used a hardcoded one-hour timeout that ignored the environment variable.
+- Streaming commands (`service log -f`, `service connect`, `stats -f`) now run without any timeout so they can stream indefinitely.
+- Deploy size-limit enforcement moved earlier: when `limits.max_archive_mb` is configured, oversized sources are aborted during download/extraction with the translated limit message instead of failing after extraction; other deploy failures now report the stage they failed in.
 - boto3/botocore imports deferred to AWS-touching paths (faster startup for non-AWS commands)
 - Scaffold update no longer echoes full `compman.yml` content (prevents ARN disclosure in terminal)
+- `compman doctor --json` output no longer depends on typer internals for unknown-command handling
 
 ### Fixed
+- `compman init --seed` into a directory that already contains `compman.yml`/`docker-compose.yml` now exits with status `1` instead of `0`
+- A failed `compman completion --install` now exits with status `1` instead of `0`
+- Unknown commands print the localized error and root help consistently and exit `2` without depending on typer internals
 - Volume restore works after stack down (erroneous stack-existence gate removed)
 - Archive extraction rejects FIFO/device members on Python < 3.12 (coverage gate restored)
 - Interactive init menu and status header labels now route through i18n
 
 ### Security
 - SECURITY.md size-cap claim corrected to reflect actual enforcement points
-
-Major user-visible changes to compman are recorded here, with the newest release
-first.
-
-## Unreleased
-
-### Changed
-
-- Long-running Docker/subprocess operations now all honor `COMPMAN_TIMEOUT`
-  (default 300 seconds). Previously some operations used a hardcoded one-hour
-  timeout that ignored the environment variable.
-- Streaming commands (`service log -f`, `service connect`, `stats -f`) now run
-  without any timeout so they can stream indefinitely.
-- `compman doctor --json` and `compman status --json` (schema version stays `1`)
-  gained additive machine-readable fields: `status` reports an `error_code`
-  (`config-error`, `compose-error`, `runtime-error`, or `stack-missing`) plus
-  `generated_at` (ISO-UTC) and `config_path`; every doctor check reports
-  `remediation` and `detail` keys (null for now).
-- Deploy size-limit enforcement moved earlier: when `limits.max_archive_mb` is
-  configured, oversized sources are aborted during download/extraction with the
-  translated limit message instead of failing after extraction, and other
-  deploy failures now report the stage they failed in.
-
-### Fixed
-
-- `compman init --seed` into a directory that already contains
-  `compman.yml`/`docker-compose.yml` now exits with status `1` instead of `0`.
-- A failed `compman completion --install` now exits with status `1` instead of
-  `0`.
-- Unknown commands print the localized error and root help consistently and
-  exit `2` without depending on typer internals.
 
 ## [1.4.0] - 2026-08-03
 

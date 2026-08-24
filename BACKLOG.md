@@ -194,3 +194,9 @@ Recommended sequence:
    network waits rather than CPU-bound Python threads.
 4. Consider Python 3.14's standard-library Zstandard support only as a
    versioned, opt-in backup format. Retain `.tar.gz` read compatibility.
+
+- [ ] [M6] Integration test infrastructure: fix timestamp derivation bug in
+  tests/integration/test_real_runtime.py (.stem.split keeps .tar suffix ->
+  validate_timestamp rejects) and redesign downed-stack volume restore path
+  (compose down removes containers -> list_containers empty -> map validation
+  fails; needs helper-container copy strategy).

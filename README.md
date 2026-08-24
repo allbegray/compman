@@ -28,7 +28,7 @@ If every convenient option has been answered with "not allowed," `compman` is fo
 - For S3 deployments: accessible S3-compatible storage and AWS credentials
 - For HTTP deployments: a public archive URL (authenticated URLs are not yet supported)
 
-CI verifies Python 3.10–3.13 on Ubuntu, macOS, and Windows. See the `Python version strategy` section of [BACKLOG.md](BACKLOG.md) for the Python 3.14 support plan and upgrade decision.
+CI verifies Python 3.10–3.14 on Ubuntu, macOS, and Windows. See the `Python version strategy` section of [BACKLOG.md](BACKLOG.md) for the Python 3.14 support plan and upgrade decision.
 
 Successful CI for a push to `main` automatically creates an annotated tag from
 the version in `pyproject.toml`. Every version bump must include the matching
@@ -466,7 +466,7 @@ uv run pytest --cov=compman --cov-report=term-missing
 
 CI verifies:
 
-- Ubuntu, macOS, and Windows × Python 3.10–3.13 tests
+- Ubuntu, macOS, and Windows × Python 3.10–3.14 tests
 - 100% statement and branch coverage
 - Ruff and mypy
 - Wheel build, isolated installation, and CLI execution

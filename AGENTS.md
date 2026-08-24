@@ -1,6 +1,6 @@
 # compman - Docker Compose Stack Manager CLI
 
-**Generated:** 2026-08-07 · **Commit:** e8ccb76 · **Branch:** main
+**Generated:** 2026-08-24 · **Commit:** 5eecd09 · **Branch:** main
 
 ## Quick start
 
@@ -37,7 +37,7 @@ docs/site/             # dependency-free GitHub Pages homepage
 docs/superpowers/      # design specs + plans (implementation rationale)
 docker-init/           # Ministack S3 seed bundle for integration/E2E
 scratch/               # throwaway experiment projects (not production code)
-.github/workflows/     # ci.yml, release-tag.yml, pages.yml
+.github/workflows/     # ci.yml, pages.yml, publish.yml, release-tag.yml
 SOLUTION.md            # dev/test/debug lessons (read before touching runtime/CLI/tests)
 ```
 
@@ -46,8 +46,8 @@ SOLUTION.md            # dev/test/debug lessons (read before touching runtime/CL
 - English is the default UI and documentation language. Korean remains supported through `--lang ko` or `COMPMAN_LANG=ko`; keep Korean text isolated to `i18n.py` TRANSLATIONS and their tests.
 - Build/running is `uv`-based (`pyproject.toml` has `[tool.uv] package = true`).
 - Python >=3.10; runtime deps: typer, PyYAML, boto3, botocore.
-- Quality gates: 330 pytest tests, 100% statement/branch coverage, Ruff, mypy.
-- CI tests Python 3.10-3.13 on Linux/macOS/Windows and has packaging and Docker/Ministack integration jobs.
+- Quality gates: full pytest suite under a hard 100% statement/branch coverage gate, Ruff, mypy.
+- CI tests Python 3.10-3.14 on Linux/macOS/Windows and has packaging and Docker/Ministack integration jobs.
 
 ## WHERE TO LOOK
 

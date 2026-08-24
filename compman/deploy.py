@@ -78,6 +78,8 @@ def deploy(
     key = parsed.path.lstrip("/")
 
     stage = "validating the deploy source"
+    limit_mb = config.limits.get("max_archive_mb") if config else None
+    max_bytes = limit_mb * 1024 * 1024 if limit_mb is not None else None
     try:
         if parsed.scheme == "s3":
             if not bucket:
@@ -85,14 +87,14 @@ def deploy(
             stage = "downloading from S3"
             try:
                 s3 = boto3.client("s3", endpoint_url=endpoint or None)
-                project_root = _fetch(s3, bucket, key, tmp)
+                project_root = _fetch(s3, bucket, key, tmp, max_bytes=max_bytes)
             except (ClientError, EndpointConnectionError, NoCredentialsError, PartialCredentialsError) as e:
                 _handle_s3_error(e, s3_path)
         elif parsed.scheme in ("http", "https"):
             if not bucket or not has_archive_suffix(parsed.path):
                 raise ValueError(f"HTTP source must be a .tar.gz, .tgz, or .zip archive: {s3_path}")
             stage = "downloading from HTTP"
-            project_root = _fetch_http(s3_path, tmp)
+            project_root = _fetch_http(s3_path, tmp, max_bytes=max_bytes)
         else:
             raise ValueError(f"Unsupported deploy source: {s3_path}")
 

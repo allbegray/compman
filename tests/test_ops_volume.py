@@ -121,7 +121,7 @@ def test_volume_restore_not_running(dummy_runtime, temp_dir: pathlib.Path):
 
 def test_volume_pull_push(dummy_runtime, temp_dir: pathlib.Path):
     cfg = Config(name="my_stack", profiles={"default": Profile(file="docker-compose.yml")})
-    with patch("compman.ops.volume._inspect_mount", return_value={"container": "c1", "volume": "vol1", "destination": "/data"}):
+    with patch("compman.ops.volume._inspect_mount", return_value={"container": "container1", "volume": "vol1", "destination": "/data"}):
         volume.pull(dummy_runtime, cfg)
         assert (cfg.volume_dir / "volume-map.json").exists()
 
@@ -136,11 +136,11 @@ def test_volume_push_replace_clears_destination(dummy_runtime, temp_dir: pathlib
     volume_dir = cfg.volume_dir
     (volume_dir / "vol1").mkdir(parents=True, exist_ok=True)
     (volume_dir / "volume-map.json").write_text(
-        json.dumps([{"container": "c1", "volume": "vol1", "destination": "/data"}]), encoding="utf-8"
+        json.dumps([{"container": "container1", "volume": "vol1", "destination": "/data"}]), encoding="utf-8"
     )
     volume.push(dummy_runtime, cfg, replace=True)
 
-    assert ["exec", "c1", "sh", "-c", 'rm -rf -- "$1"/* "$1"/.[!.]* "$1"/..?* 2>/dev/null || true', "_", "/data"] in dummy_runtime.commands_run
+    assert ["exec", "container1", "sh", "-c", 'rm -rf -- "$1"/* "$1"/.[!.]* "$1"/..?* 2>/dev/null || true', "_", "/data"] in dummy_runtime.commands_run
 
 
 @pytest.mark.parametrize(
@@ -197,3 +197,73 @@ def test_volume_mapping_reads_legacy_format(temp_dir: pathlib.Path):
     assert volume._load_mapping(map_path) == [
         {"container": "db", "volume": "data", "destination": "/var/lib/data"}
     ]
+
+
+def _write_volume_backup(cfg: Config, temp_dir: pathlib.Path, entries: list[dict[str, str]]) -> None:
+    backup_dir = cfg.backup_dir
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    backup_file = backup_dir / "my_stack.volume.20260731_1200.tar.gz"
+    map_file = temp_dir / "volume-map.json"
+    map_file.write_text(json.dumps(entries), encoding="utf-8")
+    with tarfile.open(backup_file, "w:gz") as tar:
+        tar.add(map_file, arcname="volume-map.json")
+
+
+def test_volume_restore_rejects_escaping_volume_name(dummy_runtime, temp_dir: pathlib.Path):
+    cfg = Config(name="my_stack", profiles={"default": Profile(file="docker-compose.yml")})
+    _write_volume_backup(
+        cfg,
+        temp_dir,
+        [{"container": "container1", "volume": "../escape", "destination": "/data"}],
+    )
+
+    with pytest.raises(CommandError, match="escapes the backup directory"):
+        volume.restore(dummy_runtime, cfg, timestamp="20260731_1200")
+
+    assert not any(call[0] == "cp" for call in dummy_runtime.commands_run)
+
+
+@pytest.mark.parametrize("container", ["ghost", "../evil"])
+def test_volume_restore_rejects_unknown_or_invalid_container(
+    dummy_runtime, temp_dir: pathlib.Path, container: str
+):
+    cfg = Config(name="my_stack", profiles={"default": Profile(file="docker-compose.yml")})
+    _write_volume_backup(
+        cfg,
+        temp_dir,
+        [{"container": container, "volume": "vol1", "destination": "/data"}],
+    )
+
+    with pytest.raises(CommandError, match="unknown container"):
+        volume.restore(dummy_runtime, cfg, timestamp="20260731_1200")
+
+    assert not any(call[0] == "cp" for call in dummy_runtime.commands_run)
+
+
+def test_volume_restore_rejects_unsafe_destination(dummy_runtime, temp_dir: pathlib.Path):
+    cfg = Config(name="my_stack", profiles={"default": Profile(file="docker-compose.yml")})
+    _write_volume_backup(
+        cfg,
+        temp_dir,
+        [{"container": "container1", "volume": "vol1", "destination": "relative"}],
+    )
+
+    with pytest.raises(CommandError, match="Invalid --replace destination"):
+        volume.restore(dummy_runtime, cfg, timestamp="20260731_1200")
+
+    assert not any(call[0] == "cp" for call in dummy_runtime.commands_run)
+
+
+def test_volume_push_rejects_escaping_volume_name(dummy_runtime, temp_dir: pathlib.Path):
+    cfg = Config(name="my_stack", profiles={"default": Profile(file="docker-compose.yml")})
+    volume_dir = cfg.volume_dir
+    (volume_dir / "vol1").mkdir(parents=True, exist_ok=True)
+    (volume_dir / "volume-map.json").write_text(
+        json.dumps([{"container": "container1", "volume": "../../secrets", "destination": "/data"}]),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(CommandError, match="escapes the backup directory"):
+        volume.push(dummy_runtime, cfg)
+
+    assert not any(call[0] == "cp" for call in dummy_runtime.commands_run)

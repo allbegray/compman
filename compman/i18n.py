@@ -883,6 +883,14 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "en": "Unsupported shell: {shell}",
         "ko": "지원하지 않는 셸: {shell}",
     },
+    "msg.volume_map_escape": {
+        "en": "Volume map entry escapes the backup directory: {name}",
+        "ko": "볼륨 맵 항목이 백업 디렉터리를 벗어납니다: {name}",
+    },
+    "msg.volume_map_container": {
+        "en": "Volume map references unknown container {container} in project {name}.",
+        "ko": "볼륨 맵이 프로젝트 {name}의 알 수 없는 컨테이너 {container}을(를) 참조합니다.",
+    },
 }
 
 

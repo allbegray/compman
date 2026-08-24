@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import tarfile
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 import typer
 
 from compman.archive import extract_tar
 from compman.config import Config
-from compman.docker import ContainerRuntime, resolve_compose_context
+from compman.docker import ComposeContext, ContainerRuntime, resolve_compose_context
 from compman.errors import CommandError
 from compman.i18n import t
 from compman.ops.common import select_backup_timestamp, stack_paused, validate_timestamp
@@ -99,6 +101,7 @@ def restore(
             raise CommandError(t("msg.volume_map_not_found", path=map_path))
 
         mapping = _load_mapping(map_path)
+        _validate_mapping_entries(mapping, restore_dir, config, runtime, context)
 
         if replace:
             for vol_info in mapping:
@@ -180,6 +183,7 @@ def push(
         raise CommandError(t("msg.stack_not_running", name=config.name))
 
     mapping = _load_mapping(map_path)
+    _validate_mapping_entries(mapping, volume_dir, config, runtime, context)
     for vol_info in mapping:
         container = vol_info["container"]
         volume_name = vol_info["volume"]
@@ -254,6 +258,28 @@ def _validate_replace_dest(dest: str) -> None:
     parts = dest.split("/")[1:]
     if not dest.startswith("/") or dest == "/" or not parts or "" in parts or ".." in parts:
         raise CommandError(t("msg.invalid_replace_dest", dest=dest))
+
+
+_CONTAINER_NAME_RE = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_.-]*")
+
+
+def _validate_mapping_entries(
+    mapping: list[dict[str, str]],
+    base_dir: Path,
+    config: Config,
+    runtime: ContainerRuntime,
+    context: ComposeContext,
+) -> None:
+    containers = set(runtime.list_containers(config.name, context.files, context.env))
+    base = base_dir.resolve()
+    for entry in mapping:
+        target = (base_dir / entry["volume"]).resolve()
+        if target == base or base not in target.parents:
+            raise CommandError(t("msg.volume_map_escape", name=entry["volume"]))
+        container = entry["container"]
+        if not _CONTAINER_NAME_RE.fullmatch(container) or container not in containers:
+            raise CommandError(t("msg.volume_map_container", container=container, name=config.name))
+        _validate_replace_dest(entry["destination"])
 
 
 def _clear_destination(runtime: ContainerRuntime, container: str, dest: str) -> None:

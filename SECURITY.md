@@ -93,8 +93,10 @@ released.
 
 - **Archive extraction safety**: deploy archives (`.tar.gz`/`.tgz`/`.zip`) must
   reject absolute paths, `..` traversal, and links; a single top-level directory
-  is flattened. Extraction happens into a temporary tree, and
-  `limits.max_archive_mb` caps the size before any filesystem change.
+  is flattened. Extraction happens into a temporary tree, and when
+  `limits.max_archive_mb` is configured the cap is enforced during download and
+  on uncompressed member totals before extraction begins; without a configured
+  limit no cap applies.
 - **Path containment**: managed backup/volume/project paths must never escape
   the config directory; destructive managed directories may not equal the
   config root.

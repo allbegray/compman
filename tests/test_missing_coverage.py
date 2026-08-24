@@ -361,6 +361,40 @@ def test_deploy_swap_rolls_back_partially_moved_source(temp_dir, new_item_is_dir
     assert not (dst / new_item.name).exists()
 
 
+def test_deploy_swap_rollback_tolerates_vanished_new_item(temp_dir):
+    src = temp_dir / "source"
+    src.mkdir()
+    new_item = src / "a-new"
+    new_item.write_text("new", encoding="utf-8")
+    trigger = src / "b-trigger"
+    trigger.write_text("trigger", encoding="utf-8")
+
+    dst = temp_dir / "target"
+    dst.mkdir()
+
+    real_move = shutil.move
+    real_iterdir = pathlib.Path.iterdir
+
+    def move_and_vanish(source, destination):
+        if pathlib.Path(source) == trigger:
+            (dst / new_item.name).unlink()
+            raise OSError("simulated move failure")
+        return real_move(source, destination)
+
+    def ordered_source(path):
+        if path == src:
+            return iter((new_item, trigger))
+        return real_iterdir(path)
+
+    with patch.object(type(src), "iterdir", autospec=True, side_effect=ordered_source), patch(
+        "compman.deploy.shutil.move", side_effect=move_and_vanish
+    ):
+        with pytest.raises(OSError, match="simulated move failure"):
+            deploy._swap(src, dst)
+
+    assert not (dst / new_item.name).exists()
+
+
 def test_service_empty_and_multiple(dummy_runtime, temp_dir):
     cfg = Config("app", profiles={"default": Profile(file="docker-compose.yml")})
     dummy_runtime.list_containers = MagicMock(return_value=[])

@@ -3,16 +3,20 @@ from __future__ import annotations
 from pathlib import Path
 
 from compman.archive_source import extract_archive, has_archive_suffix
+from compman.errors import CommandError
+from compman.i18n import t
 
 
-def fetch(s3, bucket: str, key: str, tmp: Path) -> Path:
+def fetch(s3, bucket: str, key: str, tmp: Path, max_bytes: int | None = None) -> Path:
     if has_archive_suffix(key):
+        if max_bytes is not None:
+            _check_size(int(s3.head_object(Bucket=bucket, Key=key)["ContentLength"]), max_bytes)
         archive_path = tmp / key.rsplit("/", 1)[-1]
         download(s3, bucket, key, archive_path)
-        return extract_archive(archive_path, tmp / "extract")
+        return extract_archive(archive_path, tmp / "extract", max_bytes=max_bytes)
 
     source_dir = tmp / "src"
-    download_recursive(s3, bucket, key, source_dir)
+    download_recursive(s3, bucket, key, source_dir, max_bytes=max_bytes)
     return source_dir
 
 
@@ -20,10 +24,13 @@ def download(s3, bucket: str, key: str, destination: Path) -> None:
     s3.download_file(bucket, key, str(destination))
 
 
-def download_recursive(s3, bucket: str, key_prefix: str, destination: Path) -> None:
+def download_recursive(
+    s3, bucket: str, key_prefix: str, destination: Path, max_bytes: int | None = None
+) -> None:
     destination.mkdir(parents=True, exist_ok=True)
     paginator = s3.get_paginator("list_objects_v2")
     prefix = f"{key_prefix}/" if key_prefix else ""
+    total = 0
     for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
         for obj in page.get("Contents", []):
             key = obj["Key"]
@@ -31,5 +38,13 @@ def download_recursive(s3, bucket: str, key_prefix: str, destination: Path) -> N
             target = destination / relative
             if destination.resolve() not in target.resolve().parents:
                 raise ValueError(f"Unsafe S3 object path: {key}")
+            total += int(obj.get("Size", 0))
+            _check_size(total, max_bytes)
             target.parent.mkdir(parents=True, exist_ok=True)
             download(s3, bucket, key, target)
+
+
+def _check_size(size: int, max_bytes: int | None) -> None:
+    if max_bytes is not None and size > max_bytes:
+        limit_mb = (max_bytes + 1024 * 1024 - 1) // (1024 * 1024)
+        raise CommandError(t("msg.deploy_limit_exceeded", limit=limit_mb, size=size))

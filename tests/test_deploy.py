@@ -16,6 +16,27 @@ from botocore.exceptions import (
 
 from compman import deploy, http_source
 from compman.archive_source import extract_archive, has_archive_suffix
+from compman.errors import CommandError
+
+
+class _FakeResponse:
+    """Minimal urlopen stand-in exposing read() and geturl()."""
+
+    def __init__(self, data: bytes, url: str) -> None:
+        self._data = io.BytesIO(data)
+        self._url = url
+
+    def read(self, size: int = -1) -> bytes:
+        return self._data.read(size)
+
+    def geturl(self) -> str:
+        return self._url
+
+    def __enter__(self) -> _FakeResponse:
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        return None
 
 
 def test_deploy_no_s3_path(temp_dir: pathlib.Path):
@@ -69,7 +90,7 @@ def test_http_source_downloads_archive(url: str, archive_name: str, temp_dir: pa
     archive = temp_dir / archive_name
     with zipfile.ZipFile(archive, "w") as zip_file:
         zip_file.writestr("app.txt", "hello")
-    response = io.BytesIO(archive.read_bytes())
+    response = _FakeResponse(archive.read_bytes(), url)
     download_dir = temp_dir / "download"
     download_dir.mkdir()
 
@@ -87,6 +108,44 @@ def test_http_source_rejects_invalid_source(url: str, temp_dir: pathlib.Path):
             http_source.fetch(url, temp_dir)
 
     urlopen.assert_not_called()
+
+
+def test_http_source_aborts_download_over_limit(temp_dir: pathlib.Path):
+    payload = b"x" * (2 * 1024 * 1024)
+    response = _FakeResponse(payload, "https://example.test/big.zip")
+
+    with patch("compman.http_source.urlopen", return_value=response):
+        with pytest.raises(CommandError, match="1 MB size limit"):
+            http_source.fetch("https://example.test/big.zip", temp_dir, max_bytes=1024 * 1024)
+
+
+def test_http_source_downloads_under_limit(temp_dir: pathlib.Path):
+    archive = temp_dir / "small.zip"
+    with zipfile.ZipFile(archive, "w") as zip_file:
+        zip_file.writestr("app.txt", "hello")
+    response = _FakeResponse(archive.read_bytes(), "https://example.test/small.zip")
+
+    with patch("compman.http_source.urlopen", return_value=response):
+        extracted = http_source.fetch("https://example.test/small.zip", temp_dir, max_bytes=1024 * 1024)
+
+    assert (extracted / "app.txt").read_text(encoding="utf-8") == "hello"
+
+
+@pytest.mark.parametrize(
+    ("final_url", "match"),
+    [
+        ("ftp://example.test/app.zip", "Invalid HTTP source"),
+        ("http://example.test/app.tar", "must be a .tar.gz"),
+    ],
+)
+def test_http_source_revalidates_redirect_target(final_url: str, match: str, temp_dir: pathlib.Path):
+    response = _FakeResponse(b"data", final_url)
+
+    with patch("compman.http_source.urlopen", return_value=response):
+        with pytest.raises(ValueError, match=match):
+            http_source.fetch("https://example.test/app.zip", temp_dir)
+
+    assert not (temp_dir / "extract").exists()
 
 
 def test_deploy_invalid_s3_path(temp_dir: pathlib.Path):
@@ -368,6 +427,53 @@ def test_deploy_prefix_rejects_path_traversal(temp_dir: pathlib.Path):
     ]
     with pytest.raises(ValueError, match="Unsafe S3 object path"):
         deploy._download_recursive(mock_s3, "bucket", "my-prefix", temp_dir / "project")
+
+
+def test_deploy_fetch_aborts_archive_over_head_size(temp_dir: pathlib.Path):
+    mock_s3 = MagicMock()
+    mock_s3.head_object.return_value = {"ContentLength": 2 * 1024 * 1024}
+
+    with pytest.raises(CommandError, match="1 MB size limit"):
+        deploy._fetch(mock_s3, "bucket", "app.zip", temp_dir / "dl", max_bytes=1024 * 1024)
+
+    mock_s3.download_file.assert_not_called()
+
+
+def test_deploy_recursive_aborts_over_listed_size(temp_dir: pathlib.Path):
+    mock_s3 = MagicMock()
+    mock_s3.get_paginator.return_value.paginate.return_value = [
+        {"Contents": [{"Key": "p/small.bin", "Size": 512}]},
+        {"Contents": [{"Key": "p/big.bin", "Size": 2 * 1024 * 1024}]},
+    ]
+    downloaded: list[str] = []
+    mock_s3.download_file.side_effect = lambda _b, key, _d: downloaded.append(key)
+
+    with pytest.raises(CommandError, match="1 MB size limit"):
+        deploy._download_recursive(mock_s3, "bucket", "p", temp_dir / "out", max_bytes=1024 * 1024)
+
+    assert downloaded == ["p/small.bin"]
+
+
+def test_deploy_aborts_extraction_over_member_total(temp_dir: pathlib.Path, capsys):
+    (temp_dir / "compman.yml").write_text(
+        "compman:\n  name: app\n  limits:\n    max_archive_mb: 1\n  compose:\n    default:\n      file: docker-compose.yml\n",
+        encoding="utf-8",
+    )
+    tar_buffer = io.BytesIO()
+    with tarfile.open(fileobj=tar_buffer, mode="w:gz") as tar:
+        info = tarfile.TarInfo("huge.bin")
+        info.size = 2 * 1024 * 1024
+        tar.addfile(info, io.BytesIO(b"\0" * (2 * 1024 * 1024)))
+    mock_s3 = MagicMock()
+    mock_s3.head_object.return_value = {"ContentLength": len(tar_buffer.getvalue())}
+    mock_s3.download_file.side_effect = lambda _b, _k, dst: pathlib.Path(dst).write_bytes(tar_buffer.getvalue())
+
+    with patch("boto3.client", return_value=mock_s3), pytest.raises(SystemExit):
+        deploy.deploy(s3_path="s3://my-bucket/huge.tar.gz")
+
+    error = capsys.readouterr().err
+    assert "size limit" in error
+    assert not (temp_dir / "project").exists()
 
 
 def test_deploy_swap_existing(dummy_runtime, temp_dir: pathlib.Path):

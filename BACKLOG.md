@@ -10,7 +10,7 @@ Root causes and reusable lessons for everything below live in [SOLUTION.md](SOLU
   checksum or S3 object-version pin to detect a trusted-but-compromised bucket
   delivering an altered artifact.
 
-- [ ] [H2] Enforce deploy size caps during download and extraction — the
+- [x] [H2] Enforce deploy size caps during download and extraction — the
   `limits.max_archive_mb` check runs only after `_fetch` has downloaded AND
   extracted the source into `.deploy_tmp_*` (`deploy.py:99-103`; unbounded
   streaming `http_source.py:22`; uncapped S3 pagination `s3_source.py:19-20,
@@ -19,7 +19,7 @@ Root causes and reusable lessons for everything below live in [SOLUTION.md](SOLU
   filesystem change" claim is false until this is fixed; correct it together
   with the code.
 
-- [ ] [H3] Validate volume-map.json contents before restore/push —
+- [x] [H3] Validate volume-map.json contents before restore/push —
   `_load_mapping` checks key presence only (`ops/volume.py:238-241`); an
   attacker-controlled backup tarball can escape `restore_dir` via the
   `volume` field (`ops/volume.py:117`), copying arbitrary host directories
@@ -132,7 +132,7 @@ Root causes and reusable lessons for everything below live in [SOLUTION.md](SOLU
   (`install.sh:40`); bound or replace the private `typer._click` import
   (`cli.py:14`) against the unbounded typer requirement.
 
-- [ ] [L11] Archive-extraction and disclosure leftovers — reject tar
+- [x] [L11] Archive-extraction and disclosure leftovers — reject tar
   device/FIFO members on all supported Python versions (filter="data"
   parity exists only on 3.12+, `archive.py:16-19`); re-validate scheme and
   suffix after HTTP redirects (`http_source.py:15-16,21`); stop echoing the

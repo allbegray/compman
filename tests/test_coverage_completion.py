@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import zipfile
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -27,7 +28,7 @@ from compman.errors import CommandError
 from compman.ops import common, image, seed, volume
 
 
-def test_archive_rejects_links_and_empty_names_and_supports_python_311(temp_dir):
+def test_archive_rejects_links_and_empty_names(temp_dir):
     link = tarfile.TarInfo("link")
     link.type = tarfile.SYMTYPE
     link.linkname = "target"
@@ -42,9 +43,71 @@ def test_archive_rejects_links_and_empty_names_and_supports_python_311(temp_dir)
     member = tarfile.TarInfo("safe.txt")
     fake_tar = MagicMock()
     fake_tar.getmembers.return_value = [member]
-    with patch.object(archive.sys, "version_info", (3, 11)):
-        archive.extract_tar(fake_tar, temp_dir)
+    archive.extract_tar(fake_tar, temp_dir)
     fake_tar.extract.assert_called_once_with(member, temp_dir)
+
+
+@pytest.mark.parametrize("member_type", [tarfile.FIFOTYPE, tarfile.BLKTYPE, tarfile.CHRTYPE])
+def test_archive_rejects_device_and_fifo_members(temp_dir, member_type):
+    destination = temp_dir / "out"
+    destination.mkdir()
+    member = tarfile.TarInfo("special")
+    member.type = member_type
+    fake_tar = MagicMock()
+    fake_tar.getmembers.return_value = [member]
+
+    with pytest.raises(ValueError, match="Unsupported archive member"):
+        archive.extract_tar(fake_tar, destination)
+
+    fake_tar.extract.assert_not_called()
+    assert list(destination.iterdir()) == []
+
+
+def test_archive_extract_tar_aborts_over_member_total_before_extraction(temp_dir):
+    destination = temp_dir / "out"
+    destination.mkdir()
+    payload = io.BytesIO(b"\0" * (1024 * 1024))
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w") as tar:
+        info = tarfile.TarInfo("big.bin")
+        info.size = payload.getbuffer().nbytes
+        tar.addfile(info, payload)
+    buffer.seek(0)
+    with tarfile.open(fileobj=buffer, mode="r") as tar:
+        with pytest.raises(CommandError, match="1 MB size limit"):
+            archive.extract_tar(tar, destination, max_bytes=1024 * 1024 - 1)
+
+    assert list(destination.iterdir()) == []
+
+
+def test_archive_extract_tar_under_limit_extracts(temp_dir):
+    destination = temp_dir / "out"
+    destination.mkdir()
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w") as tar:
+        info = tarfile.TarInfo("small.txt")
+        data = b"hello"
+        info.size = len(data)
+        tar.addfile(info, io.BytesIO(data))
+    buffer.seek(0)
+    with tarfile.open(fileobj=buffer, mode="r") as tar:
+        archive.extract_tar(tar, destination, max_bytes=1024 * 1024)
+
+    assert (destination / "small.txt").read_text(encoding="utf-8") == "hello"
+
+
+def test_archive_extract_zip_aborts_over_total_before_extraction(temp_dir):
+    destination = temp_dir / "out"
+    destination.mkdir()
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as zip_file:
+        zip_file.writestr("big.bin", b"\0" * (2 * 1024 * 1024))
+    buffer.seek(0)
+    with zipfile.ZipFile(buffer) as zip_file:
+        with pytest.raises(CommandError, match="1 MB size limit"):
+            archive.extract_zip(zip_file, destination, max_bytes=1024 * 1024)
+
+    assert list(destination.iterdir()) == []
 
 
 def test_main_module_can_be_loaded_without_running_cli():

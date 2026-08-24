@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pathlib
-import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -128,26 +127,27 @@ def test_get_key_posix():
                 assert common.get_key() == "7"
 
 
-@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only test")
 def test_get_key_win32():
-    with patch("sys.platform", "win32"), patch("msvcrt.getch", side_effect=[b"\r"]):
+    fake_msvcrt = MagicMock()
+    with patch("sys.platform", "win32"), patch.dict("sys.modules", {"msvcrt": fake_msvcrt}):
+        fake_msvcrt.getch.side_effect = [b"\r"]
         assert common.get_key() == "enter"
 
-    with patch("sys.platform", "win32"), patch("msvcrt.getch", side_effect=[b"\xe0", b"H"]):
+        fake_msvcrt.getch.side_effect = [b"\xe0", b"H"]
         assert common.get_key() == "up"
 
-    with patch("sys.platform", "win32"), patch("msvcrt.getch", side_effect=[b"\xe0", b"P"]):
+        fake_msvcrt.getch.side_effect = [b"\xe0", b"P"]
         assert common.get_key() == "down"
 
-    with patch("sys.platform", "win32"), patch("msvcrt.getch", side_effect=[b"\xe0", b"X"]):
+        fake_msvcrt.getch.side_effect = [b"\xe0", b"X"]
         assert common.get_key() == "other"
 
-    with patch("sys.platform", "win32"), patch("msvcrt.getch", side_effect=[b"\x1b"]):
+        fake_msvcrt.getch.side_effect = [b"\x1b"]
         assert common.get_key() == "esc"
 
-    with patch("sys.platform", "win32"), patch("msvcrt.getch", side_effect=[b"\x03"]):
+        fake_msvcrt.getch.side_effect = [b"\x03"]
         with pytest.raises(KeyboardInterrupt):
             common.get_key()
 
-    with patch("sys.platform", "win32"), patch("msvcrt.getch", side_effect=[b"4"]):
+        fake_msvcrt.getch.side_effect = [b"4"]
         assert common.get_key() == "4"

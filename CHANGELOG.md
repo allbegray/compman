@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.5.0] - 2026-08-24
+
+### Added
+- Deploy source size caps enforced during download (chunked HTTP, S3 object sizes) and extraction (uncompressed member totals)
+- Volume-map validation on restore/push: path containment, container membership, destination checks
+- Tar device/FIFO member rejection on all supported Python versions
+- HTTP redirect target re-validation (scheme + archive suffix)
+- Integration test module (`pytest -m integration`) with real-Docker volume roundtrip and doctor JSON cases
+- `tests/conftest.py` config YAML builder (`DEFAULT_CONFIG_YAML` + `write_config`)
+- `limits.max_archive_mb` example under `examples/compman-config/`
+- Diagnostics JSON additive fields: `remediation`, `detail`, `error_code`, `generated_at`, `config_path`
+
+### Changed
+- Python support floor raised to >=3.12 (3.10 EOL October 2026)
+- Subprocess timeouts unified: all passthrough/build commands honor `COMPMAN_TIMEOUT`; streaming commands (`logs -f`, `stats --follow`, `connect`) run without timeout
+- `compman init --seed` conflict now exits 1 (was 0)
+- `compman completion --install` failure now exits 1 (was 0)
+- boto3/botocore imports deferred to AWS-touching paths (faster startup for non-AWS commands)
+- Scaffold update no longer echoes full `compman.yml` content (prevents ARN disclosure in terminal)
+
+### Fixed
+- Volume restore works after stack down (erroneous stack-existence gate removed)
+- Archive extraction rejects FIFO/device members on Python < 3.12 (coverage gate restored)
+- Interactive init menu and status header labels now route through i18n
+
+### Security
+- SECURITY.md size-cap claim corrected to reflect actual enforcement points
+
 Major user-visible changes to compman are recorded here, with the newest release
 first.
 

@@ -3,6 +3,28 @@
 Major user-visible changes to compman are recorded here, with the newest release
 first.
 
+## [1.8.0] - 2026-08-25
+
+### Added
+
+- `stack up --wait` / `stack update --wait`: after starting the stack, compman
+  polls service states until every service is running (or healthy) and exits
+  non-zero with a per-service detail if the COMPMAN_TIMEOUT budget elapses.
+- Machine-readable output: `--json` on `compman ps`, `compman stats`, and
+  `compman schedule list` emits schema-version 1 payloads with generated_at.
+  Empty states serialize as empty arrays.
+
+### Fixed
+
+- `update` now rebuilds exactly the image referenced by the existing compose
+  configuration instead of a directory-derived default, so stacks deployed with
+  `--tag` no longer keep running a stale image after an update. With multiple
+  distinct service images the rebuild target is ambiguous: update skips it and
+  warns, listing every image found.
+- The real-runtime integration module passes again: restore-timestamp
+  derivation keeps only the bare timestamp, and the downed-stack restore leg
+  documents its clean-failure behavior.
+
 ## [1.7.1] - 2026-08-25
 
 ### Added

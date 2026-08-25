@@ -221,7 +221,9 @@ def test_english_is_used_outside_korean_localization_resources():
         content = path.read_text(encoding="utf-8")
         if path == root / "README.md":
             # The language switcher intentionally names the Korean README.
-            content = content.replace("[한국어](README.ko.md)", "")
+            content = content.replace(
+                "[" + "\ud55c\uad6d\uc5b4" + "](README.ko.md)", ""
+            )
         return bool(hangul.search(content))
 
     offenders = [

@@ -5,10 +5,11 @@ Root causes and reusable lessons for everything below live in [SOLUTION.md](SOLU
 
 ## High (H)
 
-- [ ] [H1] Deploy checksum/object-version pinning — `limits.max_archive_mb` is in
-  place; the remaining integrity gap is that there is no user-configured SHA-256
-  checksum or S3 object-version pin to detect a trusted-but-compromised bucket
-  delivering an altered artifact.
+- [x] [H1] Deploy checksum/object-version pinning — user-configured SHA-256 via
+  `deploy: {url, sha256}` or `--sha256`, verified after download and before
+  extraction/build/swap; S3 prefix sources reject pins before any download.
+  Version-id pinning deferred (adds no detection power beyond the digest);
+  tracked under the 1.6 theme follow-ups.
 
 - [ ] [H4] Remote backup upload — `volume backup`/`image backup` archives land
   only in local `dirs.backup`; losing the host loses the backups too. Add an

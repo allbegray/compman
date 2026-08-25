@@ -43,7 +43,7 @@ Stack <em>payments</em> is healthy
   api       <strong>running</strong>
   postgres  <strong>running</strong>
 
-<b>$</b> compman volume backup --push s3://backups
+<b>$</b> compman schedule add --daily 04:30
 Backup created successfully
 
 <b>$</b> compman deploy --path release.zip
@@ -66,10 +66,11 @@ Deploy completed</code></pre>
       </div>
       <div class="feature-grid">
         <article class="card"><span class="card-icon">01</span><h3>Stack &amp; services</h3><p>Start, stop, update, inspect, connect to, and follow logs from Compose services.</p></article>
-        <article class="card"><span class="card-icon">02</span><h3>Safe backups</h3><p>Back up and restore named volumes or container images with configurable gzip compression. Replicate archives to S3-compatible storage with <code>backup.upload</code> or a one-off <code>--push</code>; endpoint overrides make Ministack and LocalStack work, and the local copy always stays.</p></article>
+        <article class="card"><span class="card-icon">02</span><h3>Safe backups</h3><p>Back up and restore named volumes or container images with configurable gzip or Zstandard compression. Point <code>dirs.backup</code> at an S3 URI to store archives in the cloud, schedule unattended backups, and rely on retention to keep the newest N per stack. Endpoint overrides make Ministack and LocalStack work.</p></article>
         <article class="card"><span class="card-icon">03</span><h3>Useful diagnostics</h3><p>Get human-readable or JSON health reports with <code>status</code> and <code>doctor</code>.</p></article>
         <article class="card"><span class="card-icon">04</span><h3>Simple deployments</h3><p>Fetch an S3 prefix or archive, or an authenticated HTTPS archive, then optionally build and recreate. A SHA-256 pin verifies the artifact before anything changes.</p></article>
         <article class="card"><span class="card-icon">05</span><h3>Secret-safe config</h3><p>Inject environment variables from AWS Secrets Manager instead of hardcoding secrets in <code>compman.yml</code>.</p></article>
+        <article class="card"><span class="card-icon">06</span><h3>Scheduled backups</h3><p>Register platform-native jobs (launchd, systemd, cron, schtasks) that run volume backups on a cadence you choose &mdash; hourly, daily, weekly.</p></article>
       </div>
     </section>
 

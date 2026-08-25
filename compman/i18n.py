@@ -971,6 +971,132 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "en": "profile:",
         "ko": "프로필:",
     },
+    "cmd.schedule.help": {
+        "en": "Manage scheduled volume backups.",
+        "ko": "예약된 볼륨 백업을 관리합니다.",
+    },
+    "cmd.schedule.add.help": {
+        "en": (
+            "Register a scheduled volume backup on the platform scheduler.\n\n"
+            "Examples:\n"
+            "  compman schedule add --every 30m --no-stop\n"
+            "  compman schedule add --daily 04:30\n"
+            "  compman schedule add --weekly sun 03:00 -z 9"
+        ),
+        "ko": (
+            "플랫폼 스케줄러에 볼륨 백업을 등록합니다.\n\n"
+            "사용 예시:\n"
+            "  compman schedule add --every 30m --no-stop\n"
+            "  compman schedule add --daily 04:30\n"
+            "  compman schedule add --weekly sun 03:00 -z 9"
+        ),
+    },
+    "cmd.schedule.list.help": {
+        "en": "List registered backup schedules.",
+        "ko": "등록된 백업 예약 목록을 표시합니다.",
+    },
+    "cmd.schedule.remove.help": {
+        "en": "Remove a registered backup schedule.",
+        "ko": "등록된 백업 예약을 제거합니다.",
+    },
+    "opt.every": {
+        "en": "Run every N minutes or hours, e.g. 30m or 6h",
+        "ko": "N분 또는 N시간 간격으로 실행합니다(예: 30m, 6h)",
+    },
+    "opt.daily": {
+        "en": "Run daily at HH:MM (local time)",
+        "ko": "매일 HH:MM에 실행합니다(현지 시간)",
+    },
+    "opt.weekly": {
+        "en": "Run weekly, e.g. 'sun 03:00'",
+        "ko": "매주 지정한 요일과 시간에 실행합니다(예: 'sun 03:00')",
+    },
+    "opt.job_name": {
+        "en": "Override the derived schedule name",
+        "ko": "자동 생성된 예약 이름을 대체합니다",
+    },
+    "opt.scheduler": {
+        "en": "Force the Linux scheduler mechanism (systemd or cron)",
+        "ko": "Linux 스케줄러 방식을 강제 지정합니다(systemd 또는 cron)",
+    },
+    "msg.schedule.added": {
+        "en": "Scheduled backup '{name}' registered ({platform}).",
+        "ko": "예약 백업 '{name}'이(가) 등록되었습니다({platform}).",
+    },
+    "msg.schedule.removed": {
+        "en": "Scheduled backup '{name}' removed.",
+        "ko": "예약 백업 '{name}'이(가) 제거되었습니다.",
+    },
+    "msg.schedule.list_header": {
+        "en": "Registered backup schedules:",
+        "ko": "등록된 백업 예약:",
+    },
+    "msg.schedule.list_empty": {
+        "en": "No backup schedules registered.",
+        "ko": "등록된 백업 예약이 없습니다.",
+    },
+    "msg.schedule.missing": {
+        "en": "[missing]",
+        "ko": "[누락]",
+    },
+    "msg.schedule.cadence_conflict": {
+        "en": "Specify exactly one of --every, --daily, or --weekly.",
+        "ko": "--every, --daily, --weekly 중 정확히 하나만 지정해야 합니다.",
+    },
+    "msg.schedule.cadence_invalid": {
+        "en": "Invalid cadence '{value}': {reason}",
+        "ko": "잘못된 주기 '{value}': {reason}",
+    },
+    "msg.schedule.exists": {
+        "en": (
+            "A schedule named '{name}' is already registered (config: {path}). "
+            "Remove it first or pass --name."
+        ),
+        "ko": (
+            "'{name}' 이름의 예약이 이미 등록되어 있습니다(config: {path}). "
+            "먼저 제거하거나 --name을 사용하세요."
+        ),
+    },
+    "msg.schedule.not_found": {
+        "en": "No schedule named '{name}' is registered.",
+        "ko": "'{name}' 이름으로 등록된 예약이 없습니다.",
+    },
+    "msg.schedule.executable_not_found": {
+        "en": (
+            "Could not resolve the installed compman executable. "
+            "Install with 'uv tool install .' and retry."
+        ),
+        "ko": (
+            "설치된 compman 실행 파일을 확인할 수 없습니다. "
+            "'uv tool install .'로 설치한 후 다시 시도하세요."
+        ),
+    },
+    "msg.schedule.cron_interval": {
+        "en": (
+            "'--every {value}' cannot be expressed in cron; use a divisor of 60 (minutes) "
+            "or 24 (hours), or force --scheduler systemd."
+        ),
+        "ko": (
+            "'--every {value}'은(는) cron으로 표현할 수 없습니다. 60(분) 또는 24(시간)의 "
+            "배수 간격을 사용하거나 --scheduler systemd를 강제하세요."
+        ),
+    },
+    "msg.schedule.no_mechanism": {
+        "en": "Neither a systemd user session nor a writable crontab is available: {detail}",
+        "ko": "사용 가능한 systemd 사용자 세션도 쓰기 가능한 crontab도 없습니다: {detail}",
+    },
+    "msg.schedule.force_unsupported": {
+        "en": "--scheduler can only be forced on Linux; this platform uses its native scheduler.",
+        "ko": "--scheduler는 Linux에서만 강제할 수 있습니다. 이 플랫폼은 기본 스케줄러를 사용합니다.",
+    },
+    "msg.schedule.unsupported_platform": {
+        "en": "Scheduling is not supported on {system}.",
+        "ko": "{system}에서는 예약 기능을 지원하지 않습니다.",
+    },
+    "msg.schedule.already_gone": {
+        "en": "Platform entry for '{name}' was already missing; removed from registry.",
+        "ko": "'{name}'의 플랫폼 항목이 이미 없습니다. 레지스트리에서만 제거했습니다.",
+    },
 }
 
 

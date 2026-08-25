@@ -6,6 +6,7 @@ import pathlib
 import shutil
 import subprocess
 import sys
+from enum import Enum
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 from typing import TYPE_CHECKING, Annotated
@@ -97,6 +98,12 @@ def _container_ops():
     from compman.ops import container
 
     return container
+
+
+def _schedule_ops():
+    from compman.ops import schedule
+
+    return schedule
 
 
 def _configure_console_output() -> None:
@@ -635,6 +642,63 @@ def image_restore(
 
 
 app.add_typer(image_app, name="image")
+
+
+# ---- schedule group ----
+class SchedulerChoice(str, Enum):
+    systemd = "systemd"
+    cron = "cron"
+
+
+schedule_app = typer.Typer(
+    cls=HelpOnUnknownCommandGroup,
+    help=t("cmd.schedule.help"),
+    no_args_is_help=True,
+    context_settings=_CONTEXT_SETTINGS,
+)
+
+
+@schedule_app.command("add", help=t("cmd.schedule.add.help"))
+def schedule_add(
+    every: Annotated[str | None, typer.Option("--every", help=t("opt.every"))] = None,
+    daily: Annotated[str | None, typer.Option("--daily", help=t("opt.daily"))] = None,
+    weekly: Annotated[str | None, typer.Option("--weekly", help=t("opt.weekly"))] = None,
+    no_stop: Annotated[bool, typer.Option("--no-stop", help=t("opt.no_stop"))] = False,
+    level: Annotated[int, typer.Option("-z", "--level", min=1, max=9, help=t("opt.compression_level"))] = 6,
+    profile: Annotated[str | None, typer.Option("--profile", help=t("opt.profile"))] = None,
+    name: Annotated[str | None, typer.Option("--name", help=t("opt.job_name"))] = None,
+    scheduler: Annotated[
+        SchedulerChoice | None, typer.Option("--scheduler", help=t("opt.scheduler"))
+    ] = None,
+    config: Annotated[str | None, typer.Option("--config", "-c", help=t("opt.config"))] = None,
+) -> None:
+    ctx = _load(config)
+    _schedule_ops().add_schedule(
+        ctx["config"],
+        every=every,
+        daily=daily,
+        weekly=weekly,
+        no_stop=no_stop,
+        level=level,
+        profile=profile,
+        name=name,
+        scheduler=scheduler.value if scheduler else None,
+    )
+
+
+@schedule_app.command("list", help=t("cmd.schedule.list.help"))
+def schedule_list() -> None:
+    _schedule_ops().list_schedules()
+
+
+@schedule_app.command("remove", help=t("cmd.schedule.remove.help"))
+def schedule_remove(
+    name: Annotated[str, typer.Argument()],
+) -> None:
+    _schedule_ops().remove_schedule(name)
+
+
+app.add_typer(schedule_app, name="schedule")
 
 
 # ---- utils ----

@@ -33,6 +33,7 @@ def test_importing_cli_does_not_load_command_only_modules():
         "compman.ops.service",
         "compman.ops.stack",
         "compman.ops.volume",
+        "compman.ops.schedule",
     }
     script = (
         "import sys; import compman.cli; "
@@ -276,6 +277,73 @@ def test_cli_image_commands(runner: CliRunner, dummy_runtime, temp_dir: pathlib.
 
         res_res = runner.invoke(app, ["image", "restore", "20260731_1200"])
         assert res_res.exit_code == 0
+
+
+def test_cli_schedule_commands(runner: CliRunner, dummy_runtime, temp_dir: pathlib.Path):
+    write_config(temp_dir / "compman.yml")
+    (temp_dir / "docker-compose.yml").touch()
+    with (
+        patch("compman.cli.detect_runtime", return_value=dummy_runtime),
+        patch("compman.ops.schedule.add_schedule") as add_schedule,
+        patch("compman.ops.schedule.list_schedules") as list_schedules,
+        patch("compman.ops.schedule.remove_schedule") as remove_schedule,
+    ):
+        res_add = runner.invoke(
+            app,
+            [
+                "schedule",
+                "add",
+                "--daily",
+                "04:30",
+                "--no-stop",
+                "-z",
+                "9",
+                "--profile",
+                "dev",
+                "--name",
+                "nightly",
+                "--scheduler",
+                "systemd",
+            ],
+        )
+        assert res_add.exit_code == 0
+        call = add_schedule.call_args
+        assert call.kwargs["daily"] == "04:30"
+        assert call.kwargs["every"] is None
+        assert call.kwargs["weekly"] is None
+        assert call.kwargs["no_stop"] is True
+        assert call.kwargs["level"] == 9
+        assert call.kwargs["profile"] == "dev"
+        assert call.kwargs["name"] == "nightly"
+        assert call.kwargs["scheduler"] == "systemd"
+
+        res_default = runner.invoke(app, ["schedule", "add", "--every", "30m"])
+        assert res_default.exit_code == 0
+        assert add_schedule.call_args.kwargs["scheduler"] is None
+
+        res_list = runner.invoke(app, ["schedule", "list"])
+        assert res_list.exit_code == 0
+        list_schedules.assert_called_once_with()
+
+        res_remove = runner.invoke(app, ["schedule", "remove", "nightly"])
+        assert res_remove.exit_code == 0
+        remove_schedule.assert_called_once_with("nightly")
+
+
+def test_cli_schedule_help_lists_three_subcommands(runner: CliRunner):
+    res = runner.invoke(app, ["schedule", "--help"])
+    assert res.exit_code == 0
+    for subcommand in ("add", "list", "remove"):
+        assert subcommand in res.output
+
+
+def test_readme_lists_schedule_commands():
+    root = pathlib.Path(__file__).parents[1]
+    readme = (root / "README.md").read_text(encoding="utf-8")
+    section = readme.split("## Commands", 1)[1].split("View all options", 1)[0]
+    assert "compman schedule add" in section
+    assert "compman schedule list" in section
+    assert "compman schedule remove NAME" in section
 
 
 def test_cli_volume_backup_push_flags_reach_dispatcher(runner: CliRunner, dummy_runtime, temp_dir: pathlib.Path):

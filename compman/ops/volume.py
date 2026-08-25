@@ -10,6 +10,7 @@ from typing import Any
 import typer
 
 from compman.archive import extract_tar
+from compman.backup_store import list_archives, local_root, new_backup_paths, put_archive
 from compman.config import Config
 from compman.docker import ComposeContext, ContainerRuntime, resolve_compose_context
 from compman.errors import CommandError
@@ -20,7 +21,6 @@ from compman.ops.common import (
     resolve_volume_targets,
     select_backup_timestamp,
     stack_paused,
-    unique_backup_paths,
     validate_timestamp,
     write_volume_map,
 )
@@ -38,7 +38,7 @@ def backup(
         return
     context = targets.context
 
-    backup_dir, tarball = unique_backup_paths(config, "volume")
+    backup_dir, tarball = new_backup_paths(config.backup_store, config.name, "volume")
     try:
         with stack_paused(runtime, context, enabled=not no_stop):
             mapping = collect_mounts(
@@ -56,6 +56,7 @@ def backup(
         shutil.rmtree(backup_dir, ignore_errors=True)
 
     typer.echo(t("msg.backup_done", kind="Volume", path=tarball))
+    put_archive(config.backup_store, tarball.name, tarball)
 
 
 def restore(
@@ -71,13 +72,14 @@ def restore(
         timestamp = select_backup_timestamp(config, "volume")
 
     validate_timestamp(timestamp)
+    backup_root = local_root(config.backup_store)
     backup_name = f"{config.name}.volume.{timestamp}"
-    tarball = config.backup_dir / f"{backup_name}.tar.gz"
-    if not tarball.is_file():
+    tarball = backup_root / f"{backup_name}.tar.gz"
+    if timestamp not in list_archives(config.backup_store, config.name, "volume"):
         _list_backups(config, "volume")
         raise CommandError(t("msg.backup_not_found", tarball=tarball))
 
-    restore_dir = config.backup_dir / backup_name
+    restore_dir = backup_root / backup_name
     restore_dir.mkdir(parents=True, exist_ok=True)
     try:
         with tarfile.open(tarball, "r:gz") as tar:
@@ -223,12 +225,9 @@ def _load_mapping(path: Path) -> list[dict[str, str]]:
 
 
 def _list_backups(config: Config, kind: str) -> None:
-    pattern = f"{config.name}.{kind}."
     typer.echo(t("msg.available_backups", kind=kind))
-    for f in sorted(config.backup_dir.glob(f"{pattern}*.tar.gz")):
-        name = f.name
-        ts = name.replace(pattern, "").replace(".tar.gz", "")
-        typer.echo(f"  {ts}")  # ponytail: color omitted, typer handles terminal
+    for ts in list_archives(config.backup_store, config.name, kind):
+        typer.echo(f"  {ts}")
 
 
 def _validate_replace_dest(dest: str) -> None:

@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from compman.backup_store import local_root
 from compman.config import Config, Profile
 from compman.docker import ComposeContext
 from compman.errors import CommandError
@@ -13,10 +14,10 @@ from compman.ops import common
 
 def test_select_backup_timestamp_single(temp_dir: pathlib.Path):
     cfg = Config(name="my_stack", profiles={"default": Profile(file="docker-compose.yml")})
-    backup_dir = cfg.backup_dir
-    backup_dir.mkdir(parents=True, exist_ok=True)
+    backup_root = local_root(cfg.backup_store)
+    backup_root.mkdir(parents=True, exist_ok=True)
 
-    backup_file = backup_dir / "my_stack.volume.20260731_1200.tar.gz"
+    backup_file = backup_root / "my_stack.volume.20260731_1200.tar.gz"
     backup_file.touch()
 
     with patch("compman.ops.common.prompt_select", return_value=0):
@@ -41,7 +42,7 @@ def test_select_backup_timestamp_none(temp_dir: pathlib.Path):
 
 def test_select_backup_timestamp_empty_dir(temp_dir: pathlib.Path):
     cfg = Config(name="my_stack", profiles={"default": Profile(file="docker-compose.yml")})
-    cfg.backup_dir.mkdir(parents=True, exist_ok=True)
+    local_root(cfg.backup_store).mkdir(parents=True, exist_ok=True)
     with pytest.raises(CommandError):
         common.select_backup_timestamp(cfg, "volume")
 

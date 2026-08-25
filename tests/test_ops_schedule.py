@@ -8,8 +8,9 @@ from unittest.mock import patch
 
 import pytest
 
+from compman.backup_store import LocalBackupStore, S3BackupStore
 from compman.config import Config
-from compman.errors import CommandError
+from compman.errors import CommandError, ConfigError
 from compman.ops import schedule as schedule_ops
 from compman.scheduling import (
     CrontabAdapter,
@@ -45,7 +46,11 @@ class FakeAdapter:
 
 
 def make_config(tmp_path: pathlib.Path) -> Config:
-    return Config(name="app", root_dir=tmp_path)
+    return Config(
+        name="app",
+        root_dir=tmp_path,
+        backup_store=LocalBackupStore(tmp_path / "backup"),
+    )
 
 
 def seed_registry(tmp_path: pathlib.Path, jobs: dict[str, Any]) -> None:
@@ -83,6 +88,16 @@ def test_adapter_for_maps_platform_to_adapter(platform_name: str, adapter_type: 
 # ---------------------------------------------------------------------------
 # add_schedule
 # ---------------------------------------------------------------------------
+
+
+def test_add_schedule_rejects_remote_backup_store(tmp_path: pathlib.Path) -> None:
+    config = Config(
+        name="app",
+        root_dir=tmp_path,
+        backup_store=S3BackupStore(bucket="bucket", prefix="backups"),
+    )
+    with pytest.raises(ConfigError, match="schedule logs require a local backup directory"):
+        schedule_ops.add_schedule(config, daily="04:30")
 
 
 def test_add_schedule_registers_launchd_job_and_writes_registry(

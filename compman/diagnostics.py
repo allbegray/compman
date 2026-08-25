@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
+from compman.backup_store import local_root
 from compman.config import Config, ConfigError, load_config
 from compman.docker import ContainerRuntime, detect_runtime, resolve_compose_context
 
@@ -263,7 +264,9 @@ def _collect_runtime_connection(runtime: ContainerRuntime, checks: list[CheckRes
 
 def _collect_managed_dirs(config: Config, checks: list[CheckResult]) -> None:
     try:
-        directories = (config.backup_dir, config.volume_dir, config.deploy_dir)
+        directories = [config.volume_dir, config.deploy_dir]
+        if not config.backup_store.is_remote:
+            directories.insert(0, local_root(config.backup_store))
         unwritable = []
         for directory in directories:
             probe = directory

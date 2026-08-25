@@ -635,10 +635,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "en": "Operation cancelled.",
         "ko": "작업이 취소되었습니다.",
     },
-    "msg.backup_dir_not_found": {
-        "en": "Info: Backup directory not found at {path}.",
-        "ko": "안내: 백업 디렉터리를 찾을 수 없습니다: {path}",
-    },
     "msg.no_backups": {
         "en": "Info: No {kind} backup files found in {path}.",
         "ko": "안내: {path}에 {kind} 백업 파일이 없습니다.",

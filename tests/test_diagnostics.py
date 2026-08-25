@@ -337,6 +337,39 @@ def test_nested_missing_managed_directories_use_nearest_existing_ancestor(
     assert not (existing / "missing").exists()
 
 
+def test_remote_backup_store_is_skipped_by_managed_dir_probe(tmp_path, monkeypatch, dummy_runtime):
+    write_simple_project(tmp_path)
+    existing = tmp_path / "writable"
+    existing.mkdir()
+    config_path = tmp_path / "compman.yml"
+    config_path.write_text(
+        "compman:\n"
+        "  name: test-app\n"
+        "  compose:\n"
+        "    default:\n"
+        "      file: docker-compose.yml\n"
+        "  dirs:\n"
+        "    backup: s3://bucket/backups\n"
+        "    volume: writable/missing/volume\n"
+        "    project: writable/missing/project\n",
+        encoding="utf-8",
+    )
+    accessed = []
+
+    def record_access(path, mode):
+        accessed.append((Path(path), mode))
+        return True
+
+    monkeypatch.setattr("compman.diagnostics.detect_runtime", lambda: dummy_runtime)
+    monkeypatch.setattr("compman.diagnostics.os.access", record_access)
+
+    report = collect_doctor(str(config_path))
+
+    managed_dirs = next(check for check in report.checks if check.id == "managed_dirs")
+    assert managed_dirs.ok is True
+    assert accessed == [(existing, os.W_OK | os.X_OK)] * 2
+
+
 def test_existing_managed_directory_checks_the_target_itself(tmp_path, monkeypatch, dummy_runtime):
     write_simple_project(tmp_path)
     backup = tmp_path / "backup"

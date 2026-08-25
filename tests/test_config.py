@@ -5,6 +5,7 @@ import pathlib
 import pytest
 from conftest import write_config
 
+from compman.backup_store import LocalBackupStore, S3BackupStore
 from compman.config import (
     Config,
     ConfigError,
@@ -29,11 +30,65 @@ def test_dump_default_config():
 
 
 def test_config_properties(temp_dir: pathlib.Path):
-    cfg = Config(name="test", folder="sub", dirs={"backup": "bak", "volume": "vol", "project": "proj"})
+    store = LocalBackupStore(temp_dir / "bak")
+    cfg = Config(
+        name="test",
+        folder="sub",
+        dirs={"backup": "bak", "volume": "vol", "project": "proj"},
+        backup_store=store,
+    )
     assert cfg.project_dir == temp_dir / "sub"
-    assert cfg.backup_dir == temp_dir / "bak"
+    assert cfg.backup_store == store
     assert cfg.volume_dir == temp_dir / "vol"
     assert cfg.deploy_dir == temp_dir / "proj"
+
+
+def test_load_config_dirs_backup_s3_uri_builds_remote_store(temp_dir: pathlib.Path):
+    config_file = temp_dir / "compman.yml"
+    config_file.write_text(
+        "compman:\n"
+        "  name: app\n"
+        "  dirs:\n"
+        "    backup: s3://bucket/backups/\n"
+        "  compose:\n"
+        "    default:\n"
+        "      file: docker-compose.yml\n",
+        encoding="utf-8",
+    )
+    cfg = load_config(str(config_file))
+    assert cfg.backup_store == S3BackupStore(bucket="bucket", prefix="backups")
+
+
+def test_load_config_dirs_backup_bad_scheme_raises(temp_dir: pathlib.Path):
+    config_file = temp_dir / "compman.yml"
+    config_file.write_text(
+        "compman:\n"
+        "  name: app\n"
+        "  dirs:\n"
+        "    backup: https://bucket/backups\n"
+        "  compose:\n"
+        "    default:\n"
+        "      file: docker-compose.yml\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigError, match="'dirs.backup' must be a relative path"):
+        load_config(str(config_file))
+
+
+def test_load_config_dirs_backup_empty_bucket_raises(temp_dir: pathlib.Path):
+    config_file = temp_dir / "compman.yml"
+    config_file.write_text(
+        "compman:\n"
+        "  name: app\n"
+        "  dirs:\n"
+        "    backup: s3:///backups\n"
+        "  compose:\n"
+        "    default:\n"
+        "      file: docker-compose.yml\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigError, match="missing a bucket name"):
+        load_config(str(config_file))
 
 
 def test_load_config_simple_list_rejected(temp_dir: pathlib.Path):
@@ -536,7 +591,7 @@ def test_load_config_resolves_paths_from_config_directory(tmp_path: pathlib.Path
     cfg = load_config(str(config_file))
     assert cfg.root_dir == project
     assert cfg.project_dir == project / "compose"
-    assert cfg.backup_dir == project / "backups"
+    assert cfg.backup_store == LocalBackupStore(project / "backups")
     assert cfg.volume_dir == project / "volumes"
     assert cfg.deploy_dir == project / "source"
 

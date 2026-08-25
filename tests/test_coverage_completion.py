@@ -16,6 +16,7 @@ from typer.core import TyperGroup
 import compman.archive as archive
 import compman.cli as cli
 import compman.deploy as deploy
+from compman.backup_store import local_root
 from compman.config import Config, ConfigError, Profile, load_config
 from compman.docker import (
     ComposeContext,
@@ -321,7 +322,7 @@ def test_image_backup_removes_partial_archive_on_failure(dummy_runtime, temp_dir
     with pytest.raises(RuntimeError, match="save failed"):
         image.backup(dummy_runtime, cfg)
 
-    assert list(cfg.backup_dir.glob("*.tar.gz")) == []
+    assert list(local_root(cfg.backup_store).glob("*.tar.gz")) == []
     dummy_runtime.remove_image.assert_called_once()
 
 
@@ -335,15 +336,15 @@ def test_volume_backup_uses_collision_timestamp(dummy_runtime, temp_dir):
     cfg = Config("app", profiles={"default": Profile(file="docker-compose.yml")})
     fixed = MagicMock()
     fixed.strftime.side_effect = ["20260731_120000", "20260731_120000_123456"]
-    existing = cfg.backup_dir / "app.volume.20260731_120000.tar.gz"
+    existing = local_root(cfg.backup_store) / "app.volume.20260731_120000.tar.gz"
     existing.parent.mkdir(parents=True)
     existing.touch()
-    with patch("compman.ops.common.datetime") as dt, patch(
+    with patch("compman.backup_store.datetime") as dt, patch(
         "compman.ops.volume._inspect_mount", return_value=None
     ):
         dt.now.return_value = fixed
         volume.backup(dummy_runtime, cfg, no_stop=True)
-    assert (cfg.backup_dir / "app.volume.20260731_120000_123456.tar.gz").is_file()
+    assert (local_root(cfg.backup_store) / "app.volume.20260731_120000_123456.tar.gz").is_file()
 
 
 @pytest.mark.parametrize("content", ["42", '[{"container": "c"}]'])

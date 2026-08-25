@@ -10,6 +10,7 @@ from typing import Callable, Sequence
 
 import typer
 
+from compman.backup_store import list_archives, local_root
 from compman.config import Config
 from compman.docker import ComposeContext, ContainerRuntime, resolve_compose_context
 from compman.errors import CommandError
@@ -55,22 +56,6 @@ def resolve_volume_targets(
         return None
     containers = runtime.list_containers(config.name, context.files, context.env)
     return VolumeTargets(context=context, volumes=tuple(volumes), containers=tuple(containers))
-
-
-def unique_backup_paths(config: Config, kind: str) -> tuple[Path, Path]:
-    """Return a fresh (directory, tarball) pair under the backup directory."""
-    now = datetime.now()
-    timestamp = now.strftime("%Y%m%d_%H%M%S")
-    backup_name = f"{config.name}.{kind}.{timestamp}"
-    backup_dir = config.backup_dir / backup_name
-    tarball = config.backup_dir / f"{backup_name}.tar.gz"
-    if backup_dir.exists() or tarball.exists():
-        timestamp = now.strftime("%Y%m%d_%H%M%S_%f")
-        backup_name = f"{config.name}.{kind}.{timestamp}"
-        backup_dir = config.backup_dir / backup_name
-        tarball = config.backup_dir / f"{backup_name}.tar.gz"
-    backup_dir.mkdir(parents=True, exist_ok=True)
-    return backup_dir, tarball
 
 
 def collect_mounts(
@@ -232,15 +217,9 @@ def prompt_select(title: str, options: list[str], default_index: int = 0) -> int
 
 
 def select_backup_timestamp(config: Config, kind: str) -> str:
-    pattern = f"{config.name}.{kind}."
-    if not config.backup_dir.is_dir():
-        raise CommandError(t("msg.backup_dir_not_found", path=config.backup_dir))
-
-    files = sorted(config.backup_dir.glob(f"{pattern}*.tar.gz"))
-    if not files:
-        raise CommandError(t("msg.no_backups", kind=kind, path=config.backup_dir))
-
-    timestamps = [f.name.replace(pattern, "").replace(".tar.gz", "") for f in files]
+    timestamps = list_archives(config.backup_store, config.name, kind)
+    if not timestamps:
+        raise CommandError(t("msg.no_backups", kind=kind, path=local_root(config.backup_store)))
 
     idx = prompt_select(
         t("msg.available_backups_title", kind=kind),

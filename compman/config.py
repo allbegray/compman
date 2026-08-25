@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import yaml
 
+from compman.backup_store import BackupStore, LocalBackupStore, parse_backup_store
 from compman.errors import ConfigError
 
 SHA256_PATTERN = re.compile(r"^[0-9a-fA-F]{64}$")
@@ -62,6 +63,9 @@ class Config:
     deploy_sha256: str | None = None
     deploy_auth: DeployAuth | None = None
     max_archive_mb: int | None = None
+    backup_store: BackupStore = field(
+        default_factory=lambda: LocalBackupStore(Path.cwd() / "backup")
+    )
 
     @property
     def limits(self) -> dict[str, int]:
@@ -70,28 +74,27 @@ class Config:
 
     @property
     def project_dir(self) -> Path:
-        return self._managed_path(self.folder, "folder", allow_root=True) if self.folder else self.root_dir.resolve()
-
-    @property
-    def backup_dir(self) -> Path:
-        return self._managed_path(self.dirs.get("backup", "backup"), "dirs.backup")
+        return _managed_path(self.root_dir, self.folder, "folder", allow_root=True) if self.folder else self.root_dir.resolve()
 
     @property
     def volume_dir(self) -> Path:
-        return self._managed_path(self.dirs.get("volume", "volume"), "dirs.volume")
+        return _managed_path(self.root_dir, self.dirs.get("volume", "volume"), "dirs.volume")
 
     @property
     def deploy_dir(self) -> Path:
-        return self._managed_path(self.dirs.get("project", "project"), "dirs.project")
+        return _managed_path(self.root_dir, self.dirs.get("project", "project"), "dirs.project")
 
-    def _managed_path(self, value: str, field_name: str, allow_root: bool = False) -> Path:
-        root = self.root_dir.resolve()
-        target = (root / value).resolve()
-        if (target == root and not allow_root) or (target != root and root not in target.parents):
-            raise ConfigError(
-                f"'{field_name}' must be a child directory inside the config directory: {value}"
-            )
-        return target
+
+def _managed_path(root: Path, value: str, field_name: str, allow_root: bool = False) -> Path:
+    resolved_root = root.resolve()
+    target = (resolved_root / value).resolve()
+    if (target == resolved_root and not allow_root) or (
+        target != resolved_root and resolved_root not in target.parents
+    ):
+        raise ConfigError(
+            f"'{field_name}' must be a child directory inside the config directory: {value}"
+        )
+    return target
 
 
 def _parse_secrets(raw: object, field_name: str) -> dict[str, SecretRef]:
@@ -232,6 +235,15 @@ def load_config(config_path: str | None = None) -> Config:
         if max_archive_mb <= 0:
             raise ConfigError("'limits.max_archive_mb' must be greater than 0.")
 
+    raw_backup = str(raw_dirs.get("backup", "backup"))
+    # Branch before _managed_path: an s3:// URI would otherwise fail the
+    # child-of-config-root check with a confusing error.
+    backup_store = parse_backup_store(raw_backup)
+    if isinstance(backup_store, LocalBackupStore):
+        backup_store = replace(
+            backup_store, root=_managed_path(path.parent, raw_backup, "dirs.backup")
+        )
+
     config = Config(
         name=name,
         root_dir=path.parent,
@@ -245,11 +257,11 @@ def load_config(config_path: str | None = None) -> Config:
         deploy_sha256=deploy_sha256,
         deploy_auth=deploy_auth,
         max_archive_mb=max_archive_mb,
+        backup_store=backup_store,
     )
     # Resolve all paths while loading so unsafe configuration fails before a
     # command can create, replace, or recursively delete anything.
     config.project_dir
-    config.backup_dir
     config.volume_dir
     config.deploy_dir
     return config
@@ -269,7 +281,7 @@ def dump_default_config(name: str) -> str:
   #   url: s3://bucket/app.tar.gz
   #   sha256: 64-hex-lowercase-digest-of-the-archive
   # dirs:
-  #   backup: backup
+  #   backup: backup                  # or an S3 URI: s3://bucket/backups
   #   volume: volume
   # per-profile env (consumed via ${{VAR}} in compose files):
   #   dev:

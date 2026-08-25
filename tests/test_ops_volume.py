@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from compman.backup_store import local_root
 from compman.config import Config, Profile
 from compman.errors import CommandError
 from compman.ops import volume
@@ -55,7 +56,7 @@ def test_volume_backup_without_upload_never_imports_boto3(dummy_runtime, temp_di
 
 def test_volume_restore(dummy_runtime, temp_dir: pathlib.Path):
     cfg = Config(name="my_stack", profiles={"default": Profile(file="docker-compose.yml")})
-    backup_dir = cfg.backup_dir
+    backup_dir = local_root(cfg.backup_store)
     backup_dir.mkdir(parents=True, exist_ok=True)
     backup_file = backup_dir / "my_stack.volume.20260731_1200.tar.gz"
 
@@ -72,7 +73,7 @@ def test_volume_restore(dummy_runtime, temp_dir: pathlib.Path):
 
 def test_volume_restore_replace_clears_destination(dummy_runtime, temp_dir: pathlib.Path):
     cfg = Config(name="my_stack", profiles={"default": Profile(file="docker-compose.yml")})
-    backup_dir = cfg.backup_dir
+    backup_dir = local_root(cfg.backup_store)
     backup_dir.mkdir(parents=True, exist_ok=True)
     backup_file = backup_dir / "my_stack.volume.20260731_1200.tar.gz"
 
@@ -96,7 +97,7 @@ def test_volume_restore_replace_clears_destination(dummy_runtime, temp_dir: path
 
 def test_volume_restore_replace_skips_missing_source(dummy_runtime, temp_dir: pathlib.Path):
     cfg = Config(name="my_stack", profiles={"default": Profile(file="docker-compose.yml")})
-    backup_dir = cfg.backup_dir
+    backup_dir = local_root(cfg.backup_store)
     backup_dir.mkdir(parents=True, exist_ok=True)
     backup_file = backup_dir / "my_stack.volume.20260731_1200.tar.gz"
 
@@ -119,14 +120,14 @@ def test_volume_restore_invalid_timestamp(dummy_runtime, temp_dir: pathlib.Path)
 
 def test_volume_restore_not_found(dummy_runtime, temp_dir: pathlib.Path):
     cfg = Config(name="my_stack", profiles={"default": Profile(file="docker-compose.yml")})
-    cfg.backup_dir.mkdir(parents=True, exist_ok=True)
+    local_root(cfg.backup_store).mkdir(parents=True, exist_ok=True)
     with pytest.raises(CommandError):
         volume.restore(dummy_runtime, cfg, timestamp="20260731_1200")
 
 
 def test_volume_restore_not_running(dummy_runtime, temp_dir: pathlib.Path):
     cfg = Config(name="my_stack", profiles={"default": Profile(file="docker-compose.yml")})
-    backup_dir = cfg.backup_dir
+    backup_dir = local_root(cfg.backup_store)
     backup_dir.mkdir(parents=True, exist_ok=True)
     backup_file = backup_dir / "my_stack.volume.20260731_1200.tar.gz"
 
@@ -220,7 +221,7 @@ def test_volume_mapping_reads_legacy_format(temp_dir: pathlib.Path):
 
 
 def _write_volume_backup(cfg: Config, temp_dir: pathlib.Path, entries: list[dict[str, str]]) -> None:
-    backup_dir = cfg.backup_dir
+    backup_dir = local_root(cfg.backup_store)
     backup_dir.mkdir(parents=True, exist_ok=True)
     backup_file = backup_dir / "my_stack.volume.20260731_1200.tar.gz"
     map_file = temp_dir / "volume-map.json"

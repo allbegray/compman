@@ -6,11 +6,12 @@ import tarfile
 import typer
 
 from compman.archive import extract_tar
+from compman.backup_store import list_archives, local_root, new_backup_paths, put_archive
 from compman.config import Config
 from compman.docker import ContainerRuntime, resolve_compose_context
 from compman.errors import CommandError
 from compman.i18n import t
-from compman.ops.common import select_backup_timestamp, unique_backup_paths, validate_timestamp
+from compman.ops.common import select_backup_timestamp, validate_timestamp
 
 
 def backup(
@@ -24,7 +25,7 @@ def backup(
     if not runtime.stack_exists(config.name, context.files, context.env):
         raise CommandError(t("msg.stack_not_running", name=config.name))
 
-    backup_dir, tarball = unique_backup_paths(config, "image")
+    backup_dir, tarball = new_backup_paths(config.backup_store, config.name, "image")
     backup_tags: list[str] = []
 
     try:
@@ -64,6 +65,7 @@ def backup(
         shutil.rmtree(backup_dir, ignore_errors=True)
 
     typer.echo(t("msg.backup_done", kind="Image", path=tarball))
+    put_archive(config.backup_store, tarball.name, tarball)
 
 
 def restore(
@@ -77,13 +79,14 @@ def restore(
 
     validate_timestamp(timestamp)
 
+    backup_root = local_root(config.backup_store)
     backup_name = f"{config.name}.image.{timestamp}"
-    tarball = config.backup_dir / f"{backup_name}.tar.gz"
-    if not tarball.is_file():
+    tarball = backup_root / f"{backup_name}.tar.gz"
+    if timestamp not in list_archives(config.backup_store, config.name, "image"):
         _list_backups(config)
         raise CommandError(t("msg.backup_not_found", tarball=tarball))
 
-    restore_dir = config.backup_dir / backup_name
+    restore_dir = backup_root / backup_name
     restore_dir.mkdir(parents=True)
     try:
         with tarfile.open(tarball, "r:gz") as tar:
@@ -99,6 +102,5 @@ def restore(
 
 def _list_backups(config: Config) -> None:
     typer.echo(t("msg.available_backups", kind="image"))
-    for f in sorted(config.backup_dir.glob(f"{config.name}.image.*.tar.gz")):
-        ts = f.name.replace(f"{config.name}.image.", "").replace(".tar.gz", "")
+    for ts in list_archives(config.backup_store, config.name, "image"):
         typer.echo(f"  {ts}")

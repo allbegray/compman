@@ -15,6 +15,7 @@ import typer
 import compman.cli as cli
 import compman.completion as completion
 import compman.deploy as deploy
+from compman.backup_store import local_root
 from compman.config import Config, ConfigError, Profile, load_config
 from compman.docker import ContainerRuntime, _run
 from compman.errors import CommandError
@@ -451,12 +452,12 @@ def test_image_remaining_branches(dummy_runtime, temp_dir):
     dummy_runtime.run_cli = MagicMock(return_value=MagicMock(stdout="/name\n"))
     image.backup(dummy_runtime, cfg, source_mode=True)
 
-    cfg.backup_dir.mkdir(parents=True, exist_ok=True)
+    local_root(cfg.backup_store).mkdir(parents=True, exist_ok=True)
     with patch("compman.ops.image.select_backup_timestamp", return_value="20000101_0000"):
         with pytest.raises(CommandError):
             image.restore(dummy_runtime, cfg)
 
-    (cfg.backup_dir / "app.image.20000101_0000.tar.gz").touch()
+    (local_root(cfg.backup_store) / "app.image.20000101_0000.tar.gz").touch()
     image._list_backups(cfg)
     assert image._list_backups(cfg) is None
 
@@ -484,7 +485,7 @@ def test_volume_all_remaining_paths(dummy_runtime, temp_dir):
         volume.backup(dummy_runtime, cfg, no_stop=True)
         volume.pull(dummy_runtime, cfg)
 
-    backup = cfg.backup_dir / "app.volume.20260731_1200.tar.gz"
+    backup = local_root(cfg.backup_store) / "app.volume.20260731_1200.tar.gz"
     backup.parent.mkdir(parents=True, exist_ok=True)
     empty = temp_dir / "empty"
     empty.mkdir()
@@ -510,7 +511,7 @@ def test_volume_all_remaining_paths(dummy_runtime, temp_dir):
     with patch("compman.ops.volume._inspect_mount", return_value={"container": "c", "volume": "v", "destination": "/d"}):
         volume.pull(dummy_runtime, cfg)
 
-    missing_map = cfg.backup_dir / "app.volume.20260101_0000.tar.gz"
+    missing_map = local_root(cfg.backup_store) / "app.volume.20260101_0000.tar.gz"
     with tarfile.open(missing_map, "w:gz") as tar:
         tar.add(empty, arcname=".")
     with pytest.raises(CommandError):

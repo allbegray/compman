@@ -56,3 +56,11 @@ def test_markdown_files_have_unique_internal_anchors(path: pathlib.Path):
         if line.startswith("#")
     ]
     assert len(headings) == len(set(headings)), f"duplicate headings in {path}"
+
+
+def test_scaffold_includes_yaml_schema_directive():
+    from compman.config import dump_default_config
+
+    output = dump_default_config("test")
+    assert "# yaml-language-server: $schema=" in output
+    assert "compman.schema.json" in output

@@ -1,0 +1,100 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "compman.yml",
+  "description": "Configuration for compman, a Docker/Podman Compose stack manager CLI.",
+  "type": "object",
+  "required": ["compman"],
+  "properties": {
+    "compman": {
+      "type": "object",
+      "required": ["compose"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Stack name used in backup filenames and compose project names. Defaults to the config directory name."
+        },
+        "folder": {
+          "type": "string",
+          "description": "Subdirectory containing Compose files (relative to the config directory)."
+        },
+        "dirs": {
+          "type": "object",
+          "properties": {
+            "backup": {
+              "type": "string",
+              "description": "Local path or s3://bucket/prefix URI for storing backup archives."
+            },
+            "volume": {
+              "type": "string",
+              "description": "Directory for transferring volume data between host and containers."
+            },
+            "project": {
+              "type": "string",
+              "description": "Managed deployment tree replaced on each deploy/update."
+            }
+          }
+        },
+        "deploy": {
+          "oneOf": [
+            {"type": "string", "description": "S3 prefix/archive or HTTPS archive URL."},
+            {
+              "type": "object",
+              "required": ["url"],
+              "properties": {
+                "url": {"type": "string"},
+                "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                "auth": {
+                  "type": "object",
+                  "required": ["header", "value_env"],
+                  "properties": {
+                    "header": {"type": "string"},
+                    "value_env": {"type": "string", "description": "Environment variable holding the token."}
+                  }
+                }
+              }
+            }
+          ],
+          "description": "Deploy source: S3 prefix/archive or HTTPS archive URL, optionally pinned and authenticated."
+        },
+        "limits": {
+          "type": "object",
+          "properties": {
+            "max_archive_mb": {"type": "integer", "minimum": 1},
+            "max_backups": {"type": "integer", "minimum": 1}
+          }
+        },
+        "secrets": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["arn", "key"],
+            "properties": {
+              "arn": {"type": "string"},
+              "key": {"type": "string"}
+            }
+          }
+        },
+        "backup": {
+          "type": "object"
+        },
+        "compose": {
+          "type": "object",
+          "required": ["default"],
+          "additionalProperties": {
+            "oneOf": [
+              {"type": "string"},
+              {
+                "type": "object",
+                "properties": {
+                  "file": {"type": "string"},
+                  "env": {"type": "object", "additionalProperties": {"type": "string"}},
+                  "secrets": {"type": "object"}
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

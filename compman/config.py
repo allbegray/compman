@@ -277,7 +277,8 @@ def load_config(config_path: str | None = None) -> Config:
 
 def dump_default_config(name: str) -> str:
     sanitized = sanitize_project_name(name)
-    return f"""compman:
+    return f"""# yaml-language-server: $schema=https://allbegray.github.io/compman/compman.schema.json
+compman:
   name: {sanitized}
   compose:
     default:

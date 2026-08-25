@@ -3,6 +3,17 @@
 Major user-visible changes to compman are recorded here, with the newest release
 first.
 
+## [1.7.0] - 2026-08-25
+
+### Added
+
+- Backup retention policy: optional `limits.max_backups: N` keeps only the
+  newest N archives per stack and kind, pruning older ones from the configured
+  store (local directory or S3 bucket) after each successful volume/image
+  backup. Every removal is echoed; a failed deletion warns and continues.
+- Backup listings are ordered most-recent-first, and interactive restore now
+  preselects the newest backup.
+
 ## [1.6.2] - 2026-08-25
 
 ### Fixed

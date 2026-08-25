@@ -13,14 +13,14 @@ def test_official_repository_urls_use_current_owner():
         assert "allbegray/compman" in content
 
 
-def test_package_version_is_1_6_2():
+def test_package_version_is_1_7_0():
     root = Path(__file__).parents[1]
     project = (root / "pyproject.toml").read_text(encoding="utf-8")
     lock = (root / "uv.lock").read_text(encoding="utf-8")
 
-    assert re.search(r'(?m)^version = "1\.6\.2"$', project)
-    assert re.search(r'(?m)^name = "compman"\r?\nversion = "1\.6\.2"$', lock)
-    assert "## [1.6.2]" in (root / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert re.search(r'(?m)^version = "1\.7\.0"$', project)
+    assert re.search(r'(?m)^name = "compman"\r?\nversion = "1\.7\.0"$', lock)
+    assert "## [1.7.0]" in (root / "CHANGELOG.md").read_text(encoding="utf-8")
 
 
 def test_successful_main_ci_run_creates_version_tag_once():

@@ -407,13 +407,19 @@ compman status -c /path/to/compman.yml
 
 If a required `doctor` check fails, it returns exit code `1`. `status` returns exit code `1` when the target stack does not exist or status retrieval itself fails. If the stack exists and retrieval succeeds, it returns exit code `0` even if every service is stopped or exited. Missing AWS environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`) are non-failing warnings, so `doctor` returns exit code `0` if all other required checks pass.
 
-## Backup and restore
-
 Backup files are stored in `dirs.backup`.
 
 ```text
 <stack>.volume.<YYYYMMDD_HHMMSS>[_<microseconds>].tar.gz
 <stack>.image.<YYYYMMDD_HHMMSS>[_<microseconds>].tar.gz
+```
+
+Optional retention: set `limits.max_backups` to keep only the newest N archives per stack and kind. After each successful backup, older archives are pruned from the store (local files or S3 objects), and every removal is echoed; a failed deletion warns but never fails the backup.
+
+```yaml
+compman:
+  limits:
+    max_backups: 10
 ```
 
 When restoring without a timestamp, choose an available backup interactively. Volume restore and `volume push` merge data into the target; they do not delete files that exist only at the target. Image restore loads the image into the runtime but does not automatically change the Compose `image` tag.

@@ -87,9 +87,10 @@ Root causes and reusable lessons for everything below live in [SOLUTION.md](SOLU
   `compman.yml`), preserving the existing redirect-target scheme/suffix
   re-validation.
 
-- [ ] [M8] Backup retention policy — optional `limits.max_backups: N` pruning
-  the oldest `<stack>.volume.*` / `<stack>.image.*` archives in `dirs.backup`
-  after each successful backup, echoing exactly what was removed. Only files
+- [x] [M8] Backup retention policy — optional `limits.max_backups: N` pruning
+  archives beyond the newest `limits.max_backups` per stack and kind,
+  deleting them from whichever store `dirs.backup` points at after each
+  successful backup (local unlink or S3 delete_object), echoing exactly what was removed. Only files
   inside the managed backup directory may ever be deleted. Combined with cron,
   this completes the unattended-backup story alongside [H4].
 

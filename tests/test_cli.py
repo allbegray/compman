@@ -323,7 +323,10 @@ def test_cli_schedule_commands(runner: CliRunner, dummy_runtime, temp_dir: pathl
 
         res_list = runner.invoke(app, ["schedule", "list"])
         assert res_list.exit_code == 0
-        list_schedules.assert_called_once_with()
+        list_schedules.assert_called_once_with(json_output=False)
+        res_list_json = runner.invoke(app, ["schedule", "list", "--json"])
+        assert res_list_json.exit_code == 0
+        list_schedules.assert_called_with(json_output=True)
 
         res_remove = runner.invoke(app, ["schedule", "remove", "nightly"])
         assert res_remove.exit_code == 0

@@ -309,8 +309,8 @@ compman deploy [--path SOURCE_URI] [--sha256 HEX] [--build] [--tag TAG]
 compman update [PROFILE] [-c|--config PATH]
 compman doctor [--profile PROFILE] [-c|--config PATH] [--json]
 compman status [--profile PROFILE] [-c|--config PATH] [--json]
-compman ps [PROFILE] [-a|--all] [-c|--config PATH]
-compman stats [PROFILE] [-f|--follow] [-c|--config PATH]
+compman ps [PROFILE] [-a|--all] [--json] [-c|--config PATH]
+compman stats [PROFILE] [-f|--follow] [--json] [-c|--config PATH]
 compman upgrade [--repo URL]
 compman version
 compman lang [ko|en]
@@ -336,7 +336,7 @@ compman image backup [-z LEVEL] [--source-image] [--profile PROFILE] [-c|--confi
 compman image restore [TIMESTAMP] [--profile PROFILE] [-c|--config PATH]
 
 compman schedule add [--every N | --daily HH:MM | --weekly DAY HH:MM] [--no-stop] [-z LEVEL] [--profile PROFILE] [--name TEXT] [--scheduler systemd|cron] [-c|--config PATH]
-compman schedule list
+compman schedule list [--json]
 compman schedule remove NAME
 
 compman clear [--yes]
@@ -425,7 +425,7 @@ compman:
 compman schedule add --daily 04:30 --no-stop      # every day at 04:30 local time
 compman schedule add --every 30m                  # every 30 minutes
 compman schedule add --weekly sun 03:00 -z 9     # Sundays at 03:00, gzip level 9
-compman schedule list
+compman schedule list [--json]
 compman schedule remove daily-04-30               # name shown by `schedule list`
 ```
 

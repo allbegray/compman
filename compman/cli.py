@@ -345,12 +345,13 @@ def ps_cmd(
     all_containers: Annotated[
         bool, typer.Option("--all", "-a", help=t("opt.all"))
     ] = False,
+    json_output: Annotated[bool, typer.Option("--json", help=t("opt.json"))] = False,
     config: Annotated[
         str | None, typer.Option("--config", "-c", help=t("opt.config"))
     ] = None,
 ) -> None:
     ctx = _load(config)
-    _container_ops().ps(ctx["runtime"], ctx["config"], profile, all_containers)
+    _container_ops().ps(ctx["runtime"], ctx["config"], profile, all_containers, json_output)
 
 
 @app.command("stats", help=t("cmd.stats"))
@@ -359,12 +360,13 @@ def stats_cmd(
     follow: Annotated[
         bool, typer.Option("--follow", "-f", help=t("opt.follow"))
     ] = False,
+    json_output: Annotated[bool, typer.Option("--json", help=t("opt.json"))] = False,
     config: Annotated[
         str | None, typer.Option("--config", "-c", help=t("opt.config"))
     ] = None,
 ) -> None:
     ctx = _load(config)
-    _container_ops().stats(ctx["runtime"], ctx["config"], profile, follow)
+    _container_ops().stats(ctx["runtime"], ctx["config"], profile, follow, json_output)
 
 
 # ---- completion ----
@@ -467,9 +469,10 @@ stack_app = typer.Typer(
 def stack_up(
     profile: Annotated[str | None, typer.Argument()] = None,
     config: Annotated[str | None, typer.Option("--config", "-c", help=t("opt.config"))] = None,
+    wait: Annotated[bool, typer.Option("--wait", help=t("opt.wait"))] = False,
 ) -> None:
     ctx = _load(config)
-    _stack_ops().up(ctx["runtime"], ctx["config"], profile)
+    _stack_ops().up(ctx["runtime"], ctx["config"], profile, wait=wait)
 
 
 @stack_app.command("down", help=t("cmd.stack.down"))
@@ -488,9 +491,10 @@ def stack_down(
 def stack_update(
     profile: Annotated[str | None, typer.Argument()] = None,
     config: Annotated[str | None, typer.Option("--config", "-c", help=t("opt.config"))] = None,
+    wait: Annotated[bool, typer.Option("--wait", help=t("opt.wait"))] = False,
 ) -> None:
     ctx = _load(config)
-    _stack_ops().update(ctx["runtime"], ctx["config"], profile)
+    _stack_ops().update(ctx["runtime"], ctx["config"], profile, wait=wait)
 
 
 app.add_typer(stack_app, name="stack")
@@ -713,8 +717,10 @@ def schedule_add(
 
 
 @schedule_app.command("list", help=t("cmd.schedule.list.help"))
-def schedule_list() -> None:
-    _schedule_ops().list_schedules()
+def schedule_list(
+    json_output: Annotated[bool, typer.Option("--json", help=t("opt.json"))] = False,
+) -> None:
+    _schedule_ops().list_schedules(json_output=json_output)
 
 
 @schedule_app.command("remove", help=t("cmd.schedule.remove.help"))

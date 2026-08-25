@@ -919,6 +919,18 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "en": "Multiple service images found ({images}); skipping the automatic rebuild because the rebuild target is ambiguous.",
         "ko": "여러 서비스 이미지가 발견되어({images}) 재빌드 대상을 특정할 수 없어 자동 재빌드를 건너뜁니다.",
     },
+    "opt.wait": {
+        "en": "Wait until every service is running (or healthy) before returning",
+        "ko": "모든 서비스가 실행 중(또는 healthy) 상태가 될 때까지 기다린 후 반환합니다",
+    },
+    "msg.stack_wait_timeout": {
+        "en": "Services did not become ready within {seconds}s: {detail}",
+        "ko": "{seconds}초 안에 서비스가 준비되지 않았습니다: {detail}",
+    },
+    "msg.stats_follow_json": {
+        "en": "Cannot combine --follow with --json.",
+        "ko": "--follow와 --json은 함께 사용할 수 없습니다.",
+    },
     "msg.unsupported_shell": {
         "en": "Unsupported shell: {shell}",
         "ko": "지원하지 않는 셸: {shell}",

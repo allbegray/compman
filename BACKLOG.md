@@ -21,9 +21,6 @@ them. Retired IDs are never reused.
   elapses, exiting non-zero on failure so scripts and CI fail fast instead of
   racing the first request.
 
-- [ ] [M10] Machine-readable output beyond diagnostics — extend the schema-
-  versioned `--json` pattern (doctor/status) to `ps`, `stats`, and backup
-  listings so automation consumes results without scraping human-readable text.
 
 
 ## Lower (L)

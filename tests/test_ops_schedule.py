@@ -417,3 +417,27 @@ def test_remove_schedule_warns_when_artifact_already_gone(
         assert "removed" in output.out
         assert adapter.removed == ["app.volume"]
         assert load_registry()["jobs"] == {}
+
+
+def test_list_schedules_json_payload(tmp_path: pathlib.Path, capsys: Any) -> None:
+    seed_registry(
+        tmp_path,
+        {
+            "app.volume": {
+                "platform": "launchd",
+                "kind": "daily",
+                "minutes": None,
+                "time": "04:30",
+                "weekday": None,
+                "config_path": "/a.yml",
+            }
+        },
+    )
+    adapter_patch, adapter = patch_adapters(exists=False)
+    with patch.object(pathlib.Path, "home", return_value=tmp_path), adapter_patch:
+        schedule_ops.list_schedules(json_output=True)
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["schema_version"] == 1
+    assert payload["generated_at"].endswith("+00:00")
+    job = payload["jobs"][0]
+    assert job["name"] == "app.volume" and job["missing"] is True

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import platform
 from datetime import datetime, timezone
@@ -10,6 +11,7 @@ import typer
 from compman.config import Config, sanitize_project_name
 from compman.errors import CommandError
 from compman.i18n import t
+from compman.ops.common import utc_now_iso
 from compman.scheduling import (
     JobRecord,
     cron_expr,
@@ -143,15 +145,36 @@ def add_schedule(
     return record
 
 
-def list_schedules() -> None:
+def list_schedules(json_output: bool = False) -> None:
     jobs = load_registry()["jobs"]
+    entries = []
+    for job_name, job in jobs.items():
+        missing = not _adapter_for(job["platform"]).exists(job_name)
+        entry = {
+            "name": job_name,
+            "platform": job["platform"],
+            "cadence": _cadence_summary(job),
+            "config_path": job["config_path"],
+            "missing": missing,
+        }
+        entries.append(entry)
+
+    if json_output:
+        payload = {
+            "schema_version": 1,
+            "generated_at": utc_now_iso(),
+            "jobs": entries,
+        }
+        typer.echo(json.dumps(payload))
+        return
+
     if not jobs:
         typer.echo(t("msg.schedule.list_empty"))
         return
     typer.echo(t("msg.schedule.list_header"))
-    for job_name, job in jobs.items():
-        line = f"{job_name} ({job['platform']}, {_cadence_summary(job)}) - {job['config_path']}"
-        if not _adapter_for(job["platform"]).exists(job_name):
+    for entry in entries:
+        line = f"{entry['name']} ({entry['platform']}, {entry['cadence']}) - {entry['config_path']}"
+        if entry["missing"]:
             line += f" {t('msg.schedule.missing')}"
         typer.echo(line)
 

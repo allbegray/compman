@@ -4,9 +4,9 @@ import json
 import sys
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Sequence
+from typing import Any, Callable, Sequence
 
 import typer
 
@@ -275,3 +275,33 @@ def stack_paused(runtime: ContainerRuntime, context: ComposeContext, enabled: bo
                 if not failed:
                     raise
                 typer.echo(t("msg.stack_restart_failed", error=error), err=True)
+
+
+def parse_compose_ps(stdout: str) -> list[dict[str, Any]]:
+    """Parse `compose ps --format json` output (JSON array or JSON lines)."""
+    text = stdout.strip()
+    if not text:
+        return []
+    if text.startswith("["):
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            return []
+        return data if isinstance(data, list) else []
+
+    entries: list[dict[str, Any]] = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(entry, dict):
+            entries.append(entry)
+    return entries
+
+
+def utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()

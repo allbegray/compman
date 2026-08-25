@@ -8,6 +8,7 @@ from conftest import write_config
 from compman.config import (
     Config,
     ConfigError,
+    DeployAuth,
     dump_default_config,
     load_config,
     sanitize_project_name,
@@ -257,11 +258,99 @@ def test_load_config_deploy_not_string(temp_dir: pathlib.Path, raw_deploy):
         load_config(str(config_file))
 
 
+def test_load_config_deploy_mapping_with_auth(temp_dir: pathlib.Path):
+    config_file = temp_dir / "compman.yml"
+    config_file.write_text(
+        "compman:\n"
+        "  name: app\n"
+        "  deploy:\n"
+        "    url: https://example.test/app.zip\n"
+        "    auth:\n"
+        "      header: Authorization\n"
+        "      value_env: DEPLOY_TOKEN\n"
+        "  compose:\n"
+        "    default:\n"
+        "      file: docker-compose.yml\n",
+        encoding="utf-8",
+    )
+    cfg = load_config(str(config_file))
+    assert cfg.deploy_auth == DeployAuth(header="Authorization", value_env="DEPLOY_TOKEN")
 
 
+def test_load_config_deploy_string_has_no_auth(temp_dir: pathlib.Path):
+    config_file = temp_dir / "compman.yml"
+    config_file.write_text(
+        "compman:\n  name: app\n  deploy: s3://b/k.tar.gz\n  compose:\n    default:\n      file: docker-compose.yml\n",
+        encoding="utf-8",
+    )
+    cfg = load_config(str(config_file))
+    assert cfg.deploy_auth is None
 
 
+def test_load_config_deploy_mapping_without_auth(temp_dir: pathlib.Path):
+    config_file = temp_dir / "compman.yml"
+    config_file.write_text(
+        "compman:\n"
+        "  name: app\n"
+        "  deploy:\n"
+        "    url: s3://b/k.tar.gz\n"
+        "  compose:\n"
+        "    default:\n"
+        "      file: docker-compose.yml\n",
+        encoding="utf-8",
+    )
+    cfg = load_config(str(config_file))
+    assert cfg.deploy_auth is None
 
+
+def _write_auth_config(temp_dir: pathlib.Path, auth_yaml: str, url: str = "https://example.test/app.zip") -> pathlib.Path:
+    config_file = temp_dir / "compman.yml"
+    config_file.write_text(
+        "compman:\n"
+        "  name: app\n"
+        "  deploy:\n"
+        f"    url: {url}\n"
+        f"{auth_yaml}"
+        "  compose:\n"
+        "    default:\n"
+        "      file: docker-compose.yml\n",
+        encoding="utf-8",
+    )
+    return config_file
+
+
+@pytest.mark.parametrize(
+    "auth_yaml",
+    [
+        "    auth:\n      value_env: DEPLOY_TOKEN\n",
+        "    auth:\n      header: Authorization\n",
+        "    auth:\n      header: 123\n      value_env: DEPLOY_TOKEN\n",
+        "    auth:\n      header: Authorization\n      value_env: 123\n",
+        '    auth:\n      header: ""\n      value_env: DEPLOY_TOKEN\n',
+        '    auth:\n      header: Authorization\n      value_env: ""\n',
+        "    auth: token\n",
+    ],
+)
+def test_load_config_deploy_auth_requires_both_string_keys(temp_dir: pathlib.Path, auth_yaml):
+    config_file = _write_auth_config(temp_dir, auth_yaml)
+    with pytest.raises(ConfigError, match="requires 'header' and 'value_env' strings"):
+        load_config(str(config_file))
+
+
+@pytest.mark.parametrize("bad_header", ['"X Y"', '"A:B"', '"bad\\r\\nheader"'])
+def test_load_config_deploy_auth_invalid_header_name(temp_dir: pathlib.Path, bad_header):
+    auth_yaml = f"    auth:\n      header: {bad_header}\n      value_env: DEPLOY_TOKEN\n"
+    config_file = _write_auth_config(temp_dir, auth_yaml)
+    with pytest.raises(ConfigError, match="not a valid HTTP header name"):
+        load_config(str(config_file))
+
+
+@pytest.mark.parametrize("url", ["http://example.test/app.zip", "s3://b/k.tar.gz"])
+def test_load_config_deploy_auth_requires_https(temp_dir: pathlib.Path, url):
+    auth_yaml = "    auth:\n      header: Authorization\n      value_env: DEPLOY_TOKEN\n"
+    config_file = _write_auth_config(temp_dir, auth_yaml, url=url)
+    with pytest.raises(ConfigError, match="require an https:// URL"):
+        load_config(str(config_file))
 
 
 def test_load_config_backup_upload_absent_is_none(temp_dir: pathlib.Path):

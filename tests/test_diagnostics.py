@@ -4,6 +4,7 @@ import os
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 
@@ -276,7 +277,44 @@ def _write_auth_project(path) -> None:
     (path / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
 
 
+def test_doctor_deploy_auth_env_set_is_ok(tmp_path, monkeypatch, dummy_runtime):
+    _write_auth_project(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("compman.diagnostics.detect_runtime", lambda: dummy_runtime)
 
+    with patch.dict(os.environ, {"DEPLOY_TOKEN": "Bearer x"}):
+        report = collect_doctor(None)
+
+    check = next(item for item in report.checks if item.id == "deploy_auth_env")
+    assert check.severity == "warning"
+    assert check.ok is True
+    assert report.ok is True
+
+
+def test_doctor_warns_when_deploy_auth_env_unset(tmp_path, monkeypatch, dummy_runtime):
+    _write_auth_project(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("compman.diagnostics.detect_runtime", lambda: dummy_runtime)
+
+    with patch.dict(os.environ, {}, clear=True):
+        report = collect_doctor(None)
+
+    check = next(item for item in report.checks if item.id == "deploy_auth_env")
+    assert check.severity == "warning"
+    assert check.ok is False
+    assert report.ok is True
+    json_checks = report.to_dict()["checks"]
+    assert any(entry["id"] == "deploy_auth_env" for entry in json_checks)
+
+
+def test_doctor_no_deploy_auth_check_without_auth(tmp_path, monkeypatch, dummy_runtime):
+    write_simple_project(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("compman.diagnostics.detect_runtime", lambda: dummy_runtime)
+
+    report = collect_doctor(None)
+
+    assert all(check.id != "deploy_auth_env" for check in report.checks)
 
 
 @pytest.mark.parametrize("config_contents", [None, "invalid: : ["])

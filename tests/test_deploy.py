@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import os
 import pathlib
 import tarfile
 import zipfile
@@ -21,7 +22,7 @@ from conftest import write_config
 
 from compman import deploy, http_source, s3_source
 from compman.archive_source import ensure_digest, extract_archive, has_archive_suffix, sha256_file
-from compman.config import load_config
+from compman.config import DeployAuth, load_config
 from compman.errors import CommandError
 from compman.i18n import t
 
@@ -945,6 +946,8 @@ class _FakeOpener:
         return self._response
 
 
+_AUTH = DeployAuth(header="Authorization", value_env="DEPLOY_TOKEN")
+
 
 def _auth_zip_response(temp_dir: pathlib.Path, url: str = "https://example.test/app.zip") -> _FakeResponse:
     archive = temp_dir / "auth.zip"
@@ -957,8 +960,62 @@ def _header_value(request: Request, name: str) -> str | None:
     return next((v for k, v in request.headers.items() if k.lower() == name.lower()), None)
 
 
+def test_http_source_auth_sends_configured_header(temp_dir: pathlib.Path):
+    opener = _FakeOpener(_auth_zip_response(temp_dir))
+
+    with (
+        patch.dict(os.environ, {"DEPLOY_TOKEN": "Bearer sekret"}),
+        patch("compman.http_source.build_opener", return_value=opener) as build_opener,
+    ):
+        extracted = http_source.fetch("https://example.test/app.zip", temp_dir, auth=_AUTH)
+
+    build_opener.assert_called_once()
+    assert isinstance(build_opener.call_args.args[0], http_source._AuthAwareRedirectHandler)
+    assert build_opener.call_args.args[0]._header == "Authorization"
+    request = opener.requests[0]
+    assert request.full_url == "https://example.test/app.zip"
+    assert _header_value(request, "Authorization") == "Bearer sekret"
+    assert (extracted / "app.txt").read_text(encoding="utf-8") == "hello"
 
 
+def test_http_source_without_auth_keeps_bare_urlopen(temp_dir: pathlib.Path):
+    response = _auth_zip_response(temp_dir)
+
+    with (
+        patch("compman.http_source.urlopen", return_value=response) as urlopen,
+        patch("compman.http_source.build_opener") as build_opener,
+    ):
+        http_source.fetch("https://example.test/app.zip", temp_dir)
+
+    urlopen.assert_called_once_with("https://example.test/app.zip", timeout=30)
+    build_opener.assert_not_called()
+
+
+def test_http_source_auth_missing_env_names_variable_only(temp_dir: pathlib.Path):
+    with (
+        patch.dict(os.environ, {}, clear=True),
+        patch("compman.http_source.build_opener") as build_opener,
+    ):
+        with pytest.raises(CommandError, match="DEPLOY_TOKEN") as excinfo:
+            http_source.fetch("https://example.test/app.zip", temp_dir, auth=_AUTH)
+
+    assert "Bearer" not in str(excinfo.value)
+    build_opener.assert_not_called()
+
+
+@pytest.mark.parametrize("bad_value", ["Bearer a\rb", "Bearer a\nb"])
+def test_http_source_auth_rejects_line_breaks_in_env_value(temp_dir: pathlib.Path, bad_value: str):
+    with (
+        patch.dict(os.environ, {"DEPLOY_TOKEN": bad_value}),
+        patch("compman.http_source.build_opener") as build_opener,
+    ):
+        with pytest.raises(CommandError, match="DEPLOY_TOKEN") as excinfo:
+            http_source.fetch("https://example.test/app.zip", temp_dir, auth=_AUTH)
+
+    message = str(excinfo.value)
+    assert "\r" not in message
+    assert "\n" not in message
+    build_opener.assert_not_called()
 
 
 def _redirect_request(handler: http_source._AuthAwareRedirectHandler, newurl: str):
@@ -969,7 +1026,36 @@ def _redirect_request(handler: http_source._AuthAwareRedirectHandler, newurl: st
     return handler.redirect_request(original, MagicMock(), 302, "Found", HTTPMessage(), newurl)
 
 
+@pytest.mark.parametrize(
+    "newurl",
+    ["https://example.test/releases/app.zip", "https://example.test:443/releases/app.zip"],
+)
+def test_redirect_same_host_keeps_auth_header(newurl: str):
+    new_request = _redirect_request(http_source._AuthAwareRedirectHandler("Authorization"), newurl)
 
+    assert new_request is not None
+    assert _header_value(new_request, "Authorization") == "Bearer sekret"
+    assert _header_value(new_request, "X-Custom") == "keep-me"
+
+
+@pytest.mark.parametrize("newurl", ["https://mirror.example.org/app.zip", "file:///etc/passwd"])
+def test_redirect_cross_host_or_unparsable_drops_auth_header(newurl: str):
+    new_request = _redirect_request(http_source._AuthAwareRedirectHandler("Authorization"), newurl)
+
+    assert new_request is not None
+    assert _header_value(new_request, "Authorization") is None
+    assert _header_value(new_request, "X-Custom") == "keep-me"
+
+
+def test_redirect_handler_propagates_none_from_base_handler():
+    handler = http_source._AuthAwareRedirectHandler("Authorization")
+
+    with patch.object(http_source.HTTPRedirectHandler, "redirect_request", return_value=None):
+        result = handler.redirect_request(
+            MagicMock(), MagicMock(), 302, "Found", HTTPMessage(), "https://example.test/app.zip"
+        )
+
+    assert result is None
 
 
 def _write_auth_deploy_config(temp_dir: pathlib.Path) -> None:
@@ -988,5 +1074,34 @@ def _write_auth_deploy_config(temp_dir: pathlib.Path) -> None:
     )
 
 
+def test_deploy_forwards_config_auth_when_source_matches(temp_dir: pathlib.Path):
+    _write_auth_deploy_config(temp_dir)
+    cfg = load_config(str(temp_dir / "compman.yml"))
+
+    with patch("compman.deploy._fetch_http", return_value=_make_source_dir(temp_dir)) as fetch_http:
+        deploy.deploy(s3_path=cfg.deploy, config=cfg)
+
+    assert fetch_http.call_args.kwargs["auth"] == cfg.deploy_auth
 
 
+def test_deploy_omits_auth_for_different_path(temp_dir: pathlib.Path):
+    _write_auth_deploy_config(temp_dir)
+    cfg = load_config(str(temp_dir / "compman.yml"))
+
+    with patch("compman.deploy._fetch_http", return_value=_make_source_dir(temp_dir)) as fetch_http:
+        deploy.deploy(s3_path="https://other.test/app.zip", config=cfg)
+
+    assert fetch_http.call_args.kwargs["auth"] is None
+
+
+def test_deploy_string_config_has_no_auth_to_forward(temp_dir: pathlib.Path):
+    (temp_dir / "compman.yml").write_text(
+        "compman:\n  name: app\n  deploy: https://example.test/app.zip\n  compose:\n    default:\n      file: docker-compose.yml\n",
+        encoding="utf-8",
+    )
+    cfg = load_config(str(temp_dir / "compman.yml"))
+
+    with patch("compman.deploy._fetch_http", return_value=_make_source_dir(temp_dir)) as fetch_http:
+        deploy.deploy(s3_path=cfg.deploy, config=cfg)
+
+    assert fetch_http.call_args.kwargs["auth"] is None

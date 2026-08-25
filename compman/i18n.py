@@ -923,6 +923,14 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "en": "SHA-256 verification requires an archive deploy source (.tar.gz, .tgz, or .zip), not an S3 prefix: {path}",
         "ko": "SHA-256 검증은 아카이브 배포 소스(.tar.gz, .tgz, .zip)에서만 지원됩니다. S3 프리픽스: {path}",
     },
+    "msg.deploy_auth_env_missing": {
+        "en": "Authentication environment variable '{name}' is not set.",
+        "ko": "'{name}' 인증 환경 변수가 설정되지 않았습니다.",
+    },
+    "msg.deploy_auth_value_invalid": {
+        "en": "Authentication environment variable '{name}' must not contain line breaks.",
+        "ko": "인증 환경 변수 '{name}'에는 줄바꿈을 사용할 수 없습니다.",
+    },
     "msg.unsupported_shell": {
         "en": "Unsupported shell: {shell}",
         "ko": "지원하지 않는 셸: {shell}",

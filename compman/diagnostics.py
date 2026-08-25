@@ -115,6 +115,7 @@ def collect_doctor(config_path: str | None, profile: str | None = None) -> Docto
         _collect_secrets(config, checks)
         _collect_backup_upload(config, checks)
         _collect_deploy_checksum(config, checks)
+        _collect_deploy_auth(config, checks)
     return DoctorReport(tuple(checks))
 
 
@@ -345,3 +346,15 @@ def _collect_deploy_checksum(config: Config, checks: list[CheckResult]) -> None:
         )
     )
 
+
+def _collect_deploy_auth(config: Config, checks: list[CheckResult]) -> None:
+    if config.deploy_auth is None:
+        return
+    value_env = config.deploy_auth.value_env
+    value_present = bool(os.environ.get(value_env))
+    message = (
+        f"Deploy authentication environment variable '{value_env}' is set."
+        if value_present
+        else f"Deploy authentication environment variable '{value_env}' is not set."
+    )
+    checks.append(CheckResult("deploy_auth_env", "warning", value_present, message))

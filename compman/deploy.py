@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import shutil
 import tempfile
 from pathlib import Path
@@ -15,6 +14,7 @@ from compman.errors import CommandError
 from compman.http_source import fetch as _fetch_http
 from compman.i18n import t
 from compman.ops.common import ensure_runtime_ready
+from compman.s3_source import create_client, s3_error_hint
 from compman.s3_source import download as _download  # noqa: F401
 from compman.s3_source import download_recursive as _download_recursive  # noqa: F401
 from compman.s3_source import fetch as _fetch
@@ -60,8 +60,6 @@ def deploy(
 
     project_subfolder = config.dirs.get("project", "project") if config else "project"
 
-    endpoint = os.environ.get("AWS_ENDPOINT_URL_S3") or os.environ.get("AWS_ENDPOINT_URL")
-
     root = Path.cwd()
     deploy_target = config.deploy_dir if config else root / project_subfolder
 
@@ -82,11 +80,13 @@ def deploy(
         effective_sha256 = sha256 or (
             config.deploy_sha256 if config is not None and s3_path == config.deploy else None
         )
+        effective_auth = (
+            config.deploy_auth if config is not None and s3_path == config.deploy else None
+        )
         if parsed.scheme == "s3":
             if not bucket:
                 raise ValueError(f"Invalid S3 path: {s3_path}")
             stage = "downloading from S3"
-            import boto3
             from botocore.exceptions import (
                 ClientError,
                 EndpointConnectionError,
@@ -95,7 +95,7 @@ def deploy(
             )
 
             try:
-                s3 = boto3.client("s3", endpoint_url=endpoint or None)
+                s3 = create_client()
                 project_root = _fetch(s3, bucket, key, tmp, max_bytes=max_bytes, sha256=effective_sha256)
             except (ClientError, EndpointConnectionError, NoCredentialsError, PartialCredentialsError) as e:
                 _handle_s3_error(e, s3_path)
@@ -103,7 +103,7 @@ def deploy(
             if not bucket or not has_archive_suffix(parsed.path):
                 raise ValueError(f"HTTP source must be a .tar.gz, .tgz, or .zip archive: {s3_path}")
             stage = "downloading from HTTP"
-            project_root = _fetch_http(s3_path, tmp, max_bytes=max_bytes, sha256=effective_sha256)
+            project_root = _fetch_http(s3_path, tmp, max_bytes=max_bytes, sha256=effective_sha256, auth=effective_auth)
         else:
             raise ValueError(f"Unsupported deploy source: {s3_path}")
 
@@ -171,31 +171,7 @@ def _swap(src: Path, root: Path) -> None:
 
 
 def _handle_s3_error(e: Exception, s3_path: str) -> None:
-    from botocore.exceptions import (
-        ClientError,
-        EndpointConnectionError,
-        NoCredentialsError,
-        PartialCredentialsError,
-    )
-
     typer.echo(t("msg.s3_failed", path=s3_path), err=True)
-    if isinstance(e, (NoCredentialsError, PartialCredentialsError)):
-        typer.echo(t("msg.s3_no_creds"), err=True)
-
-    elif isinstance(e, ClientError):
-        err_code = str(e.response.get("Error", {}).get("Code", ""))
-        err_msg = str(e.response.get("Error", {}).get("Message", e))
-        if err_code in ("403", "AccessDenied", "Forbidden"):
-            typer.echo(t("msg.s3_403", path=s3_path), err=True)
-        elif err_code in ("404", "NoSuchBucket", "NoSuchKey", "NotFound"):
-            typer.echo(t("msg.s3_404", path=s3_path), err=True)
-        else:
-            typer.echo(t("msg.s3_client_error", code=err_code, error=err_msg), err=True)
-
-    elif isinstance(e, EndpointConnectionError):
-        typer.echo(t("msg.s3_network"), err=True)
-
-    else:
-        typer.echo(t("msg.download_error", error=e), err=True)
-
+    hint = s3_error_hint(e, s3_path)
+    typer.echo(hint if hint is not None else t("msg.download_error", error=e), err=True)
     raise SystemExit(1)

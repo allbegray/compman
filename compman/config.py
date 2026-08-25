@@ -9,6 +9,7 @@ import yaml
 from compman.errors import ConfigError
 
 SHA256_PATTERN = re.compile(r"^[0-9a-fA-F]{64}$")
+HEADER_NAME_PATTERN = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")
 
 
 def sanitize_project_name(name: str) -> str:
@@ -39,6 +40,12 @@ class SecretRef:
     key: str
 
 
+@dataclass(frozen=True)
+class DeployAuth:
+    header: str
+    value_env: str
+
+
 @dataclass
 class Config:
     name: str
@@ -53,6 +60,7 @@ class Config:
     secrets: dict[str, SecretRef] = field(default_factory=dict)
     deploy: str | None = None
     deploy_sha256: str | None = None
+    deploy_auth: DeployAuth | None = None
     max_archive_mb: int | None = None
     backup_upload: str | None = None
 
@@ -172,6 +180,7 @@ def load_config(config_path: str | None = None) -> Config:
     raw_deploy = root.get("deploy")
     deploy_url: str | None = None
     deploy_sha256: str | None = None
+    deploy_auth: DeployAuth | None = None
     if isinstance(raw_deploy, str):
         deploy_url = raw_deploy
     elif isinstance(raw_deploy, dict):
@@ -186,6 +195,24 @@ def load_config(config_path: str | None = None) -> Config:
                     "'deploy.sha256' must be a 64-character hexadecimal SHA-256 digest."
                 )
             deploy_sha256 = raw_sha256.lower()
+        raw_auth = raw_deploy.get("auth")
+        if raw_auth is not None:
+            if not isinstance(raw_auth, dict):
+                raise ConfigError("'deploy.auth' requires 'header' and 'value_env' strings.")
+            header = raw_auth.get("header")
+            value_env = raw_auth.get("value_env")
+            if (
+                not isinstance(header, str)
+                or not header
+                or not isinstance(value_env, str)
+                or not value_env
+            ):
+                raise ConfigError("'deploy.auth' requires 'header' and 'value_env' strings.")
+            if not HEADER_NAME_PATTERN.fullmatch(header):
+                raise ConfigError("'deploy.auth.header' is not a valid HTTP header name.")
+            if not url.startswith("https://"):
+                raise ConfigError("Authenticated HTTP deploy sources require an https:// URL.")
+            deploy_auth = DeployAuth(header=header, value_env=value_env)
     elif raw_deploy is not None:
         raise ConfigError(
             "'deploy' must be a string (e.g. 's3://bucket/app') or a mapping with a 'url' key."
@@ -230,6 +257,7 @@ def load_config(config_path: str | None = None) -> Config:
         secrets=secrets,
         deploy=deploy_url,
         deploy_sha256=deploy_sha256,
+        deploy_auth=deploy_auth,
         max_archive_mb=max_archive_mb,
         backup_upload=backup_upload,
     )

@@ -243,8 +243,8 @@ def test_list_archives_local_returns_sorted_matching_timestamps(temp_dir: pathli
     ):
         (root / name).touch()
     assert list_archives(LocalBackupStore(root=root), "app", "volume") == [
-        "20260731_1200",
         "20260801_0900",
+        "20260731_1200",
     ]
 
 
@@ -274,9 +274,9 @@ def test_list_archives_remote_paginates_filters_and_sorts():
     )
     with patch("compman.backup_store.create_client", return_value=fake):
         assert list_archives(store, "app", "volume") == [
-            "20260601_0000",
-            "20260731_1200",
             "20260801_0900",
+            "20260731_1200",
+            "20260601_0000",
         ]
     assert fake.page_calls == [{"Bucket": "bucket", "Prefix": "backups/"}]
 

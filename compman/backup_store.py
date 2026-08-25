@@ -153,12 +153,15 @@ def fetch_archive(store: BackupStore, name: str, dest: Path) -> None:
 
 
 def list_archives(store: BackupStore, stack: str, kind: str) -> list[str]:
-    """Return sorted backup timestamps for ``stack`` and ``kind``."""
+    """Return backup timestamps for ``stack`` and ``kind``, most recent first."""
     if isinstance(store, LocalBackupStore):
         pattern = f"{stack}.{kind}."
         return sorted(
-            entry.name.replace(pattern, "").replace(".tar.gz", "")
-            for entry in sorted(store.root.glob(f"{pattern}*.tar.gz"))
+            (
+                entry.name.replace(pattern, "").replace(".tar.gz", "")
+                for entry in store.root.glob(f"{pattern}*.tar.gz")
+            ),
+            reverse=True,
         )
     prefix = f"{store.prefix}/" if store.prefix else ""
     marker = f"{prefix}{stack}.{kind}."
@@ -174,7 +177,7 @@ def list_archives(store: BackupStore, stack: str, kind: str) -> list[str]:
     except Exception as exc:
         hint = s3_error_hint(exc, f"s3://{store.bucket}/{prefix}") or exc
         raise CommandError(t("msg.backup_store_error", detail=str(hint))) from exc
-    return sorted(timestamps)
+    return sorted(timestamps, reverse=True)
 
 
 @contextmanager

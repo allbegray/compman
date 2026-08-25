@@ -225,7 +225,7 @@ def select_backup_timestamp(config: Config, kind: str) -> str:
     idx = prompt_select(
         t("msg.available_backups_title", kind=kind),
         timestamps,
-        default_index=len(timestamps) - 1,
+        default_index=0,
     )
     selected = timestamps[idx]
     typer.echo(t("msg.selected_backup", name=selected))

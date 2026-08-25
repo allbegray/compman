@@ -129,13 +129,131 @@ def test_load_config_default_name(temp_dir: pathlib.Path):
     assert cfg.name == "default-test"
 
 
-def test_load_config_deploy_not_string(temp_dir: pathlib.Path):
+def test_load_config_deploy_plain_string_unchanged(temp_dir: pathlib.Path):
     config_file = temp_dir / "compman.yml"
     config_file.write_text(
-        "compman:\n  name: app\n  deploy: 123\n  compose:\n    default:\n      file: docker-compose.yml\n",
+        "compman:\n  name: app\n  deploy: s3://b/k.tar.gz\n  compose:\n    default:\n      file: docker-compose.yml\n",
         encoding="utf-8",
     )
-    with pytest.raises(ConfigError):
+    cfg = load_config(str(config_file))
+    assert cfg.deploy == "s3://b/k.tar.gz"
+    assert cfg.deploy_sha256 is None
+
+
+def test_load_config_deploy_mapping_with_sha256(temp_dir: pathlib.Path):
+    config_file = temp_dir / "compman.yml"
+    digest = "a" * 64
+    config_file.write_text(
+        "compman:\n"
+        "  name: app\n"
+        "  deploy:\n"
+        "    url: s3://b/k.tar.gz\n"
+        f"    sha256: {digest}\n"
+        "  compose:\n"
+        "    default:\n"
+        "      file: docker-compose.yml\n",
+        encoding="utf-8",
+    )
+    cfg = load_config(str(config_file))
+    assert cfg.deploy == "s3://b/k.tar.gz"
+    assert cfg.deploy_sha256 == digest
+
+
+def test_load_config_deploy_mapping_uppercase_sha256_normalized(temp_dir: pathlib.Path):
+    config_file = temp_dir / "compman.yml"
+    config_file.write_text(
+        "compman:\n"
+        "  name: app\n"
+        "  deploy:\n"
+        "    url: s3://b/k.tar.gz\n"
+        f"    sha256: {'A' * 64}\n"
+        "  compose:\n"
+        "    default:\n"
+        "      file: docker-compose.yml\n",
+        encoding="utf-8",
+    )
+    cfg = load_config(str(config_file))
+    assert cfg.deploy_sha256 == "a" * 64
+
+
+def test_load_config_deploy_mapping_without_sha256(temp_dir: pathlib.Path):
+    config_file = temp_dir / "compman.yml"
+    config_file.write_text(
+        "compman:\n"
+        "  name: app\n"
+        "  deploy:\n"
+        "    url: s3://b/k.tar.gz\n"
+        "  compose:\n"
+        "    default:\n"
+        "      file: docker-compose.yml\n",
+        encoding="utf-8",
+    )
+    cfg = load_config(str(config_file))
+    assert cfg.deploy == "s3://b/k.tar.gz"
+    assert cfg.deploy_sha256 is None
+
+
+def test_load_config_deploy_mapping_missing_url(temp_dir: pathlib.Path):
+    config_file = temp_dir / "compman.yml"
+    config_file.write_text(
+        "compman:\n  name: app\n  deploy:\n    sha256: abc\n  compose:\n    default:\n      file: docker-compose.yml\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigError, match="deploy.url"):
+        load_config(str(config_file))
+
+
+@pytest.mark.parametrize("raw_url", ["123", ["s3://b/k.tar.gz"]])
+def test_load_config_deploy_mapping_non_string_url(temp_dir: pathlib.Path, raw_url):
+    config_file = temp_dir / "compman.yml"
+    list_yaml = "\n      - s3://b/k.tar.gz" if isinstance(raw_url, list) else str(raw_url)
+    config_file.write_text(
+        "compman:\n"
+        "  name: app\n"
+        "  deploy:\n"
+        f"    url: {list_yaml}\n"
+        "  compose:\n"
+        "    default:\n"
+        "      file: docker-compose.yml\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigError, match="deploy.url"):
+        load_config(str(config_file))
+
+
+@pytest.mark.parametrize("digest", ["abc123", "z" * 64, 123])
+def test_load_config_deploy_sha256_invalid(temp_dir: pathlib.Path, digest):
+    config_file = temp_dir / "compman.yml"
+    quoted = str(digest) if isinstance(digest, int) else digest
+    config_file.write_text(
+        "compman:\n"
+        "  name: app\n"
+        "  deploy:\n"
+        "    url: s3://b/k.tar.gz\n"
+        f"    sha256: {quoted}\n"
+        "  compose:\n"
+        "    default:\n"
+        "      file: docker-compose.yml\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigError, match="deploy.sha256"):
+        load_config(str(config_file))
+
+
+@pytest.mark.parametrize("raw_deploy", [123, ["s3://b/k"]])
+def test_load_config_deploy_not_string(temp_dir: pathlib.Path, raw_deploy):
+    config_file = temp_dir / "compman.yml"
+    list_yaml = "\n    - s3://b/k" if isinstance(raw_deploy, list) else str(raw_deploy)
+    config_file.write_text(
+        "compman:\n"
+        "  name: app\n"
+        f"  deploy: {list_yaml}\n"
+        "  compose:\n"
+        "    default:\n"
+        "      file: docker-compose.yml\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigError, match="'deploy' must be"):
         load_config(str(config_file))
 
 

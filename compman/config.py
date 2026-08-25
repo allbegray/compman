@@ -8,6 +8,8 @@ import yaml
 
 from compman.errors import ConfigError
 
+SHA256_PATTERN = re.compile(r"^[0-9a-fA-F]{64}$")
+
 
 def sanitize_project_name(name: str) -> str:
     """Normalize a string to a valid Docker Compose project name.
@@ -50,6 +52,7 @@ class Config:
     profiles: dict[str, Profile] = field(default_factory=dict)
     secrets: dict[str, SecretRef] = field(default_factory=dict)
     deploy: str | None = None
+    deploy_sha256: str | None = None
     max_archive_mb: int | None = None
 
     @property
@@ -166,8 +169,26 @@ def load_config(config_path: str | None = None) -> Config:
             )
 
     raw_deploy = root.get("deploy")
-    if raw_deploy is not None and not isinstance(raw_deploy, str):
-        raise ConfigError("'deploy' must be a string (e.g. 's3://bucket/app').")
+    deploy_url: str | None = None
+    deploy_sha256: str | None = None
+    if isinstance(raw_deploy, str):
+        deploy_url = raw_deploy
+    elif isinstance(raw_deploy, dict):
+        url = raw_deploy.get("url")
+        if not isinstance(url, str):
+            raise ConfigError("'deploy.url' must be a string (e.g. 's3://bucket/app.tar.gz').")
+        deploy_url = url
+        raw_sha256 = raw_deploy.get("sha256")
+        if raw_sha256 is not None:
+            if not isinstance(raw_sha256, str) or not SHA256_PATTERN.fullmatch(raw_sha256):
+                raise ConfigError(
+                    "'deploy.sha256' must be a 64-character hexadecimal SHA-256 digest."
+                )
+            deploy_sha256 = raw_sha256.lower()
+    elif raw_deploy is not None:
+        raise ConfigError(
+            "'deploy' must be a string (e.g. 's3://bucket/app') or a mapping with a 'url' key."
+        )
 
     raw_secrets = root.get("secrets", {})
     if not isinstance(raw_secrets, dict):
@@ -193,7 +214,8 @@ def load_config(config_path: str | None = None) -> Config:
         compose_base=compose_base,
         profiles=profiles,
         secrets=secrets,
-        deploy=raw_deploy,
+        deploy=deploy_url,
+        deploy_sha256=deploy_sha256,
         max_archive_mb=max_archive_mb,
     )
     # Resolve all paths while loading so unsafe configuration fails before a
@@ -215,6 +237,9 @@ def dump_default_config(name: str) -> str:
   # --- optional features ---
   # folder: my-project             # _project/ subdirectory
   # deploy: s3://bucket/app        # S3 or HTTP archive source (--path overrides)
+  # deploy:                        # mapping form pins archive integrity:
+  #   url: s3://bucket/app.tar.gz
+  #   sha256: 64-hex-lowercase-digest-of-the-archive
   # dirs:
   #   backup: backup
   #   volume: volume

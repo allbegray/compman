@@ -171,6 +171,13 @@ Authenticated sources require `https://`; combining plain `http://` with `auth` 
 
 Put all configuration under the `compman` key in `compman.yml`.
 
+A JSON Schema is published at
+[`docs/site/compman.schema.json`](docs/site/compman.schema.json), so IDEs like VS Code and IntelliJ can provide autocomplete, validation, and hover descriptions for every key. Add this line at the top of your `compman.yml` to enable it:
+
+```yaml
+# yaml-language-server: $schema=https://allbegray.github.io/compman/compman.schema.json
+```
+
 For case-by-case examples, see [`examples/compman-config/`](examples/compman-config/) (index in [`examples/README.md`](examples/README.md)).
 
 ### Profile-based Compose configuration

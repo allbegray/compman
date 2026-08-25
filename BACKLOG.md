@@ -23,12 +23,7 @@ them. Retired IDs are never reused.
   demand; extends the existing transactional deploy swap whose only remaining
   non-rolled-back failure mode is post-swap scaffold generation.
 
-- [ ] [L2] Config schema versioning — publish `compman.schema.v1.json`
-  (draft derived from config.py parse rules) so editors can validate and
-  doctor can report schema drift; bump the schema version whenever a key's
-  meaning changes. Implementation sketch: extract the validation logic from
-  load_config into pure functions keyed by schema version, then generate the
-  JSON Schema from those functions' rules to keep one source of truth.
+
 
 - [ ] [L13] Additional deploy/backup backends — evaluated against the three
   roadmap gates: GCS/Azure rejected for now (new SDK dependencies collide with
@@ -51,8 +46,8 @@ planning further ahead.
 
 - **1.8 — Automation ergonomics, concluded**: [M9] `stack up --wait` and
   [M10] project-scoped `--json` shipped in v1.8.0.
-- **1.9 — Operational convenience**: [L12] rollback plus one of [L14]
-  multi-stack registry or [L2] config schema versioning.
+- **1.9 — Operational convenience**: [L12] rollback plus [L14]
+  multi-stack registry.
 - Ongoing between minors: [M1] module splits, remaining [L] hygiene items.
 
 Feature gate for any new candidate: real value for restricted-environment

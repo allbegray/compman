@@ -162,6 +162,12 @@ HTTPS 배포 소스는 `deploy`의 매핑 형태에 선택적 `auth` 블록으�
 
 모든 설정은 `compman.yml`의 `compman` 키 아래에 둡니다.
 
+JSON Schema가 [`docs/site/compman.schema.json`](docs/site/compman.schema.json)에 발행되어 있어, VS Code나 IntelliJ 같은 IDE에서 자동완성·검증·호버 설명을 사용할 수 있습니다. yml 최상단에 다음 줄을 추가하세요:
+
+```yaml
+# yaml-language-server: $schema=https://allbegray.github.io/compman/compman.schema.json
+```
+
 케이스별 예제는 [`examples/compman-config/`](examples/compman-config/)를 참고하세요(색인은 [`examples/README.md`](examples/README.md)).
 
 ### 프로파일 기반 Compose 설정

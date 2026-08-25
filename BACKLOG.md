@@ -34,17 +34,24 @@ them. Retired IDs are never reused.
   (structured/debug logging itself is intentionally rejected — the project
   convention forbids stdlib `logging`; output flows through `typer.echo` + `t()`).
 
-- [ ] [L2] Validate configuration against an explicit schema and publish a
-  versioned config format.
+- [ ] [L2] Config schema versioning — publish `compman.schema.v1.json`
+  (draft derived from config.py parse rules) so editors can validate and
+  doctor can report schema drift; bump the schema version whenever a key's
+  meaning changes. Implementation sketch: extract the validation logic from
+  load_config into pure functions keyed by schema version, then generate the
+  JSON Schema from those functions' rules to keep one source of truth.
 
 - [ ] [L3] Add documentation checks for broken links and Markdown consistency
   (command-list validation against the typer tree already exists in
   `tests/test_cli.py`, including the Korean mirror).
 
-- [ ] [L13] Additional deploy/backup backends — GCS, Azure Blob, or SSH/SCP.
-  Evaluate each against the three roadmap gates: real value for
-  restricted-environment users, dependency cost (boto3 lazy-import lesson), and
-  100% coverage burden. SSH/SCP likely fits the locked-down persona best.
+- [ ] [L13] Additional deploy/backup backends — evaluated against the three
+  roadmap gates: GCS/Azure rejected for now (new SDK dependencies collide with
+  the boto3 lazy-import lesson), SSH/SCP accepted as the candidate that fits
+  the locked-down persona best. Implementation shape when picked up:
+  an SshBackupStore sibling of S3BackupStore driving `ssh`/`scp` subprocesses
+  through the existing runner seam, no new dependencies, keys assumed
+  pre-provisioned on the host.
 
 - [ ] [L14] Multi-stack registry — optional global registry mapping stack names
   to directories so `compman --stack NAME status` works without cd-ing into

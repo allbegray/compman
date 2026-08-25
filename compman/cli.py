@@ -231,6 +231,37 @@ def deploy_cmd(
     _deploy(build=build, tag=tag, s3_path=path, sha256=sha256)
 
 
+def _existing_stack_image(cfg) -> tuple[str | None, list[str]]:
+    """Return (single service image or None, distinct service images).
+
+    Reads the resolved compose files so an update rebuilds exactly the image
+    the running stack references instead of a directory-derived default.
+    """
+
+    import yaml
+
+    from compman.docker import resolve_compose_context as _resolve
+
+    try:
+        context = _resolve(cfg, None)
+    except Exception:
+        return None, []
+    images: list[str] = []
+    for file in context.files:
+        try:
+            data = yaml.safe_load(pathlib.Path(file).read_text(encoding="utf-8-sig"))
+        except (OSError, yaml.YAMLError):
+            continue
+        services = data.get("services") if isinstance(data, dict) else None
+        if not isinstance(services, dict):
+            continue
+        for svc in services.values():
+            image = svc.get("image") if isinstance(svc, dict) else None
+            if isinstance(image, str) and image not in images:
+                images.append(image)
+    return (images[0] if len(images) == 1 else None), images
+
+
 # ---- update ----
 @app.command("update", help=t("cmd.update"))
 def update_cmd(
@@ -240,7 +271,10 @@ def update_cmd(
     ctx = _load(config)
     cfg = ctx["config"]
     if cfg.deploy:
-        _deploy(build=True, tag=None, s3_path=cfg.deploy, config=cfg, runtime=ctx["runtime"])
+        tag, images = _existing_stack_image(cfg)
+        if tag is None and images:
+            typer.echo(t("msg.update_tag_mismatch", images=", ".join(sorted(images))), err=True)
+        _deploy(build=True, tag=tag, s3_path=cfg.deploy, config=cfg, runtime=ctx["runtime"])
         _stack_ops().up(ctx["runtime"], cfg, profile=profile)
     else:
         _stack_ops().update(ctx["runtime"], cfg, profile=profile)

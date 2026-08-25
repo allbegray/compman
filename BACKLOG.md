@@ -25,11 +25,6 @@ them. Retired IDs are never reused.
   versioned `--json` pattern (doctor/status) to `ps`, `stats`, and backup
   listings so automation consumes results without scraping human-readable text.
 
-- [ ] [M12] Deploy/update image-tag consistency — `deploy --build --tag X`
-  scaffolds a compose file referencing image X, but a later tag-less `update`
-  rebuilds and tags `<directory-name>`, silently leaving the running stack on
-  the old image (found in end-to-end testing). Derive the update-time image
-  from the existing compose configuration, or warn loudly on mismatch.
 
 ## Lower (L)
 

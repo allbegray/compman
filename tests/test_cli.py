@@ -720,6 +720,64 @@ def test_cli_update_deploy_path(runner: CliRunner, dummy_runtime, temp_dir: path
     assert deploy.call_args.kwargs["runtime"] is dummy_runtime
 
 
+def _write_compose_with_images(temp_dir: pathlib.Path, images: list[str]) -> None:
+    lines = ["services:"]
+    for index, image in enumerate(images):
+        lines.append(f"  svc{index}:")
+        lines.append(f"    image: {image}")
+    (temp_dir / "docker-compose.yml").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def test_cli_update_reuses_existing_service_image(
+    runner: CliRunner, dummy_runtime, temp_dir: pathlib.Path
+):
+    write_config(
+        temp_dir / "compman.yml",
+        "compman:\n  name: app\n  deploy: s3://b/k.tar.gz\n  compose:\n    default:\n      file: docker-compose.yml\n",
+    )
+    _write_compose_with_images(temp_dir, ["registry.example/app:1.2.3"])
+    with patch("compman.cli.detect_runtime", return_value=dummy_runtime), patch(
+        "compman.cli._deploy"
+    ) as deploy:
+        res = runner.invoke(app, ["update"])
+        assert res.exit_code == 0
+    assert deploy.call_args.kwargs["tag"] == "registry.example/app:1.2.3"
+
+
+def test_cli_update_warns_when_multiple_service_images(
+    runner: CliRunner, dummy_runtime, temp_dir: pathlib.Path
+):
+    write_config(
+        temp_dir / "compman.yml",
+        "compman:\n  name: app\n  deploy: s3://b/k.tar.gz\n  compose:\n    default:\n      file: docker-compose.yml\n",
+    )
+    _write_compose_with_images(temp_dir, ["img-b:2", "img-a:1"])
+    with patch("compman.cli.detect_runtime", return_value=dummy_runtime), patch(
+        "compman.cli._deploy"
+    ) as deploy:
+        res = runner.invoke(app, ["update"])
+        assert res.exit_code == 0
+    assert deploy.call_args.kwargs["tag"] is None
+    assert "img-a:1" in res.output and "img-b:2" in res.output
+
+
+def test_cli_update_without_services_keeps_default_tag(
+    runner: CliRunner, dummy_runtime, temp_dir: pathlib.Path
+):
+    write_config(
+        temp_dir / "compman.yml",
+        "compman:\n  name: app\n  deploy: s3://b/k.tar.gz\n  compose:\n    default:\n      file: docker-compose.yml\n",
+    )
+    (temp_dir / "docker-compose.yml").touch()
+    with patch("compman.cli.detect_runtime", return_value=dummy_runtime), patch(
+        "compman.cli._deploy"
+    ) as deploy:
+        res = runner.invoke(app, ["update"])
+        assert res.exit_code == 0
+    assert deploy.call_args.kwargs["tag"] is None
+    assert "Multiple service images" not in res.output
+
+
 def test_cli_stack_down_no_yes_abort(runner: CliRunner, dummy_runtime, temp_dir: pathlib.Path):
     write_config(temp_dir / "compman.yml")
     (temp_dir / "docker-compose.yml").touch()

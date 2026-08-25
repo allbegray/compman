@@ -900,3 +900,37 @@ def test_cli_service_no_services(runner: CliRunner, dummy_runtime, temp_dir: pat
         for cmd in ["start", "stop", "restart"]:
             res = runner.invoke(app, ["service", cmd])
             assert res.exit_code == 0
+
+
+# ---- M12 helper edge branches ----
+
+def test_existing_stack_image_handles_resolve_failure(temp_dir: pathlib.Path):
+    from compman.cli import _existing_stack_image
+
+    write_config(temp_dir / "compman.yml")
+    cfg = __import__("compman").config.load_config(str(temp_dir / "compman.yml"))
+    with patch("compman.docker.resolve_compose_context", side_effect=RuntimeError("boom")):
+        assert _existing_stack_image(cfg) == (None, [])
+
+
+def test_existing_stack_image_skips_unparsable_compose_file(temp_dir: pathlib.Path):
+    from compman.cli import _existing_stack_image
+
+    write_config(
+        temp_dir / "compman.yml",
+        "compman:\n  name: app\n  deploy: s3://b/k.tar.gz\n  compose:\n    default:\n      file: broken-compose.yml\n",
+    )
+    (temp_dir / "broken-compose.yml").write_text("services:\n  web:\n   image: [unclosed", encoding="utf-8")
+    cfg = __import__("compman").config.load_config(str(temp_dir / "compman.yml"))
+    assert _existing_stack_image(cfg) == (None, [])
+
+
+def test_existing_stack_image_skips_service_without_image(temp_dir: pathlib.Path):
+    from compman.cli import _existing_stack_image
+
+    write_config(temp_dir / "compman.yml")
+    (temp_dir / "docker-compose.yml").write_text(
+        "services:\n  worker:\n    command: sleep infinity\n", encoding="utf-8"
+    )
+    cfg = __import__("compman").config.load_config(str(temp_dir / "compman.yml"))
+    assert _existing_stack_image(cfg) == (None, [])

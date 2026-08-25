@@ -251,3 +251,10 @@ def test_get_key_win32():
 
         fake_msvcrt.getch.side_effect = [b"4"]
         assert common.get_key() == "4"
+
+
+def test_parse_compose_ps_skips_non_dict_entries():
+    from compman.ops.common import parse_compose_ps
+
+    parsed = parse_compose_ps('{"Service":"a"}\n123\n')
+    assert len(parsed) == 1 and parsed[0]["Service"] == "a"

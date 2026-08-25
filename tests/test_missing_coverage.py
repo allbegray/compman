@@ -242,7 +242,7 @@ def test_runtime_stack_and_detection_branches():
             docker.detect_runtime()
 
 
-def test_deploy_error_and_scaffold_branches(temp_dir):
+def test_deploy_error_and_scaffold_branches(temp_dir, capsys):
     bad_config = temp_dir / "compman.yml"
     bad_config.write_text("other: value", encoding="utf-8")
     with patch("boto3.client", return_value=MagicMock()), patch("compman.deploy._fetch", side_effect=RuntimeError("boom")):
@@ -250,13 +250,14 @@ def test_deploy_error_and_scaffold_branches(temp_dir):
             deploy.deploy(s3_path="s3://b/k")
 
     bad_config.write_text("compman:\n  name: app\n  compose:\n    - docker-compose.yml\n", encoding="utf-8")
-    with pytest.raises(SystemExit):
+    with pytest.raises(typer.Exit):
         deploy.deploy(s3_path=None)
+    assert "could not be parsed" in capsys.readouterr().err
 
     bad_config.write_text("compman:\n  name: app\n  deploy: s3://b/k\n", encoding="utf-8")
-    with patch("boto3.client", return_value=MagicMock()), patch("compman.deploy._fetch", side_effect=RuntimeError("boom")):
-        with pytest.raises(SystemExit):
-            deploy.deploy(s3_path=None)
+    with pytest.raises(typer.Exit):
+        deploy.deploy(s3_path=None)
+    assert "could not be parsed" in capsys.readouterr().err
 
     deploy._update_compman_deploy(bad_config, "s3://new/path")
     bad_config.write_text("compman:\n  name: app\n  deploy: old\n", encoding="utf-8")

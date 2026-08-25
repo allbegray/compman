@@ -297,3 +297,24 @@ def test_cli_stack_update_passes_wait_flag(runner: CliRunner, dummy_runtime, tem
         assert res.exit_code == 0
     ops.return_value.update.assert_called_once()
     assert ops.return_value.update.call_args.kwargs["wait"] is True
+
+
+def test_stack_up_with_wait_polls_until_ready(
+    dummy_runtime, temp_dir: pathlib.Path, monkeypatch
+):
+    (temp_dir / "docker-compose.yml").touch()
+    cfg = Config(name="app", profiles={"default": Profile(file="docker-compose.yml")})
+    dummy_runtime.ensure_ready_for_start = MagicMock()
+    ready = json.dumps([{"Service": "box", "State": "running", "Health": ""}])
+    ps_calls: list[int] = []
+
+    def run_compose(args, **kwargs):
+        if args[:2] == ["ps", "--format"]:
+            ps_calls.append(len(ps_calls))
+            return _Proc(ready)
+        return MagicMock()
+
+    dummy_runtime.run_compose = run_compose
+    monkeypatch.setattr(stack.time, "sleep", lambda s: None)
+    stack.up(dummy_runtime, cfg, wait=True)
+    assert len(ps_calls) == 1

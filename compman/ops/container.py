@@ -100,9 +100,11 @@ def stats(
                 if not line:
                     continue
                 try:
-                    entries.append(json.loads(line))
+                    entry = json.loads(line)
                 except json.JSONDecodeError:
                     continue
+                if isinstance(entry, dict):
+                    entries.append(entry)
         typer.echo(
             json.dumps(
                 {

@@ -30,16 +30,22 @@ def deploy(
     runtime: ContainerRuntime | None = None,
     sha256: str | None = None,
 ) -> None:
+    parse_error: ConfigError | None = None
     if config is None and (Path.cwd() / "compman.yml").exists():
         try:
             config = load_config()
-        except ConfigError:
-            pass
+        except ConfigError as e:
+            parse_error = e
 
     if not s3_path and config:
         s3_path = config.deploy
 
     if not s3_path and not config:
+        if parse_error is not None:
+            typer.echo(t("msg.deploy_config_invalid", err=parse_error), err=True)
+            raise typer.Exit(1)
+
+
         try:
             s3_path = load_config().deploy
         except ConfigError:

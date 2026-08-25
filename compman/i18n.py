@@ -915,6 +915,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "en": "Authentication environment variable '{name}' must not contain line breaks.",
         "ko": "인증 환경 변수 '{name}'에는 줄바꿈을 사용할 수 없습니다.",
     },
+    "msg.deploy_config_invalid": {
+        "en": "compman.yml could not be parsed: {err}",
+        "ko": "compman.yml을(를) 해석할 수 없습니다: {err}",
+    },
     "msg.update_tag_mismatch": {
         "en": "Multiple service images found ({images}); skipping the automatic rebuild because the rebuild target is ambiguous.",
         "ko": "여러 서비스 이미지가 발견되어({images}) 재빌드 대상을 특정할 수 없어 자동 재빌드를 건너뜁니다.",

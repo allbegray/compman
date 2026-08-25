@@ -165,9 +165,11 @@ def test_volume_restore_remote_fetches_from_store(dummy_runtime, temp_dir: pathl
             self.downloads.append((bucket, key, destination))
             pathlib.Path(destination).write_bytes(payload)
 
-    fake = DownloadFake(pages=[{"Contents": [{"Key": "backups/my_stack.volume.20260731_1200.tar.gz"}]}])
+    fake = DownloadFake(pages=[])
     dummy_runtime.list_containers = MagicMock(return_value=["c1"])
-    with patch("compman.backup_store.create_client", return_value=fake), _patch_stage(temp_dir):
+    with patch(
+        "compman.ops.volume.find_archive", return_value="my_stack.volume.20260731_1200.tar.gz"
+    ), patch("compman.backup_store.create_client", return_value=fake), _patch_stage(temp_dir):
         volume.restore(dummy_runtime, cfg, "20260731_1200", no_stop=True)
 
     assert fake.downloads[0][1] == "backups/my_stack.volume.20260731_1200.tar.gz"
@@ -177,7 +179,9 @@ def test_volume_restore_remote_fetches_from_store(dummy_runtime, temp_dir: pathl
 def test_volume_restore_remote_missing_timestamp_lists_and_errors(dummy_runtime, temp_dir: pathlib.Path):
     cfg = _remote_config()
     fake = FakeS3(pages=[{}])
-    with patch("compman.backup_store.create_client", return_value=fake), pytest.raises(
+    with patch(
+        "compman.ops.volume.find_archive", return_value=None
+    ), patch("compman.backup_store.create_client", return_value=fake), pytest.raises(
         CommandError
     ) as excinfo:
         volume.restore(dummy_runtime, cfg, "20260601_0000", no_stop=True)

@@ -12,6 +12,7 @@ from compman.archive import create_tar, extract_tar, open_tarball
 from compman.backup_store import (
     LocalBackupStore,
     archive_location,
+    find_archive,
     list_archives,
     new_backup_paths,
     put_archive,
@@ -83,10 +84,12 @@ def restore(
     validate_timestamp(timestamp)
     store = config.backup_store
     backup_name = f"{config.name}.volume.{timestamp}"
-    archive_name = f"{backup_name}.tar.gz"
-    if timestamp not in list_archives(store, config.name, "volume"):
+    archive_name = find_archive(store, config.name, "volume", timestamp)
+    if archive_name is None:
         _list_backups(config, "volume")
-        raise CommandError(t("msg.backup_not_found", tarball=archive_location(store, archive_name)))
+        raise CommandError(
+            t("msg.backup_not_found", tarball=archive_location(store, f"{config.name}.volume.{timestamp}.tar.gz"))
+        )
 
     running = runtime.list_containers(config.name, context.files, context.env)
     auto_started = False

@@ -93,7 +93,7 @@ def new_backup_paths(store: BackupStore, stack: str, kind: str, *, zstd_format: 
         return backup_dir, tarball
     workdir = Path(tempfile.mkdtemp(prefix="compman-"))
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    tarball = workdir / f"{stack}.{kind}.{timestamp}.tar.gz"
+    tarball = workdir / f"{stack}.{kind}.{timestamp}{_suffix_for(zstd_format)}"
     return workdir, tarball
 
 
@@ -150,6 +150,28 @@ def fetch_archive(store: BackupStore, name: str, dest: Path) -> None:
     except Exception as exc:
         hint = s3_error_hint(exc, f"s3://{store.bucket}/{key}") or exc
         raise CommandError(t("msg.backup_store_error", detail=str(hint))) from exc
+
+
+def find_archive(store: BackupStore, stack: str, kind: str, timestamp: str) -> str | None:
+    """Return the stored base name (with suffix) for ``timestamp``, or None."""
+    for suffix in (".tar.gz", ".tar.zst"):
+        candidate = f"{stack}.{kind}.{timestamp}{suffix}"
+        if isinstance(store, LocalBackupStore):
+            if (store.root / candidate).is_file():
+                return candidate
+            continue
+        try:
+            create_client().head_object(Bucket=store.bucket, Key=_object_key(store, candidate))
+            return candidate
+        except Exception as exc:
+            from botocore.exceptions import ClientError as _ClientError
+
+            if isinstance(exc, _ClientError) and str(
+                exc.response.get("Error", {}).get("Code", "")
+            ) in ("404", "NoSuchKey", "NotFound"):
+                continue
+            raise
+    return None
 
 
 def delete_archive(store: BackupStore, name: str) -> None:

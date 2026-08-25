@@ -405,3 +405,113 @@ def test_strip_suffix_passthrough_without_known_suffix():
     assert _strip_suffix("plain-name") == "plain-name"
     assert _strip_suffix("app.volume.20260801_0900.tar.gz") == "app.volume.20260801_0900"
     assert _strip_suffix("app.volume.20260801_0900.tar.zst") == "app.volume.20260801_0900"
+
+
+# ---- find_archive ----
+
+class _HeadFake:
+    def __init__(self, results):
+        self.results = list(results)
+        self.calls = []
+
+    def head_object(self, *, Bucket, Key):
+        self.calls.append(Key)
+        result = self.results.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return {"ContentLength": 1}
+
+
+def test_find_archive_local_prefers_gz_then_zst_then_none(tmp_path):
+    from compman.backup_store import LocalBackupStore, find_archive
+
+    store = LocalBackupStore(root=tmp_path)
+    (tmp_path / "app.volume.20260801_0900.tar.gz").touch()
+    assert find_archive(store, "app", "volume", "20260801_0900") == "app.volume.20260801_0900.tar.gz"
+
+    (tmp_path / "app.volume.20260801_0900.tar.gz").unlink()
+    (tmp_path / "app.volume.20260801_0900.tar.zst").touch()
+    assert find_archive(store, "app", "volume", "20260801_0900") == "app.volume.20260801_0900.tar.zst"
+
+    (tmp_path / "app.volume.20260801_0900.tar.zst").unlink()
+    assert find_archive(store, "app", "volume", "20260801_0900") is None
+
+
+def test_find_archive_remote_short_circuits_on_first_hit():
+    from unittest.mock import patch
+
+    from botocore.exceptions import ClientError
+
+    from compman.backup_store import S3BackupStore, find_archive
+
+    store = S3BackupStore(bucket="bucket", prefix="backups")
+    not_found = ClientError({"Error": {"Code": "404", "Message": "nf"}}, "HeadObject")
+    calls = []
+
+    class H:
+        def __init__(self):
+            pass
+
+        def head_object(self, *, Bucket, Key):
+            calls.append(Key)
+            return {"ContentLength": 5}
+
+    with patch("compman.backup_store.create_client", return_value=H()):
+        assert find_archive(store, "app", "volume", "20260731_1200") == (
+            "app.volume.20260731_1200.tar.gz"
+        )
+
+
+def test_find_archive_remote_both_missing_returns_none():
+    from unittest.mock import patch
+
+    from botocore.exceptions import ClientError
+
+    from compman.backup_store import S3BackupStore, find_archive
+
+    store = S3BackupStore(bucket="bucket", prefix="backups")
+
+    class H:
+        def head_object(self, *, Bucket, Key):
+            raise ClientError({"Error": {"Code": "404", "Message": "nf"}}, "HeadObject")
+
+    with patch("compman.backup_store.create_client", return_value=H()):
+        assert find_archive(store, "app", "volume", "20260731_1200") is None
+
+
+def test_find_archive_remote_unexpected_error_raises():
+    import pytest
+
+    from compman.backup_store import S3BackupStore, find_archive
+
+    store = S3BackupStore(bucket="bucket", prefix="backups")
+
+    class H:
+        def head_object(self, *, Bucket, Key):
+            raise RuntimeError("boom")
+
+    with patch("compman.backup_store.create_client", return_value=H()), pytest.raises(
+        RuntimeError, match="boom"
+    ):
+        find_archive(store, "app", "volume", "20260731_1200")
+
+
+def test_find_archive_remote_falls_back_to_zst_when_gz_missing():
+    from unittest.mock import patch
+
+    from botocore.exceptions import ClientError
+
+    from compman.backup_store import S3BackupStore, find_archive
+
+    store = S3BackupStore(bucket="bucket", prefix="backups")
+
+    class H:
+        def head_object(self, *, Bucket, Key):
+            if Key.endswith(".tar.gz"):
+                raise ClientError({"Error": {"Code": "404", "Message": "nf"}}, "HeadObject")
+            return {"ContentLength": 9}
+
+    with patch("compman.backup_store.create_client", return_value=H()):
+        assert find_archive(store, "app", "volume", "20260731_1200") == (
+            "app.volume.20260731_1200.tar.zst"
+        )

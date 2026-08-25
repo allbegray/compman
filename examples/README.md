@@ -39,6 +39,8 @@ injected value. A plain `environment:` entry without `${...}` stays literal.
 | [08](compman-config/08-full.md) | Full example | Everything combined |
 | [09](compman-config/09-limits.md) | Deploy size limit | `limits.max_archive_mb` cap + provenance echo |
 | [10](compman-config/10-deploy-checksum.md) | Deploy checksum pinning | `deploy: {url, sha256}` pin + `--sha256` flag |
+| [11](compman-config/11-backup-upload.md) | Remote backup upload | `backup.upload` target + `--push` / `--no-push` flags |
+| [12](compman-config/12-authenticated-http-deploy.md) | Authenticated HTTP deploy | `deploy.auth` header sourced from `value_env` env var |
 
 Run any example from the directory that contains its `compman.yml`:
 

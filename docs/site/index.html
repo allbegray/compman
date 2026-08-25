@@ -43,7 +43,7 @@ Stack <em>payments</em> is healthy
   api       <strong>running</strong>
   postgres  <strong>running</strong>
 
-<b>$</b> compman volume backup
+<b>$</b> compman volume backup --push s3://backups
 Backup created successfully
 
 <b>$</b> compman deploy --path release.zip
@@ -66,9 +66,9 @@ Deploy completed</code></pre>
       </div>
       <div class="feature-grid">
         <article class="card"><span class="card-icon">01</span><h3>Stack &amp; services</h3><p>Start, stop, update, inspect, connect to, and follow logs from Compose services.</p></article>
-        <article class="card"><span class="card-icon">02</span><h3>Safe backups</h3><p>Back up and restore named volumes or container images with configurable gzip compression.</p></article>
+        <article class="card"><span class="card-icon">02</span><h3>Safe backups</h3><p>Back up and restore named volumes or container images with configurable gzip compression. Replicate archives to S3-compatible storage with <code>backup.upload</code> or a one-off <code>--push</code>; endpoint overrides make Ministack and LocalStack work, and the local copy always stays.</p></article>
         <article class="card"><span class="card-icon">03</span><h3>Useful diagnostics</h3><p>Get human-readable or JSON health reports with <code>status</code> and <code>doctor</code>.</p></article>
-        <article class="card"><span class="card-icon">04</span><h3>Simple deployments</h3><p>Fetch an S3 prefix or archive, or a public HTTP archive, then optionally build and recreate.</p></article>
+        <article class="card"><span class="card-icon">04</span><h3>Simple deployments</h3><p>Fetch an S3 prefix or archive, or an authenticated HTTPS archive, then optionally build and recreate. A SHA-256 pin verifies the artifact before anything changes.</p></article>
         <article class="card"><span class="card-icon">05</span><h3>Secret-safe config</h3><p>Inject environment variables from AWS Secrets Manager instead of hardcoding secrets in <code>compman.yml</code>.</p></article>
       </div>
     </section>
@@ -113,8 +113,8 @@ compman stats -f</code></pre>
       <div class="shell">
         <div class="section-heading">
           <p class="eyebrow">Bring your own release source</p>
-          <h2>Deploy from S3 or a public HTTP archive.</h2>
-          <p>S3 supports prefixes and archives. HTTP and HTTPS accept <code>.tar.gz</code>, <code>.tgz</code>, and <code>.zip</code> archives.</p>
+          <h2>Deploy from S3 or authenticated HTTPS archives.</h2>
+          <p>S3 supports prefixes and archives. HTTP and HTTPS accept <code>.tar.gz</code>, <code>.tgz</code>, and <code>.zip</code> archives. Pin any source with a SHA-256 digest: the download is verified before extraction, build, and the managed-tree swap, so a mismatch aborts with nothing changed.</p>
         </div>
         <div class="deploy-grid">
           <article><h3>S3-compatible storage</h3><pre><code>compman deploy --path \
@@ -122,7 +122,7 @@ compman stats -f</code></pre>
   --build --tag my-app</code></pre><p>Works with AWS S3 and endpoint-compatible services such as Ministack.</p></article>
           <article><h3>Public HTTP / HTTPS</h3><pre><code>compman deploy --path \
   https://example.com/releases/app.zip \
-  --build --tag my-app</code></pre><p>Streams the archive with standard TLS verification. Authenticated URLs are not yet supported.</p></article>
+  --build --tag my-app</code></pre><p>Streams the archive with standard TLS verification. Add an <code>auth</code> block and compman reads the header value from an environment variable at fetch time; the token is never stored in <code>compman.yml</code>, and cross-host redirects drop the header.</p></article>
         </div>
       </div>
     </section>
@@ -133,7 +133,7 @@ compman stats -f</code></pre>
         <details><summary>Docker only?</summary><p>No. compman auto-detects Docker Compose, Podman Compose, legacy docker-compose, and podman-compose.</p></details>
         <details><summary>Where is configuration stored?</summary><p>A project-local <code>compman.yml</code> describes the stack, Compose files, profiles, managed directories, and optional deploy source.</p></details>
         <details><summary>How are secrets handled?</summary><p>compman can inject environment variables from AWS Secrets Manager at command time, so secrets never need to live in <code>compman.yml</code>.</p></details>
-        <details><summary>Are archive deployments safe?</summary><p>Archive extraction rejects absolute paths, traversal, and links. Managed-tree replacement rolls back if its file swap fails.</p></details>
+        <details><summary>Are archive deployments safe?</summary><p>Archive extraction rejects absolute paths, traversal, and links. Managed-tree replacement rolls back if its file swap fails. An optional SHA-256 pin verifies the download before extraction, so a bad artifact never reaches your project.</p></details>
         <details><summary>Is there a daemon or server?</summary><p>No. compman is an on-demand CLI that delegates container operations to the detected local runtime.</p></details>
       </div>
     </section>

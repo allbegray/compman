@@ -42,7 +42,7 @@ SOLUTION.md            # dev/test/debug lessons (read before touching runtime/CL
 ```
 
 - `compman init` provides an interactive 3-mode menu (1. Scaffold compman.yml, 2. S3 URL deploy, 3. Test seed project). Direct flags `--scaffold`, `--s3 <url>`, and `--seed` are also supported.
-- Current package version: `1.4.0`.
+- Current package version: `1.5.0`.
 - English is the default UI and documentation language. Korean remains supported through `--lang ko` or `COMPMAN_LANG=ko`; keep Korean text isolated to `i18n.py` TRANSLATIONS and their tests.
 - Build/running is `uv`-based (`pyproject.toml` has `[tool.uv] package = true`).
 - Python >=3.12; runtime deps: typer, PyYAML, boto3, botocore.
@@ -110,6 +110,21 @@ compose:
   source size (enforced on the extracted tree; exceeding it aborts the deploy
   before any filesystem change). When configured, the deployed source and its
   byte size are echoed as provenance.
+- `deploy` also accepts a mapping `{ url?, sha256?, auth?: { header, value_env } }`.
+  `sha256` pins the artifact and is verified after download, before extraction/
+  build/managed-tree swap; a mismatch aborts with exit 1 and nothing changes.
+  Works for S3 archives and HTTP(S) too.
+- `deploy.auth` authenticates HTTPS fetches: the header value is read at fetch
+  time from the env var named by `value_env`; the token is never stored in
+  compman.yml nor echoed, and error messages name only the variable. `https://`
+  is required when auth is present (http+auth = config error). Cross-host
+  redirects drop the auth header (same-host redirects keep it). Auth applies
+  only when the deployed source URL equals the configured `deploy` URL; an
+  explicit `--path` deploy is unauthenticated.
+- Optional top-level `backup.upload: s3://bucket/prefix` auto-uploads every
+  backup archive to `<prefix>/<archive-filename>` after the local copy is
+  written; the local archive always remains; upload failure exits non-zero
+  naming the local path.
 - Long-running Docker/subprocess operations default to a 300s timeout, overridable
   per process with `COMPMAN_TIMEOUT=<seconds>` (invalid values fall back to 300).
 
@@ -140,7 +155,7 @@ compose:
 
 ## CLI quirks
 
-- `doctor` checks configuration, compose files, container runtime, and deploy prerequisites. `--json` emits schema version `1`; failed required checks exit with status 1, while missing optional AWS environment variables (including secrets prerequisites) are warnings.
+- `doctor` checks configuration, compose files, container runtime, and deploy prerequisites. `--json` emits schema version `1`; failed required checks exit with status 1, while missing optional AWS environment variables (including secrets prerequisites) are warnings. It also warns when `deploy` is configured without a sha256 pin, when `deploy.auth.value_env` names an unset environment variable, and when `backup.upload` is configured but AWS credentials/region are missing.
 - Top-level `status` reports normalized stack/service state across Docker and Podman. `--json` emits schema version `1`; a missing stack or runtime query error exits with status 1, while an existing stopped stack is successful.
 - Top-level `ps` lists containers only in the selected compman project; `-a`/`--all` includes stopped containers.
 - Top-level `stats` prints one resource snapshot for running containers in the selected project; `-f`/`--follow` streams continuously.
@@ -154,7 +169,9 @@ compose:
 - `service connect` runs `docker exec -it` with bash fallback to sh.
 - `service log`/`connect` accept Compose **service** names; the runtime container is resolved via `compose ps -q <service>`. Zero instances fail with a "no running containers" error; a scaled service with multiple instances fails with guidance to name the exact container.
 - `deploy` sources come from `compman.yml: deploy` (single value, no per-profile) or `--path`. S3 uses boto3 (no AWS CLI needed); `AWS_ENDPOINT_URL_S3` or `AWS_ENDPOINT_URL` redirects the client (e.g. ministack at `http://localhost:4566`). Credentials use standard AWS environment variables.
-- Deploy accepts an S3 **prefix** or `.tar.gz`/`.tgz`/`.zip` archive, plus public HTTP/HTTPS archives with those suffixes. HTTP uses standard TLS/redirect behavior, a 30-second timeout, and no authentication options. Archives reject absolute/traversal paths and links; a single top-level directory is flattened.
+- Deploy accepts an S3 **prefix** or `.tar.gz`/`.tgz`/`.zip` archive, plus public HTTP/HTTPS archives with those suffixes. HTTP uses standard TLS/redirect behavior and a 30-second timeout; authenticated fetches send a header sourced from an environment variable and require HTTPS. Archives reject absolute/traversal paths and links; a single top-level directory is flattened.
+- `deploy` accepts `--sha256 HEX` (or `deploy.sha256` in config); the digest is verified after download, before extraction/build/swap, and a mismatch exits 1 with nothing changed. The pin applies whenever the deployed source URL equals the configured `deploy` URL, so `update` inherits it.
+- `volume backup`/`image backup` accept `--push S3_URI` (one-off upload target) and `--no-push` (skip the configured target); combining both errors. With `backup.upload` configured, every archive uploads automatically after the local copy is written; failures preserve the local archive and exit non-zero.
 - `compman upgrade` refreshes the uv tool from its stored source with `uv tool upgrade compman --reinstall --managed-python --python 3.13`. To recover a damaged installation, run `uv tool uninstall compman`, then `uv tool install --managed-python --python 3.13 git+https://github.com/allbegray/compman.git`, and verify with `compman --version`. Keep the recovery source unpinned so future `uv tool upgrade` runs can move to newer releases.
 - The fetched tree replaces the contents of the managed `dirs.project` directory, preserving `.git` and `.gitkeep`. Root `compman.yml` and `docker-compose.yml` are scaffolded or updated separately.
 - Deploy with `--build` is transactional up to the managed-tree swap: the image builds from the temporary source first, so a build failure leaves the existing tree and configuration untouched. The swap itself rolls back on failure; only a scaffold-generation failure after the swap can leave the new source tree in place.

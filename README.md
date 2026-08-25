@@ -15,9 +15,10 @@ If every convenient option has been answered with "not allowed," `compman` is fo
 - Automatically detects Docker Compose and Podman Compose runtimes
 - Uses a profile-based `compose` configuration with per-profile env vars and secrets
 - Lists and monitors only the current project's containers with `ps` and `stats`
-- Deploys from an S3 prefix/archive or a public HTTP/HTTPS `.tar.gz`/`.tgz`/`.zip` archive
+- Deploys from an S3 prefix/archive or an HTTP/HTTPS `.tar.gz`/`.tgz`/`.zip` archive, with optional HTTPS header authentication and SHA-256 integrity pinning
 - Automatically creates `compman.yml` and `docker-compose.yml` when deploying into an empty directory
 - Creates and restores timestamped backups of volumes and container images
+- Replicates backup archives to S3-compatible storage automatically via `backup.upload`, or one-off with `--push`
 - Korean and English help, plus shell completion
 - Supports Windows, Linux, and macOS
 
@@ -25,8 +26,8 @@ If every convenient option has been answered with "not allowed," `compman` is fo
 
 - Python 3.12 or later
 - Docker Compose or Podman Compose
-- For S3 deployments: accessible S3-compatible storage and AWS credentials
-- For HTTP deployments: a public archive URL (authenticated URLs are not yet supported)
+- For S3 deployments and remote backup uploads: accessible S3-compatible storage and AWS credentials
+- For HTTP deployments: a public archive URL, or an authenticated HTTPS URL via the `deploy.auth` configuration (token supplied through an environment variable)
 
 CI verifies Python 3.12–3.14 on Ubuntu, macOS, and Windows. See the `Python version strategy` section of [BACKLOG.md](BACKLOG.md) for the Python 3.14 support plan and upgrade decision.
 
@@ -159,6 +160,10 @@ compman deploy --path https://example.com/releases/app.zip --build --tag my-app
 Only the deployment target with the same name is replaced; other user files are retained. With `--build`, the image is built from the temporary source before the swap, so a build failure leaves the existing tree and configuration untouched. If the source-replacement step fails, the previous tree is restored; only a scaffold-generation failure after the swap can leave the new source tree in place.
 
 The deployment source can be pinned to a known-good artifact with a SHA-256 digest. Pass `--sha256 HEX` for a single invocation, or set `deploy` as a mapping in `compman.yml` (`{ url: ..., sha256: ... }`). The downloaded source is verified before extraction, image build, and the managed-tree swap; a mismatch aborts the deploy with exit status 1 and changes nothing on disk. The pin applies whenever the deployed source URL equals the configured `deploy` URL, so `compman update` inherits it automatically.
+
+HTTPS deploy sources can authenticate with an optional `auth` block in the mapping form of `deploy`: `{ url: https://..., sha256?: ..., auth?: { header, value_env } }`. At fetch time compman reads the header value from the environment variable named by `value_env`. The token is never stored in `compman.yml` or echoed in output, and error messages name only the variable. The header is sent exactly as `<env value>`, so for Bearer authentication set the variable to the full `Bearer <token>` string.
+
+Authenticated sources require `https://`; combining plain `http://` with `auth` is a configuration error. On a cross-host redirect compman drops the auth header before following it, so the token never leaks to the redirect target, while same-host redirects keep it. If your CDN requires the header after redirecting, serve the archive from the same host. Authentication applies only when the deployed source URL equals the configured `deploy` URL; an explicit `--path` deploy is unauthenticated (a documented limitation). `compman doctor` warns when `deploy.auth` is configured but its environment variable is unset.
 
 ## Configuration file
 
@@ -351,12 +356,12 @@ compman service status [--profile PROFILE] [-c|--config PATH]
 compman service log [CONTAINER] [-f] [-n 50] [--profile PROFILE] [-c|--config PATH]
 compman service connect [CONTAINER] [--profile PROFILE] [-c|--config PATH]
 
-compman volume backup [-z LEVEL] [--no-stop] [--profile PROFILE] [-c|--config PATH]
+compman volume backup [-z LEVEL] [--no-stop] [--push S3_URI] [--no-push] [--profile PROFILE] [-c|--config PATH]
 compman volume restore [TIMESTAMP] [--no-stop] [--replace] [--profile PROFILE] [-c|--config PATH]
 compman volume pull [--profile PROFILE] [-c|--config PATH]
 compman volume push [--replace] [--profile PROFILE] [-c|--config PATH]
 
-compman image backup [-z LEVEL] [--source-image] [--profile PROFILE] [-c|--config PATH]
+compman image backup [-z LEVEL] [--source-image] [--push S3_URI] [--no-push] [--profile PROFILE] [-c|--config PATH]
 compman image restore [TIMESTAMP] [--profile PROFILE] [-c|--config PATH]
 
 compman clear [--yes]
@@ -408,6 +413,35 @@ Backup files are stored in `dirs.backup`.
 ```
 
 When restoring without a timestamp, choose an available backup interactively. Volume restore and `volume push` merge data into the target; they do not delete files that exist only at the target. Image restore loads the image into the runtime but does not automatically change the Compose `image` tag.
+
+### Remote upload to S3
+
+Backups can be replicated to S3-compatible storage with the optional top-level `backup` key:
+
+```yaml
+compman:
+  name: my-stack
+  backup:
+    upload: s3://my-bucket/backups
+  compose:
+    default:
+      file: docker-compose.yml
+```
+
+Once `backup.upload` is configured, every `volume backup` and `image backup` uploads its archive to `<prefix>/<archive-filename>` automatically after the local archive is created. The local archive always remains; the upload is only a replica. A failed upload exits non-zero with a message that names the local archive path, and the local backup stays intact.
+
+Both commands accept two flags:
+
+- `--push S3_URI`: upload to this URI instead of the configured target (one-off)
+- `--no-push`: skip the configured target for this run
+
+Combining both flags in one invocation is an error.
+
+Uploads use the standard AWS credential and region environment variables and honor `AWS_ENDPOINT_URL_S3` / `AWS_ENDPOINT_URL`, so S3-compatible stores such as Ministack or LocalStack work (see [S3-compatible storage](#s3-compatible-storage)). Uploaded objects get `Content-Type: application/gzip`, and compman verifies the uploaded object size against the local file after upload.
+
+Operator note: aborted multipart transfers can leave billed orphaned parts in the bucket. On flaky networks, add a bucket lifecycle rule that aborts incomplete multipart uploads (7 days works well).
+
+When `backup.upload` is configured but AWS credentials or region are missing, `compman doctor` reports a warning.
 
 ## Runtime selection
 

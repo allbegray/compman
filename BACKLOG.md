@@ -102,6 +102,16 @@ Root causes and reusable lessons for everything below live in [SOLUTION.md](SOLU
   versioned `--json` pattern (doctor/status) to `ps`, `stats`, and backup
   listings so automation consumes results without scraping human-readable text.
 
+- [ ] [M11] Backup scheduling command — `compman schedule add|list|remove`
+  registers platform-native jobs (launchd LaunchAgent on macOS, systemd timer
+  or cron on Linux, Task Scheduler via schtasks on Windows) that invoke the
+  installed compman binary to run `volume backup [--no-stop]`, composing with
+  the configured `backup.upload` target once [H4] ships. Registration must
+  resolve the absolute console-script path (scheduler environments have no
+  user PATH), store the working directory (the stack directory), and document
+  that non-interactive runs never auto-start Docker Desktop (clean failure +
+  exit code). Interval and calendar-time cadences both supported.
+
 ## Lower (L)
 
 - [ ] [L1] Preserve underlying exception chains for support diagnostics
@@ -256,7 +266,8 @@ planning further ahead.
 - **1.6 — Deploy/backup trust**: [H1] deploy checksum/object-version pinning,
   [H4] remote backup upload, [M7] authenticated HTTP deploys.
 - **1.7 — Automation ergonomics**: [M9] `stack up --wait`, [M8] backup
-  retention, [M10] project-scoped `--json` beyond doctor/status.
+  retention, [M11] backup scheduling command, [M10] project-scoped `--json`
+  beyond doctor/status (re-balance across 1.7/1.8 at the bump if too wide).
 - **1.8 — Operational convenience**: [L12] rollback, plus one of [L14]
   multi-stack registry or [L2] config schema versioning.
 - Ongoing between minors: [M1] module splits, [M6] integration-test fixes, and

@@ -39,7 +39,7 @@ class FakeS3:
             raise self.error
         self.uploaded.update(Filename=Filename, Bucket=Bucket, Key=Key, ExtraArgs=ExtraArgs)
 
-    def head_object(self, bucket, key):
+    def head_object(self, *, Bucket, Key):
         size = self.remote_size
         if size is None:
             size = pathlib.Path(str(self.uploaded["Filename"])).stat().st_size

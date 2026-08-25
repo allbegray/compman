@@ -118,7 +118,7 @@ def put_archive(store: BackupStore, name: str, local_path: Path) -> str:
             Key=key,
             ExtraArgs={"ContentType": "application/gzip"},
         )
-        remote_size = int(s3.head_object(store.bucket, key)["ContentLength"])
+        remote_size = int(s3.head_object(Bucket=store.bucket, Key=key)["ContentLength"])
     except Exception as exc:
         hint = s3_error_hint(exc, uri) or exc
         detail = f"{hint}; staged archive kept at {local_path}"

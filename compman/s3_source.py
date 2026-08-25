@@ -16,7 +16,7 @@ class _S3Client(Protocol):
 
     def get_paginator(self, operation_name: str) -> Any: ...
 
-    def head_object(self, bucket: str, key: str) -> Any: ...
+    def head_object(self, *, Bucket: str, Key: str) -> Any: ...
 
     def upload_file(
         self, Filename: str, Bucket: str, Key: str, ExtraArgs: dict[str, str] | None = None
@@ -43,7 +43,7 @@ def fetch(
         raise CommandError(t("msg.deploy_checksum_requires_archive", path=f"s3://{bucket}/{key}"))
     if has_archive_suffix(key):
         if max_bytes is not None:
-            _check_size(int(s3.head_object(bucket, key)["ContentLength"]), max_bytes)
+            _check_size(int(s3.head_object(Bucket=bucket, Key=key)["ContentLength"]), max_bytes)
         archive_path = tmp / key.rsplit("/", 1)[-1]
         download(s3, bucket, key, archive_path)
         if sha256 is not None:

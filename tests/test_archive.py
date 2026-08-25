@@ -1,10 +1,19 @@
+from __future__ import annotations
+
+import sys
+
+import pytest
+
+from compman.archive import create_tar, open_tarball
+from compman.errors import CommandError
+
+requires_py314 = pytest.mark.skipif(
+    sys.version_info < (3, 14), reason="compression.zstd requires Python 3.14+"
+)
 
 
-# ---- zstd opt-in format (Python 3.14+) ----
-
+@requires_py314
 def test_create_tar_zstd_roundtrip(tmp_path):
-    from compman.archive import create_tar, open_tarball
-
     src = tmp_path / "tree"
     src.mkdir()
     (src / "m.txt").write_text("zstd-roundtrip", encoding="utf-8")
@@ -19,9 +28,6 @@ def test_create_tar_zstd_roundtrip(tmp_path):
 
 
 def test_open_tarball_gzip_still_works(tmp_path):
-
-    from compman.archive import create_tar, open_tarball
-
     src = tmp_path / "tree"
     src.mkdir()
     (src / "a.txt").write_text("gz", encoding="utf-8")
@@ -35,14 +41,11 @@ def test_open_tarball_gzip_still_works(tmp_path):
 def test_load_zstd_missing_module_raises_command_error(monkeypatch):
     import importlib
 
-    import pytest
-
-    from compman.archive import _load_zstd
-    from compman.errors import CommandError
-
     def fake_import(name):
         raise ImportError(f"No module named {name!r}")
 
     monkeypatch.setattr(importlib, "import_module", fake_import)
     with pytest.raises(CommandError, match="3.14"):
+        from compman.archive import _load_zstd
+
         _load_zstd()

@@ -2,9 +2,8 @@
 
 Lessons learned while developing, testing, and debugging compman. Read this before
 changing runtime interaction, CLI behavior, or tests. The goal: never repeat the
-mistakes below. Companion files: `AGENTS.md` (operating rules for agents),
-`BACKLOG.md` (open/closed improvement items), `docs/superpowers/specs/` (design
-rationale).
+mistakes below. Companion files: `AGENTS.md` (operating rules for agents) and
+`BACKLOG.md` (open/closed improvement items).
 
 ## 1. Environment traps (Windows / WSL / Docker)
 

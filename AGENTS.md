@@ -41,7 +41,6 @@ tests/                 # pytest unit/regression suite (1:1 module mirror, 100% b
 test/                  # runnable examples and E2E guides (not pytest tests)
 examples/compman-config/  # case-by-case compman.yml examples
 docs/site/             # dependency-free GitHub Pages homepage
-docs/superpowers/      # design specs + plans (implementation rationale)
 docker-init/           # Ministack S3 seed bundle for integration/E2E
 scratch/               # throwaway experiment projects (not production code)
 .github/workflows/     # ci.yml, pages.yml, publish.yml, release-tag.yml

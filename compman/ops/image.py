@@ -18,7 +18,7 @@ from compman.config import Config
 from compman.docker import ContainerRuntime, resolve_compose_context
 from compman.errors import CommandError
 from compman.i18n import t
-from compman.ops.common import select_backup_timestamp, validate_timestamp
+from compman.ops.common import prune_archives, select_backup_timestamp, validate_timestamp
 
 
 def backup(
@@ -74,6 +74,7 @@ def backup(
 
     location = put_archive(config.backup_store, tarball.name, tarball)
     typer.echo(t("msg.backup_done", kind="Image", path=location))
+    prune_archives(config, config.backup_store, config.name, "image")
 
 
 def restore(

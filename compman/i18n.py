@@ -763,6 +763,14 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "en": "Backup store operation failed: {detail}",
         "ko": "백업 저장소 작업이 실패했습니다: {detail}",
     },
+    "msg.backup_pruned": {
+        "en": "Pruned old backup {name}",
+        "ko": "오래된 백업 {name}을(를) 삭제했습니다.",
+    },
+    "msg.backup_prune_failed": {
+        "en": "Could not prune old backup {name}: {detail}",
+        "ko": "오래된 백업 {name}을(를) 삭제하지 못했습니다: {detail}",
+    },
     "msg.restore_done": {
         "en": "{kind} restore done.",
         "ko": "{kind} 복원 완료.",

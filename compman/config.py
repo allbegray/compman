@@ -63,6 +63,7 @@ class Config:
     deploy_sha256: str | None = None
     deploy_auth: DeployAuth | None = None
     max_archive_mb: int | None = None
+    max_backups: int | None = None
     backup_store: BackupStore = field(
         default_factory=lambda: LocalBackupStore(Path.cwd() / "backup")
     )
@@ -234,6 +235,12 @@ def load_config(config_path: str | None = None) -> Config:
             raise ConfigError("'limits.max_archive_mb' must be an integer.")
         if max_archive_mb <= 0:
             raise ConfigError("'limits.max_archive_mb' must be greater than 0.")
+    max_backups = raw_limits.get("max_backups")
+    if max_backups is not None:
+        if not isinstance(max_backups, int):
+            raise ConfigError("'limits.max_backups' must be an integer.")
+        if max_backups <= 0:
+            raise ConfigError("'limits.max_backups' must be greater than 0.")
 
     raw_backup = str(raw_dirs.get("backup", "backup"))
     # Branch before _managed_path: an s3:// URI would otherwise fail the
@@ -257,6 +264,7 @@ def load_config(config_path: str | None = None) -> Config:
         deploy_sha256=deploy_sha256,
         deploy_auth=deploy_auth,
         max_archive_mb=max_archive_mb,
+        max_backups=max_backups,
         backup_store=backup_store,
     )
     # Resolve all paths while loading so unsafe configuration fails before a
@@ -283,6 +291,8 @@ def dump_default_config(name: str) -> str:
   # dirs:
   #   backup: backup                  # or an S3 URI: s3://bucket/backups
   #   volume: volume
+  # limits:
+  #   max_backups: 10                # keep newest 10 archives per stack and kind
   # per-profile env (consumed via ${{VAR}} in compose files):
   #   dev:
   #     file: docker-compose.dev.yml

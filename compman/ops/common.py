@@ -10,7 +10,7 @@ from typing import Callable, Sequence
 
 import typer
 
-from compman.backup_store import archive_location, list_archives
+from compman.backup_store import BackupStore, archive_location, delete_archive, list_archives
 from compman.config import Config
 from compman.docker import ComposeContext, ContainerRuntime, resolve_compose_context
 from compman.errors import CommandError
@@ -214,6 +214,21 @@ def prompt_select(title: str, options: list[str], default_index: int = 0) -> int
             raise SystemExit(0)
 
     return selected
+
+
+def prune_archives(config: Config, store: BackupStore, stack: str, kind: str) -> None:
+    """Delete archives beyond ``config.max_backups``, keeping the newest ones."""
+    if config.max_backups is None:
+        return
+    names = list_archives(store, stack, kind)
+    for name in names[config.max_backups :]:
+        target = f"{stack}.{kind}.{name}"
+        try:
+            delete_archive(store, target)
+        except Exception as exc:
+            typer.echo(t("msg.backup_prune_failed", name=target, detail=str(exc)), err=True)
+            continue
+        typer.echo(t("msg.backup_pruned", name=target))
 
 
 def select_backup_timestamp(config: Config, kind: str) -> str:

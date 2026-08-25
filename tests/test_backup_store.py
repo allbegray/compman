@@ -9,6 +9,7 @@ from compman.backup_store import (
     LocalBackupStore,
     S3BackupStore,
     archive_location,
+    delete_archive,
     fetch_archive,
     list_archives,
     local_root,
@@ -32,7 +33,13 @@ class FakeS3:
         self.error = error
         self.uploaded: dict[str, object] = {}
         self.downloads: list[tuple[str, str, str]] = []
+        self.deleted: list[dict[str, str]] = []
         self.page_calls: list[dict] = []
+
+    def delete_object(self, *, Bucket, Key):
+        if self.error is not None:
+            raise self.error
+        self.deleted.append({"Bucket": Bucket, "Key": Key})
 
     def upload_file(self, Filename, Bucket, Key, ExtraArgs=None):
         if self.error is not None:
@@ -226,6 +233,43 @@ def test_fetch_archive_remote_failure_raises_command_error(temp_dir: pathlib.Pat
         CommandError, match="timeout"
     ):
         fetch_archive(store, "app.volume.1.tar.gz", temp_dir / "dest.tar.gz")
+
+
+# ---- delete_archive ----
+
+
+def test_delete_archive_local_unlinks_file(temp_dir: pathlib.Path):
+    archive = temp_dir / "app.volume.1.tar.gz"
+    archive.touch()
+    delete_archive(LocalBackupStore(root=temp_dir), "app.volume.1")
+    assert not archive.exists()
+
+
+def test_delete_archive_remote_calls_delete_object_with_exact_key():
+    store = S3BackupStore(bucket="bucket", prefix="backups")
+    fake = FakeS3()
+    with patch("compman.backup_store.create_client", return_value=fake):
+        delete_archive(store, "app.volume.20260731_1200")
+    assert fake.deleted == [
+        {"Bucket": "bucket", "Key": "backups/app.volume.20260731_1200.tar.gz"}
+    ]
+
+
+def test_delete_archive_remote_without_prefix_uses_bare_key():
+    store = S3BackupStore(bucket="bucket", prefix="")
+    fake = FakeS3()
+    with patch("compman.backup_store.create_client", return_value=fake):
+        delete_archive(store, "app.volume.20260731_1200")
+    assert fake.deleted == [{"Bucket": "bucket", "Key": "app.volume.20260731_1200.tar.gz"}]
+
+
+def test_delete_archive_remote_failure_raises_command_error():
+    store = S3BackupStore(bucket="bucket", prefix="")
+    fake = FakeS3(error=RuntimeError("access denied"))
+    with patch("compman.backup_store.create_client", return_value=fake), pytest.raises(
+        CommandError, match="access denied"
+    ):
+        delete_archive(store, "app.volume.1")
 
 
 # ---- list_archives ----

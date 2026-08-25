@@ -54,6 +54,32 @@ def test_image_backup_no_containers(dummy_runtime, temp_dir: pathlib.Path):
     image.backup(dummy_runtime, cfg)
 
 
+def test_image_backup_prunes_old_archives_after_backup_done(
+    dummy_runtime, temp_dir: pathlib.Path, capsys
+):
+    cfg = Config(
+        name="my_stack",
+        profiles={"default": Profile(file="docker-compose.yml")},
+        max_backups=1,
+    )
+    backup_root = local_root(cfg.backup_store)
+    backup_root.mkdir(parents=True)
+    kept_archive = backup_root / "my_stack.image.20260201_0000.tar.gz"
+    pruned_archive = backup_root / "my_stack.image.20260101_0000.tar.gz"
+    kept_archive.touch()
+    pruned_archive.touch()
+
+    with patch("tarfile.open"):
+        image.backup(dummy_runtime, cfg)
+
+    assert kept_archive.exists()
+    assert not pruned_archive.exists()
+    out = capsys.readouterr().out
+    assert out.index("Image backup done:") < out.index(
+        "Pruned old backup my_stack.image.20260101_0000"
+    )
+
+
 def test_image_restore(dummy_runtime, temp_dir: pathlib.Path):
     cfg = Config(name="my_stack", profiles={"default": Profile(file="docker-compose.yml")})
     backup_dir = local_root(cfg.backup_store)

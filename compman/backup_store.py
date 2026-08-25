@@ -152,6 +152,19 @@ def fetch_archive(store: BackupStore, name: str, dest: Path) -> None:
         raise CommandError(t("msg.backup_store_error", detail=str(hint))) from exc
 
 
+def delete_archive(store: BackupStore, name: str) -> None:
+    """Delete the archive ``name`` (a base name without extension) from the store."""
+    if isinstance(store, LocalBackupStore):
+        (store.root / f"{name}.tar.gz").unlink(missing_ok=True)
+        return
+    uri = archive_location(store, f"{name}.tar.gz")
+    try:
+        create_client().delete_object(Bucket=store.bucket, Key=_object_key(store, f"{name}.tar.gz"))
+    except Exception as exc:
+        hint = s3_error_hint(exc, uri) or exc
+        raise CommandError(t("msg.backup_store_error", detail=str(hint))) from exc
+
+
 def list_archives(store: BackupStore, stack: str, kind: str) -> list[str]:
     """Return backup timestamps for ``stack`` and ``kind``, most recent first."""
     if isinstance(store, LocalBackupStore):

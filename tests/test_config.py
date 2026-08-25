@@ -454,6 +454,32 @@ def test_load_config_max_archive_mb_non_positive(temp_dir: pathlib.Path):
         load_config(str(config_file))
 
 
+@pytest.mark.parametrize("value", ["'10'", "-1", "0"])
+def test_load_config_max_backups_invalid(temp_dir: pathlib.Path, value: str):
+    config_file = temp_dir / "compman.yml"
+    config_file.write_text(
+        f"compman:\n  name: app\n  limits:\n    max_backups: {value}\n  compose:\n    default:\n      file: docker-compose.yml\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigError, match="'limits.max_backups'"):
+        load_config(str(config_file))
+
+
+def test_load_config_max_backups_valid(temp_dir: pathlib.Path):
+    config_file = temp_dir / "compman.yml"
+    config_file.write_text(
+        "compman:\n  name: app\n  limits:\n    max_backups: 10\n  compose:\n    default:\n      file: docker-compose.yml\n",
+        encoding="utf-8",
+    )
+    cfg = load_config(str(config_file))
+    assert cfg.max_backups == 10
+
+
+def test_dump_default_config_documents_max_backups():
+    content = dump_default_config("my-app")
+    assert "#   max_backups: 10                # keep newest 10 archives per stack and kind" in content
+
+
 def test_load_config_compose_invalid_type(temp_dir: pathlib.Path):
     config_file = temp_dir / "compman.yml"
     config_file.write_text("compman:\n  name: app\n  compose: 42\n", encoding="utf-8")

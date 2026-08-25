@@ -33,6 +33,35 @@ def test_volume_backup_no_volumes(dummy_runtime, temp_dir: pathlib.Path):
     volume.backup(dummy_runtime, cfg)
 
 
+def test_volume_backup_prunes_old_archives_after_backup_done(
+    dummy_runtime, temp_dir: pathlib.Path, capsys
+):
+    cfg = Config(
+        name="my_stack",
+        profiles={"default": Profile(file="docker-compose.yml")},
+        max_backups=1,
+    )
+    backup_root = local_root(cfg.backup_store)
+    backup_root.mkdir(parents=True)
+    kept_archive = backup_root / "my_stack.volume.20260201_0000.tar.gz"
+    pruned_archive = backup_root / "my_stack.volume.20260101_0000.tar.gz"
+    kept_archive.touch()
+    pruned_archive.touch()
+
+    with patch("tarfile.open"), patch(
+        "compman.ops.volume._inspect_mount",
+        return_value={"container": "c1", "volume": "vol1", "destination": "/data"},
+    ):
+        volume.backup(dummy_runtime, cfg)
+
+    assert kept_archive.exists()
+    assert not pruned_archive.exists()
+    out = capsys.readouterr().out
+    assert out.index("Volume backup done:") < out.index(
+        "Pruned old backup my_stack.volume.20260101_0000"
+    )
+
+
 def test_volume_backup_not_running(dummy_runtime, temp_dir: pathlib.Path):
     dummy_runtime.stack_exists = MagicMock(return_value=False)
     cfg = Config(name="my_stack", profiles={"default": Profile(file="docker-compose.yml")})

@@ -24,6 +24,7 @@ from compman.errors import CommandError
 from compman.i18n import t
 from compman.ops.common import (
     collect_mounts,
+    prune_archives,
     require_stack,
     resolve_volume_targets,
     select_backup_timestamp,
@@ -65,6 +66,7 @@ def backup(
 
     location = put_archive(config.backup_store, tarball.name, tarball)
     typer.echo(t("msg.backup_done", kind="Volume", path=location))
+    prune_archives(config, config.backup_store, config.name, "volume")
 
 
 def restore(

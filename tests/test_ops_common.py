@@ -4,8 +4,9 @@ import pathlib
 from unittest.mock import MagicMock, patch
 
 import pytest
+from test_backup_store import FakeS3
 
-from compman.backup_store import local_root
+from compman.backup_store import S3BackupStore, local_root
 from compman.config import Config, Profile
 from compman.docker import ComposeContext
 from compman.errors import CommandError
@@ -32,6 +33,104 @@ def test_stack_paused_restores_after_failure(temp_dir: pathlib.Path):
         with common.stack_paused(runtime, context):
             raise RuntimeError("operation failed")
     assert [call.args[0] for call in runtime.run_compose.call_args_list] == [["stop"], ["start"]]
+
+
+def _make_local_backups(cfg: Config, kind: str, timestamps: list[str]) -> pathlib.Path:
+    backup_root = local_root(cfg.backup_store)
+    backup_root.mkdir(parents=True, exist_ok=True)
+    for ts in timestamps:
+        (backup_root / f"{cfg.name}.{kind}.{ts}.tar.gz").touch()
+    return backup_root
+
+
+def test_prune_archives_noop_when_unset(temp_dir: pathlib.Path):
+    cfg = Config(name="my_stack", profiles={"default": Profile(file="docker-compose.yml")})
+    _make_local_backups(cfg, "volume", ["20260801_0900", "20260731_1200"])
+    with patch("compman.ops.common.delete_archive") as mock_delete:
+        common.prune_archives(cfg, cfg.backup_store, "my_stack", "volume")
+    mock_delete.assert_not_called()
+
+
+def test_prune_archives_keeps_newest_n(temp_dir: pathlib.Path, capsys):
+    cfg = Config(
+        name="my_stack",
+        profiles={"default": Profile(file="docker-compose.yml")},
+        max_backups=2,
+    )
+    backup_root = _make_local_backups(
+        cfg, "volume", ["20260601_0000", "20260701_0000", "20260731_1200", "20260801_0900"]
+    )
+    common.prune_archives(cfg, cfg.backup_store, "my_stack", "volume")
+
+    remaining = sorted(p.name for p in backup_root.glob("*.tar.gz"))
+    assert remaining == [
+        "my_stack.volume.20260731_1200.tar.gz",
+        "my_stack.volume.20260801_0900.tar.gz",
+    ]
+    out = capsys.readouterr().out
+    assert out.count("Pruned old backup") == 2
+    assert out.index("20260701_0000") < out.index("20260601_0000")
+
+
+def test_prune_archives_within_limit_is_noop(temp_dir: pathlib.Path, capsys):
+    cfg = Config(
+        name="my_stack",
+        profiles={"default": Profile(file="docker-compose.yml")},
+        max_backups=5,
+    )
+    backup_root = _make_local_backups(cfg, "volume", ["20260801_0900", "20260731_1200"])
+    common.prune_archives(cfg, cfg.backup_store, "my_stack", "volume")
+
+    assert len(list(backup_root.glob("*.tar.gz"))) == 2
+    assert capsys.readouterr().out == ""
+
+
+def test_prune_archives_warns_and_continues_when_delete_fails(temp_dir: pathlib.Path, capsys):
+    cfg = Config(
+        name="my_stack",
+        profiles={"default": Profile(file="docker-compose.yml")},
+        max_backups=1,
+    )
+    _make_local_backups(cfg, "volume", ["20260801_0900", "20260701_0000", "20260601_0000"])
+    with patch(
+        "compman.ops.common.delete_archive", side_effect=[OSError("locked"), None]
+    ) as mock_delete:
+        common.prune_archives(cfg, cfg.backup_store, "my_stack", "volume")
+
+    assert [call.args[1] for call in mock_delete.call_args_list] == [
+        "my_stack.volume.20260701_0000",
+        "my_stack.volume.20260601_0000",
+    ]
+    captured = capsys.readouterr()
+    assert "Could not prune old backup my_stack.volume.20260701_0000" in captured.err
+    assert "Pruned old backup my_stack.volume.20260601_0000" in captured.out
+
+
+def test_prune_archives_remote_deletes_beyond_limit():
+    cfg = Config(
+        name="my_stack",
+        profiles={"default": Profile(file="docker-compose.yml")},
+        max_backups=1,
+        backup_store=S3BackupStore(bucket="bucket", prefix="backups"),
+    )
+    fake = FakeS3(
+        pages=[
+            {
+                "Contents": [
+                    {"Key": "backups/my_stack.volume.20260801_0900.tar.gz"},
+                    {"Key": "backups/my_stack.volume.20260701_0000.tar.gz"},
+                    {"Key": "backups/my_stack.volume.20260601_0000.tar.gz"},
+                ]
+            }
+        ]
+    )
+    with patch("compman.backup_store.create_client", return_value=fake):
+        common.prune_archives(cfg, cfg.backup_store, "my_stack", "volume")
+
+    assert fake.deleted == [
+        {"Bucket": "bucket", "Key": "backups/my_stack.volume.20260701_0000.tar.gz"},
+        {"Bucket": "bucket", "Key": "backups/my_stack.volume.20260601_0000.tar.gz"},
+    ]
 
 
 def test_select_backup_timestamp_none(temp_dir: pathlib.Path):

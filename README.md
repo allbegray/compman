@@ -158,6 +158,8 @@ compman deploy --path https://example.com/releases/app.zip --build --tag my-app
 
 Only the deployment target with the same name is replaced; other user files are retained. With `--build`, the image is built from the temporary source before the swap, so a build failure leaves the existing tree and configuration untouched. If the source-replacement step fails, the previous tree is restored; only a scaffold-generation failure after the swap can leave the new source tree in place.
 
+The deployment source can be pinned to a known-good artifact with a SHA-256 digest. Pass `--sha256 HEX` for a single invocation, or set `deploy` as a mapping in `compman.yml` (`{ url: ..., sha256: ... }`). The downloaded source is verified before extraction, image build, and the managed-tree swap; a mismatch aborts the deploy with exit status 1 and changes nothing on disk. The pin applies whenever the deployed source URL equals the configured `deploy` URL, so `compman update` inherits it automatically.
+
 ## Configuration file
 
 Put all configuration under the `compman` key in `compman.yml`.
@@ -327,7 +329,7 @@ services:
 
 ```text
 compman init [--scaffold | --s3 URI | --seed]
-compman deploy [--path SOURCE_URI] [--build] [--tag TAG]
+compman deploy [--path SOURCE_URI] [--sha256 HEX] [--build] [--tag TAG]
 compman update [PROFILE] [-c|--config PATH]
 compman doctor [--profile PROFILE] [-c|--config PATH] [--json]
 compman status [--profile PROFILE] [-c|--config PATH] [--json]

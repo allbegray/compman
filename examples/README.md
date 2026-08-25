@@ -38,6 +38,7 @@ injected value. A plain `environment:` entry without `${...}` stays literal.
 | [07](compman-config/07-secrets-profile.md) | Secrets + profiles | Per-profile `secrets` override; `${secrets:NAME}` markers |
 | [08](compman-config/08-full.md) | Full example | Everything combined |
 | [09](compman-config/09-limits.md) | Deploy size limit | `limits.max_archive_mb` cap + provenance echo |
+| [10](compman-config/10-deploy-checksum.md) | Deploy checksum pinning | `deploy: {url, sha256}` pin + `--sha256` flag |
 
 Run any example from the directory that contains its `compman.yml`:
 

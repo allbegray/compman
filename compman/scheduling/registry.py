@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-import sys
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -47,9 +46,6 @@ class JobRecord:
 
 
 def registry_path() -> Path:
-    if sys.platform == "win32":
-        base = os.environ.get("APPDATA") or str(Path.home() / "AppData" / "Roaming")
-        return Path(base) / "compman" / "schedules.json"
     return Path.home() / ".config" / "compman" / "schedules.json"
 
 

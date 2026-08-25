@@ -295,23 +295,6 @@ def test_registry_path_posix_uses_home_config_dir() -> None:
         assert registry_path() == pathlib.Path("/home/u/.config/compman/schedules.json")
 
 
-def test_registry_path_windows_uses_appdata(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(sys, "platform", "win32")
-    monkeypatch.setenv("APPDATA", r"C:\Users\u\AppData\Roaming")
-    assert registry_path() == (
-        pathlib.Path(r"C:\Users\u\AppData\Roaming") / "compman" / "schedules.json"
-    )
-
-
-def test_registry_path_windows_falls_back_when_appdata_unset(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(sys, "platform", "win32")
-    monkeypatch.delenv("APPDATA", raising=False)
-    with patch.object(pathlib.Path, "home", return_value=pathlib.Path("/home/u")):
-        assert registry_path() == pathlib.Path("/home/u/AppData/Roaming/compman/schedules.json")
-
-
 def test_load_registry_returns_empty_when_file_missing(tmp_path: pathlib.Path) -> None:
     with patch.object(pathlib.Path, "home", return_value=tmp_path):
         assert load_registry() == {"version": 1, "jobs": {}}

@@ -53,7 +53,7 @@ def extract_tar(archive: tarfile.TarFile, destination: Path, max_bytes: int | No
         if max_bytes is not None and total > max_bytes:
             raise CommandError(t("msg.deploy_limit_exceeded", limit=_limit_mb(max_bytes), size=total))
     for member in members:
-        archive.extract(member, destination)
+        archive.extract(member, destination, filter="data")
 
 
 def extract_zip(archive: zipfile.ZipFile, destination: Path, max_bytes: int | None = None) -> None:
@@ -63,7 +63,7 @@ def extract_zip(archive: zipfile.ZipFile, destination: Path, max_bytes: int | No
             raise CommandError(t("msg.deploy_limit_exceeded", limit=_limit_mb(max_bytes), size=total))
     for member in archive.infolist():
         _validate_path(destination, member.filename)
-        archive.extract(member, destination)
+        archive.extract(member, destination, filter="data")
 
 
 def _limit_mb(max_bytes: int) -> int:

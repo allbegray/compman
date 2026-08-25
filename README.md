@@ -383,6 +383,7 @@ View all options for a command with `compman <command> --help`.
 - `ps`: Lists running containers in the selected compman project. Use `-a` to include stopped containers.
 - `stats`: Prints one resource-usage snapshot for the selected project's running containers. Use `-f` to stream continuously.
 - `service connect`: Falls back to `sh` if connecting with `bash` fails.
+- Restoring while every container is stopped works as well: compman temporarily starts the stack, restores the volumes, then stops it again.
 - `volume backup/restore`: By default, brings the stack down during the operation and restores it afterward. Use `--no-stop` only when you understand the consistency risk.
 - `volume restore/push --replace`: Deletes files at the destination that are not in the source (byte-for-byte replace) instead of merging. The destination must be a validated absolute container path; this is destructive, so use it deliberately.
 - `image backup`: By default, commits and saves the state of the running container. Use `--source-image` to save the original image.

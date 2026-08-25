@@ -3,13 +3,12 @@ from __future__ import annotations
 import json
 import re
 import shutil
-import tarfile
 from pathlib import Path
 from typing import Any
 
 import typer
 
-from compman.archive import extract_tar
+from compman.archive import create_tar, extract_tar, open_tarball
 from compman.backup_store import (
     LocalBackupStore,
     archive_location,
@@ -40,13 +39,14 @@ def backup(
     no_stop: bool = False,
     profile: str | None = None,
     compression_level: int = 6,
+    zstd_format: bool = False,
 ) -> None:
     targets = resolve_volume_targets(runtime, config, profile)
     if targets is None:
         return
     context = targets.context
 
-    backup_dir, tarball = new_backup_paths(config.backup_store, config.name, "volume")
+    backup_dir, tarball = new_backup_paths(config.backup_store, config.name, "volume", zstd_format=zstd_format)
     try:
         with stack_paused(runtime, context, enabled=not no_stop):
             mapping = collect_mounts(
@@ -58,8 +58,7 @@ def backup(
             )
             write_volume_map(backup_dir, mapping, merge=_merge_mapping)
 
-            with tarfile.open(tarball, "w:gz", compresslevel=compression_level) as tar:
-                tar.add(backup_dir, arcname=".")
+            create_tar(backup_dir, tarball, zstd_format=zstd_format, gzip_level=compression_level)
     finally:
         if isinstance(config.backup_store, LocalBackupStore):
             shutil.rmtree(backup_dir, ignore_errors=True)
@@ -89,11 +88,23 @@ def restore(
         _list_backups(config, "volume")
         raise CommandError(t("msg.backup_not_found", tarball=archive_location(store, archive_name)))
 
+    running = runtime.list_containers(config.name, context.files, context.env)
+    auto_started = False
+    if not running:
+        typer.echo(t("msg.restore_stack_starting", name=config.name))
+        runtime.passthru_compose(
+            ["up", "-d"],
+            project=context.project,
+            compose_files=context.files,
+            env=context.env,
+        )
+        auto_started = True
+
     with staged_archive(store, archive_name) as tarball:
         restore_dir = tarball.parent / backup_name
         restore_dir.mkdir(parents=True, exist_ok=True)
         try:
-            with tarfile.open(tarball, "r:gz") as tar:
+            with open_tarball(tarball) as tar:
                 extract_tar(tar, restore_dir)
 
             map_path = restore_dir / "volume-map.json"
@@ -134,6 +145,15 @@ def restore(
                     runtime.fix_permissions(container, dest)
         finally:
             shutil.rmtree(restore_dir, ignore_errors=True)
+
+    if auto_started:
+        typer.echo(t("msg.restore_stack_stopping", name=config.name))
+        runtime.passthru_compose(
+            ["stop"],
+            project=context.project,
+            compose_files=context.files,
+            env=context.env,
+        )
 
     typer.echo(t("msg.restore_done", kind="Volume"))
 

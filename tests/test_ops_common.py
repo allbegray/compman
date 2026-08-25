@@ -129,7 +129,9 @@ def test_prune_archives_remote_deletes_beyond_limit():
 
     assert fake.deleted == [
         {"Bucket": "bucket", "Key": "backups/my_stack.volume.20260701_0000.tar.gz"},
+        {"Bucket": "bucket", "Key": "backups/my_stack.volume.20260701_0000.tar.zst"},
         {"Bucket": "bucket", "Key": "backups/my_stack.volume.20260601_0000.tar.gz"},
+        {"Bucket": "bucket", "Key": "backups/my_stack.volume.20260601_0000.tar.zst"},
     ]
 
 

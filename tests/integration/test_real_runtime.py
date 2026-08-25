@@ -147,11 +147,16 @@ def test_volume_backup_restore_roundtrip_with_busybox_named_volume(
         )
         assert restored.strip() == marker
 
-        # A restore with every container down fails cleanly (validation needs
-        # the mapped containers running); documented limitation.
+        # Offline restore: with the stack fully down, compman temporarily
+        # starts it, restores the volumes, then stops it again.
         _compman(["stack", "down", "--yes"], tmp_path)
-        downed = _compman(["volume", "restore", timestamp], tmp_path, check=False)
-        assert downed.returncode != 0
+        downed_output = _compman(["volume", "restore", timestamp], tmp_path).stdout
+        assert "temporarily" in downed_output
+        _compman(["stack", "up"], tmp_path)
+        restored_after_down = _docker(
+            ["compose", "-p", stack, "exec", "-T", "box", "cat", "/data/marker.txt"], tmp_path
+        )
+        assert restored_after_down.strip() == marker
     finally:
         subprocess.run(
             ["docker", "compose", "-p", stack, "down", "--volumes", "--timeout", "1"],

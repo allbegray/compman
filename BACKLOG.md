@@ -60,10 +60,6 @@ them. Retired IDs are never reused.
 - [ ] [L16] Opt-in Zstandard backup format on Python 3.14+ (stdlib compression),
   retaining `.tar.gz` read compatibility. Versioned, opt-in only.
 
-- [ ] [L17] Downed-stack volume restore — restoring while every mapped container
-  is stopped currently fails mapping validation (list_containers empty); a
-  helper-container copy strategy could support offline restores onto existing
-  volumes. Spun off from the completed integration-test repairs.
 
 ## Release roadmap (theme per minor release)
 

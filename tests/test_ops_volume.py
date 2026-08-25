@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from botocore.exceptions import ClientError
+from conftest import write_config
 from test_backup_store import FakeS3, _patch_stage, _stage
 
 from compman.backup_store import S3BackupStore, local_root
@@ -419,3 +420,53 @@ def test_volume_push_rejects_escaping_volume_name(dummy_runtime, temp_dir: pathl
         volume.push(dummy_runtime, cfg)
 
     assert not any(call[0] == "cp" for call in dummy_runtime.commands_run)
+
+
+def test_restore_auto_starts_downed_stack_then_stops_again(
+    dummy_runtime, temp_dir: pathlib.Path
+):
+    write_config(temp_dir / "compman.yml")
+    store_dir = temp_dir / "backup"
+    archive_name = "app.volume.20260801_0900"
+    src = store_dir / "app.volume" / archive_name[: -len(".tar.gz")]
+    src.mkdir(parents=True)
+    (src / "volume-map.json").write_text(
+        json.dumps([{"container": "app-1", "volume": "data", "destination": "/data"}]),
+        encoding="utf-8",
+    )
+    (src / "data").mkdir()
+    import tarfile as _tf
+
+    tarball = store_dir / f"{archive_name}.tar.gz"
+    with _tf.open(tarball, "w:gz") as tar:
+        tar.add(src, arcname=".")
+
+    (temp_dir / "docker-compose.yml").touch()
+    sequence: list[str] = []
+    lookups = {"n": 0}
+
+    def list_containers(*a, **k):
+        lookups["n"] += 1
+        sequence.append(f"listed:{lookups['n']}")
+        return [] if lookups["n"] == 1 else ["app-1"]
+
+    dummy_runtime.list_containers = list_containers
+    orig_passthru = dummy_runtime.passthru_compose
+
+    def passthru(args, **kwargs):
+        sequence.append(f"compose:{args[0]}")
+        return orig_passthru(args, **kwargs)
+
+    dummy_runtime.passthru_compose = passthru
+
+    cfg = None
+    from compman.config import load_config
+
+    cfg = load_config(str(temp_dir / "compman.yml"))
+    from compman.ops.volume import restore
+
+    restore(dummy_runtime, cfg, timestamp="20260801_0900", no_stop=True)
+
+    assert sequence[0] == "listed:1"
+    assert "compose:up" in sequence and "compose:stop" in sequence
+    assert sequence.index("compose:up") < sequence.index("compose:stop")

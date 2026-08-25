@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import shutil
-import tarfile
 
 import typer
 
-from compman.archive import extract_tar
+from compman.archive import create_tar, extract_tar, open_tarball
 from compman.backup_store import (
     LocalBackupStore,
     archive_location,
@@ -27,6 +26,7 @@ def backup(
     source_mode: bool = False,
     profile: str | None = None,
     compression_level: int = 6,
+    zstd_format: bool = False,
 ) -> None:
     context = resolve_compose_context(config, profile)
     if not runtime.stack_exists(config.name, context.files, context.env):
@@ -61,8 +61,7 @@ def backup(
                 runtime.commit_container(cid, tag)
                 runtime.save_image(tag, backup_dir / f"{container_name}.image.backup.tar")
 
-        with tarfile.open(tarball, "w:gz", compresslevel=compression_level) as tar:
-            tar.add(backup_dir, arcname=".")
+        create_tar(backup_dir, tarball, zstd_format=zstd_format, gzip_level=compression_level)
     except Exception:
         tarball.unlink(missing_ok=True)
         raise
@@ -99,7 +98,7 @@ def restore(
         restore_dir = tarball.parent / backup_name
         restore_dir.mkdir(parents=True)
         try:
-            with tarfile.open(tarball, "r:gz") as tar:
+            with open_tarball(tarball) as tar:
                 extract_tar(tar, restore_dir)
 
             for tar_file in restore_dir.glob("*.tar"):

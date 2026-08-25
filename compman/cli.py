@@ -588,6 +588,7 @@ def volume_backup(
     profile: Annotated[str | None, typer.Option("--profile", help=t("opt.profile"))] = None,
     config: Annotated[str | None, typer.Option("--config", "-c", help=t("opt.config"))] = None,
     level: Annotated[int, typer.Option("-z", "--level", min=1, max=9, help=t("opt.compression_level"))] = 6,
+    zstd_format: Annotated[bool, typer.Option("--zstd", help=t("opt.zstd"))] = False,
 ) -> None:
     ctx = _load(config)
     _volume_ops().backup(
@@ -596,6 +597,7 @@ def volume_backup(
         no_stop=no_stop,
         profile=profile,
         compression_level=level,
+        zstd_format=zstd_format,
     )
 
 
@@ -650,6 +652,7 @@ def image_backup(
     profile: Annotated[str | None, typer.Option("--profile", help=t("opt.profile"))] = None,
     config: Annotated[str | None, typer.Option("--config", "-c", help=t("opt.config"))] = None,
     level: Annotated[int, typer.Option("-z", "--level", min=1, max=9, help=t("opt.compression_level"))] = 6,
+    zstd_format: Annotated[bool, typer.Option("--zstd", help=t("opt.zstd"))] = False,
 ) -> None:
     ctx = _load(config)
     _image_ops().backup(
@@ -658,6 +661,7 @@ def image_backup(
         source_mode=source_image,
         profile=profile,
         compression_level=level,
+        zstd_format=zstd_format,
     )
 
 

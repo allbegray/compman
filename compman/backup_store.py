@@ -75,7 +75,7 @@ def _object_key(store: S3BackupStore, name: str) -> str:
     return f"{store.prefix}/{name}" if store.prefix else name
 
 
-def new_backup_paths(store: BackupStore, stack: str, kind: str) -> tuple[Path, Path]:
+def new_backup_paths(store: BackupStore, stack: str, kind: str, *, zstd_format: bool = False) -> tuple[Path, Path]:
     """Return a fresh (directory, tarball) pair for a new backup archive."""
     if isinstance(store, LocalBackupStore):
         root = store.root
@@ -83,12 +83,12 @@ def new_backup_paths(store: BackupStore, stack: str, kind: str) -> tuple[Path, P
         timestamp = now.strftime("%Y%m%d_%H%M%S")
         backup_name = f"{stack}.{kind}.{timestamp}"
         backup_dir = root / backup_name
-        tarball = root / f"{backup_name}.tar.gz"
+        tarball = root / f"{backup_name}{_suffix_for(zstd_format)}"
         if backup_dir.exists() or tarball.exists():
             timestamp = now.strftime("%Y%m%d_%H%M%S_%f")
             backup_name = f"{stack}.{kind}.{timestamp}"
             backup_dir = root / backup_name
-            tarball = root / f"{backup_name}.tar.gz"
+            tarball = root / f"{backup_name}{_suffix_for(zstd_format)}"
         backup_dir.mkdir(parents=True, exist_ok=True)
         return backup_dir, tarball
     workdir = Path(tempfile.mkdtemp(prefix="compman-"))
@@ -116,7 +116,7 @@ def put_archive(store: BackupStore, name: str, local_path: Path) -> str:
             Filename=str(local_path),
             Bucket=store.bucket,
             Key=key,
-            ExtraArgs={"ContentType": "application/gzip"},
+            ExtraArgs={"ContentType": "application/zstd" if name.endswith(".tar.zst") else "application/gzip"},
         )
         remote_size = int(s3.head_object(Bucket=store.bucket, Key=key)["ContentLength"])
     except Exception as exc:
@@ -153,29 +153,37 @@ def fetch_archive(store: BackupStore, name: str, dest: Path) -> None:
 
 
 def delete_archive(store: BackupStore, name: str) -> None:
-    """Delete the archive ``name`` (a base name without extension) from the store."""
+    """Delete the archive ``name`` (a base name without extension) from the store.
+
+    Both gzip and zstd variants are removed when present; S3 deletions are
+    idempotent, so a missing object is not an error.
+    """
     if isinstance(store, LocalBackupStore):
-        (store.root / f"{name}.tar.gz").unlink(missing_ok=True)
+        for suffix in (".tar.gz", ".tar.zst"):
+            (store.root / f"{name}{suffix}").unlink(missing_ok=True)
         return
-    uri = archive_location(store, f"{name}.tar.gz")
-    try:
-        create_client().delete_object(Bucket=store.bucket, Key=_object_key(store, f"{name}.tar.gz"))
-    except Exception as exc:
-        hint = s3_error_hint(exc, uri) or exc
-        raise CommandError(t("msg.backup_store_error", detail=str(hint))) from exc
+    client = create_client()
+    for suffix in (".tar.gz", ".tar.zst"):
+        try:
+            client.delete_object(
+                Bucket=store.bucket, Key=_object_key(store, f"{name}{suffix}")
+            )
+        except Exception as exc:
+            uri = archive_location(store, f"{name}{suffix}")
+            hint = s3_error_hint(exc, uri) or exc
+            raise CommandError(t("msg.backup_store_error", detail=str(hint))) from exc
 
 
 def list_archives(store: BackupStore, stack: str, kind: str) -> list[str]:
     """Return backup timestamps for ``stack`` and ``kind``, most recent first."""
     if isinstance(store, LocalBackupStore):
         pattern = f"{stack}.{kind}."
-        return sorted(
-            (
-                entry.name.replace(pattern, "").replace(".tar.gz", "")
-                for entry in store.root.glob(f"{pattern}*.tar.gz")
-            ),
-            reverse=True,
-        )
+        names = [
+            entry.name[len(pattern):]
+            for entry in store.root.glob(f"{pattern}*")
+            if entry.name.endswith((".tar.gz", ".tar.zst"))
+        ]
+        return sorted((_strip_suffix(n) for n in names), reverse=True)
     prefix = f"{store.prefix}/" if store.prefix else ""
     marker = f"{prefix}{stack}.{kind}."
     timestamps: list[str] = []
@@ -185,8 +193,8 @@ def list_archives(store: BackupStore, stack: str, kind: str) -> list[str]:
         for page in pages:
             for obj in page.get("Contents", []):
                 key = obj["Key"]
-                if key.startswith(marker) and key.endswith(".tar.gz"):
-                    timestamps.append(key[len(marker) : -len(".tar.gz")])
+                if key.startswith(marker) and key.endswith((".tar.gz", ".tar.zst")):
+                    timestamps.append(_strip_suffix(key[len(marker):]))
     except Exception as exc:
         hint = s3_error_hint(exc, f"s3://{store.bucket}/{prefix}") or exc
         raise CommandError(t("msg.backup_store_error", detail=str(hint))) from exc
@@ -210,3 +218,14 @@ def staged_archive(store: BackupStore, name: str) -> Iterator[Path]:
         yield tarball
     finally:
         shutil.rmtree(stage, ignore_errors=True)
+
+
+def _suffix_for(zstd_format: bool) -> str:
+    return ".tar.zst" if zstd_format else ".tar.gz"
+
+
+def _strip_suffix(name: str) -> str:
+    for suffix in (".tar.zst", ".tar.gz"):
+        if name.endswith(suffix):
+            return name[: -len(suffix)]
+    return name

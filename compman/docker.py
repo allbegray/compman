@@ -335,8 +335,8 @@ def _run(
         kwargs["errors"] = "replace"
     try:
         r = subprocess.run(list(cmd), env=env, **kwargs, timeout=timeout)
-    except FileNotFoundError:
-        raise RuntimeError(f"Command not found: {cmd[0]}")
+    except FileNotFoundError as exc:
+        raise RuntimeError(f"Command not found: {cmd[0]}") from exc
     if check and r.returncode != 0:
         _die(cmd, r)
     return r
@@ -355,8 +355,8 @@ def _passthru(
         kwargs["timeout"] = resolved
     try:
         r = subprocess.run(list(cmd), **kwargs)
-    except FileNotFoundError:
-        raise RuntimeError(f"Command not found: {cmd[0]}")
+    except FileNotFoundError as exc:
+        raise RuntimeError(f"Command not found: {cmd[0]}") from exc
     except subprocess.TimeoutExpired as e:
         raise RuntimeError(f"Command timed out after {resolved:g} seconds: {' '.join(cmd)}") from e
     if r.returncode != 0:

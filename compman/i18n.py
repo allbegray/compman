@@ -449,6 +449,14 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "en": "Include stopped containers",
         "ko": "중지된 컨테이너 포함",
     },
+    "opt.zstd": {
+        "en": "Write the archive using Zstandard (.tar.zst); requires Python 3.14+",
+        "ko": "Zstandard(.tar.zst) 형식으로 아카이브를 작성합니다. Python 3.14 이상 필요",
+    },
+    "msg.zstd_requires_py314": {
+        "en": "The Zstandard format requires Python 3.14 or newer; this interpreter does not provide compression.zstd.",
+        "ko": "Zstandard 형식은 Python 3.14 이상에서 지원됩니다. 현재 인터프리터에는 compression.zstd가 없습니다.",
+    },
     "opt.json": {
         "en": "Output as JSON",
         "ko": "JSON으로 출력",
@@ -918,6 +926,14 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "msg.deploy_config_invalid": {
         "en": "compman.yml could not be parsed: {err}",
         "ko": "compman.yml을(를) 해석할 수 없습니다: {err}",
+    },
+    "msg.restore_stack_starting": {
+        "en": "Stack '{name}' is down; starting it temporarily to restore volumes.",
+        "ko": "스택 '{name}'이(가) 중지 상태입니다. 볼륨 복구를 위해 임시로 시작합니다.",
+    },
+    "msg.restore_stack_stopping": {
+        "en": "Restoring volumes complete; stopping stack '{name}' again.",
+        "ko": "볼륨 복구가 완료되어 스택 '{name}'을(를) 다시 중지합니다.",
     },
     "msg.update_tag_mismatch": {
         "en": "Multiple service images found ({images}); skipping the automatic rebuild because the rebuild target is ambiguous.",

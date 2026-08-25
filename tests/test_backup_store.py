@@ -251,7 +251,8 @@ def test_delete_archive_remote_calls_delete_object_with_exact_key():
     with patch("compman.backup_store.create_client", return_value=fake):
         delete_archive(store, "app.volume.20260731_1200")
     assert fake.deleted == [
-        {"Bucket": "bucket", "Key": "backups/app.volume.20260731_1200.tar.gz"}
+        {"Bucket": "bucket", "Key": "backups/app.volume.20260731_1200.tar.gz"},
+        {"Bucket": "bucket", "Key": "backups/app.volume.20260731_1200.tar.zst"},
     ]
 
 
@@ -260,7 +261,10 @@ def test_delete_archive_remote_without_prefix_uses_bare_key():
     fake = FakeS3()
     with patch("compman.backup_store.create_client", return_value=fake):
         delete_archive(store, "app.volume.20260731_1200")
-    assert fake.deleted == [{"Bucket": "bucket", "Key": "app.volume.20260731_1200.tar.gz"}]
+    assert fake.deleted == [
+        {"Bucket": "bucket", "Key": "app.volume.20260731_1200.tar.gz"},
+        {"Bucket": "bucket", "Key": "app.volume.20260731_1200.tar.zst"},
+    ]
 
 
 def test_delete_archive_remote_failure_raises_command_error():
@@ -393,3 +397,11 @@ def test_archive_location_local_and_remote_forms(temp_dir: pathlib.Path):
         == "s3://bucket/pre/a.tar.gz"
     )
     assert archive_location(S3BackupStore(bucket="bucket", prefix=""), "a.tar.gz") == "s3://bucket/a.tar.gz"
+
+
+def test_strip_suffix_passthrough_without_known_suffix():
+    from compman.backup_store import _strip_suffix
+
+    assert _strip_suffix("plain-name") == "plain-name"
+    assert _strip_suffix("app.volume.20260801_0900.tar.gz") == "app.volume.20260801_0900"
+    assert _strip_suffix("app.volume.20260801_0900.tar.zst") == "app.volume.20260801_0900"

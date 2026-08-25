@@ -7,6 +7,38 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 from compman.errors import CommandError
 from compman.i18n import t
 
+ZSTD_SUFFIX = ".tar.zst"
+
+
+def _load_zstd(import_module=None):
+    import importlib
+
+    loader = import_module or importlib.import_module
+    try:
+        return loader("compression.zstd")  # Python 3.14+
+    except ImportError as exc:
+        raise CommandError(t("msg.zstd_requires_py314")) from exc
+
+
+def create_tar(source_dir: Path, dest: Path, *, zstd_format: bool = False, gzip_level: int = 6) -> None:
+    """Write ``source_dir`` as a tarball at ``dest`` (gzip default, zstd opt-in)."""
+    if not zstd_format:
+        with tarfile.open(dest, "w:gz", compresslevel=gzip_level) as tar:
+            tar.add(source_dir, arcname=".")
+        return
+    zstd = _load_zstd()
+    with zstd.open(dest, "wb") as zout:
+        with tarfile.open(fileobj=zout, mode="w") as tar:
+            tar.add(source_dir, arcname=".")
+
+
+def open_tarball(path: Path):
+    """Open a local backup archive for extraction, gating zstd on 3.14+."""
+    if path.name.lower().endswith(ZSTD_SUFFIX):
+        _load_zstd()
+        return tarfile.open(path, "r:*")
+    return tarfile.open(path, "r:gz")
+
 
 def extract_tar(archive: tarfile.TarFile, destination: Path, max_bytes: int | None = None) -> None:
     members = archive.getmembers()

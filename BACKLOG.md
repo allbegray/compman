@@ -10,6 +10,14 @@ Root causes and reusable lessons for everything below live in [SOLUTION.md](SOLU
   checksum or S3 object-version pin to detect a trusted-but-compromised bucket
   delivering an altered artifact.
 
+- [ ] [H4] Remote backup upload — `volume backup`/`image backup` archives land
+  only in local `dirs.backup`; losing the host loses the backups too. Add an
+  opt-in upload target (flag such as `--push s3://bucket/key` or a config
+  `backup.upload` block) reusing the boto3 client setup from `s3_source.py`
+  (endpoint override via `AWS_ENDPOINT_URL*`, standard AWS credentials), and
+  echo the uploaded key and byte size as provenance like deploy does. Restore/
+  pull-side remote support stays out of scope until upload is proven.
+
 - [x] [H2] Enforce deploy size caps during download and extraction — the
   `limits.max_archive_mb` check runs only after `_fetch` has downloaded AND
   extracted the source into `.deploy_tmp_*` (`deploy.py:99-103`; unbounded
@@ -70,6 +78,28 @@ Root causes and reusable lessons for everything below live in [SOLUTION.md](SOLU
   (`cli.py:249-256`) bypass translation because they reach echo/prompt via
   variables; extend the AST literal scan (tests/test_repository_urls.py) to
   cover prompt_select args and variable-built echoes.
+
+- [ ] [M7] Authenticated HTTP(S) deploy sources — `http_source.py` accepts
+  public archive URLs only (30s timeout, no auth options). Add opt-in
+  header-based authentication (e.g. `deploy.auth: { header, value_env }`
+  reading the token from an environment variable so no secret lands in
+  `compman.yml`), preserving the existing redirect-target scheme/suffix
+  re-validation.
+
+- [ ] [M8] Backup retention policy — optional `limits.max_backups: N` pruning
+  the oldest `<stack>.volume.*` / `<stack>.image.*` archives in `dirs.backup`
+  after each successful backup, echoing exactly what was removed. Only files
+  inside the managed backup directory may ever be deleted. Combined with cron,
+  this completes the unattended-backup story alongside [H4].
+
+- [ ] [M9] `stack up --wait` readiness gate — after up/update, poll service
+  health (compose ps / health status) until running/healthy or COMPMAN_TIMEOUT
+  elapses, exiting non-zero on failure so scripts and CI fail fast instead of
+  racing the first request.
+
+- [ ] [M10] Machine-readable output beyond diagnostics — extend the schema-
+  versioned `--json` pattern (doctor/status) to `ps`, `stats`, and backup
+  listings so automation consumes results without scraping human-readable text.
 
 ## Lower (L)
 
@@ -145,6 +175,21 @@ Root causes and reusable lessons for everything below live in [SOLUTION.md](SOLU
   full compman.yml including the secrets ARN block during scaffold updates
   (`scaffold.py:115,125`).
 
+- [ ] [L12] `compman rollback` — retain the previous managed-tree snapshot
+  during the `dirs.project` swap and restore it (configuration included) on
+  demand; extends the existing transactional deploy swap whose only remaining
+  non-rolled-back failure mode is post-swap scaffold generation.
+
+- [ ] [L13] Additional deploy/backup backends — GCS, Azure Blob, or SSH/SCP.
+  Evaluate each against the three roadmap gates: real value for
+  restricted-environment users, dependency cost (boto3 lazy-import lesson), and
+  100% coverage burden. SSH/SCP likely fits the locked-down persona best.
+
+- [ ] [L14] Multi-stack registry — optional global registry mapping stack names
+  to directories so `compman --stack NAME status` works without cd-ing into
+  each stack directory. Largest UX win but touches config bootstrap for every
+  command (`cli.py` load_config); schedule only after the 1.6/1.7 themes ship.
+
 ## Resolved (2026-08-07)
 
 - [x] Stale PowerShell completion snippet: `seed` removed, `lang` added.
@@ -200,3 +245,22 @@ Recommended sequence:
   validate_timestamp rejects) and redesign downed-stack volume restore path
   (compose down removes containers -> list_containers empty -> map validation
   fails; needs helper-container copy strategy).
+
+## Release roadmap (theme per minor release)
+
+Each minor release carries one theme; patch releases stay fix-only. Backlog IDs
+above feed the sequence below; re-balance at each minor bump rather than
+planning further ahead.
+
+- **1.6 — Deploy/backup trust**: [H1] deploy checksum/object-version pinning,
+  [H4] remote backup upload, [M7] authenticated HTTP deploys.
+- **1.7 — Automation ergonomics**: [M9] `stack up --wait`, [M8] backup
+  retention, [M10] project-scoped `--json` beyond doctor/status.
+- **1.8 — Operational convenience**: [L12] rollback, plus one of [L14]
+  multi-stack registry or [L2] config schema versioning.
+- Ongoing between minors: [M1] module splits, [M6] integration-test fixes, and
+  remaining [L] hygiene items.
+
+Feature gate for any new candidate: real value for restricted-environment
+users, minimal dependency cost (boto3 lazy-import lesson), and a size the 100%
+coverage gate can absorb.

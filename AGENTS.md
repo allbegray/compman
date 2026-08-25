@@ -29,7 +29,14 @@ compman/               # Python package
   __main__.py          # python -m compman shim
   ops/                 # business logic per domain
     stack.py, service.py, container.py, volume.py, image.py, seed.py
+    schedule.py        # schedule add/list/remove orchestration over scheduling/
     common.py          # shared: prompt_select, select_backup_timestamp, stack_paused, ensure_runtime_ready
+  scheduling/          # platform-native backup scheduling (Phase A of [M11])
+    cadence.py         # Cadence vocab: parse_cadence + cron/launchd/systemd/schtasks formatters
+    registry.py        # schedules.json registry (JobRecord, atomic load/save), Runner alias
+    resolve.py         # resolve_executable fallback chain
+    launchd.py, systemd.py, crontab.py, schtasks.py  # pure builders + install/remove/exists adapters
+    pick.py            # pick_scheduler platform/mechanism selection
 tests/                 # pytest unit/regression suite (1:1 module mirror, 100% branch coverage)
 test/                  # runnable examples and E2E guides (not pytest tests)
 examples/compman-config/  # case-by-case compman.yml examples
@@ -176,6 +183,7 @@ compose:
 - The fetched tree replaces the contents of the managed `dirs.project` directory, preserving `.git` and `.gitkeep`. Root `compman.yml` and `docker-compose.yml` are scaffolded or updated separately.
 - Deploy with `--build` is transactional up to the managed-tree swap: the image builds from the temporary source first, so a build failure leaves the existing tree and configuration untouched. The swap itself rolls back on failure; only a scaffold-generation failure after the swap can leave the new source tree in place.
 - `update` rebuilds and force-recreates containers; it is not a zero-downtime rolling deployment.
+- `compman schedule add|list|remove` registers unattended `volume backup` jobs with the platform scheduler: launchd on macOS, schtasks on Windows, systemd user timer (probe `systemctl --user show-environment`) else crontab on Linux; `--scheduler systemd|cron` forces the Linux mechanism only. Exactly one cadence option (`--every Nm|Nh`, `--daily HH:MM`, `--weekly <day> HH:MM`) is required; cron targets additionally require 60-divisible minutes or whole-hour intervals. Jobs run `[exe, -c <config>, volume backup, ...baked flags]` with output appended to `<dirs.backup>/schedule.log` (journald for systemd). The registry at `~/.config/compman/schedules.json` (`%APPDATA%\compman\schedules.json` on Windows) is the source of truth: `list` marks absent artifacts `[missing]`, `remove` tolerates already-missing artifacts and always deletes the entry.
 - Expected operational failures, including Docker Desktop readiness failures, are shown as concise errors without Python tracebacks.
 - Root version flags are `-v` and `--version`; help flags are `-h` and `--help` for the root and command groups.
 

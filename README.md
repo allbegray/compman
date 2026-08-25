@@ -364,6 +364,10 @@ compman volume push [--replace] [--profile PROFILE] [-c|--config PATH]
 compman image backup [-z LEVEL] [--source-image] [--push S3_URI] [--no-push] [--profile PROFILE] [-c|--config PATH]
 compman image restore [TIMESTAMP] [--profile PROFILE] [-c|--config PATH]
 
+compman schedule add [--every N | --daily HH:MM | --weekly DAY HH:MM] [--no-stop] [-z LEVEL] [--profile PROFILE] [--name TEXT] [--scheduler systemd|cron] [-c|--config PATH]
+compman schedule list
+compman schedule remove NAME
+
 compman clear [--yes]
 ```
 
@@ -442,6 +446,30 @@ Uploads use the standard AWS credential and region environment variables and hon
 Operator note: aborted multipart transfers can leave billed orphaned parts in the bucket. On flaky networks, add a bucket lifecycle rule that aborts incomplete multipart uploads (7 days works well).
 
 When `backup.upload` is configured but AWS credentials or region are missing, `compman doctor` reports a warning.
+
+### Scheduled backups
+
+`compman schedule add` registers an unattended `volume backup` job with the platform's native scheduler, so backups run on a cadence without a shell loop. Combined with `backup.upload`, scheduled backups replicate off-site automatically.
+
+```bash
+compman schedule add --daily 04:30 --no-stop      # every day at 04:30 local time
+compman schedule add --every 30m                  # every 30 minutes
+compman schedule add --weekly sun 03:00 -z 9     # Sundays at 03:00, gzip level 9
+compman schedule list
+compman schedule remove daily-04-30               # name shown by `schedule list`
+```
+
+Exactly one cadence option is required: `--every Nm|Nh`, `--daily HH:MM`, or `--weekly <day> HH:MM` (day names `sun`..`sat`, case-insensitive; all times are local). Pass-through flags mirror `volume backup`: `--no-stop`, `-z LEVEL`, and `--profile`. The job runs `[compman, -c <config>, volume backup, ...]` directly — no wrapper scripts — and appends output to `<dirs.backup>/schedule.log`. On Linux with systemd timers the output goes to journald instead (`journalctl --user -u compman-<name>.service`).
+
+The scheduler mechanism is picked automatically: launchd on macOS, schtasks on Windows, and on Linux a systemd user timer when `systemctl --user show-environment` succeeds, otherwise crontab. Force the Linux mechanism with `--scheduler systemd|cron`. Cron cannot express every interval: `--every` values must divide 60 minutes (or be whole hours), otherwise registration fails and suggests `--scheduler systemd`.
+
+The registry at `~/.config/compman/schedules.json` (`%APPDATA%\compman\schedules.json` on Windows) is the source of truth. `schedule list` probes each platform artifact and marks drifted entries `[missing]`; `schedule remove` still deletes the registry entry when the platform artifact is already gone.
+
+Platform limitations to know before relying on this:
+
+- macOS LaunchAgents fire only while the user is logged in; headless servers should use the Linux mechanisms.
+- Windows scheduled tasks run only while the user is logged on.
+- A scheduled backup behaves like any non-interactive run: if Docker Desktop is required and not ready, the job fails concisely instead of hanging.
 
 ## Runtime selection
 

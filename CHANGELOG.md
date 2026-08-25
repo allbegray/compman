@@ -3,6 +3,15 @@
 Major user-visible changes to compman are recorded here, with the newest release
 first.
 
+## [1.6.1] - 2026-08-25
+
+### Fixed
+
+- S3 API calls now pass `Bucket`/`Key` as keyword arguments. Recent botocore
+  releases reject positional arguments on API operations, which broke remote
+  backup-store uploads at the post-upload size verification and the deploy
+  source size-cap check when `limits.max_archive_mb` is configured.
+
 ## [1.6.0] - 2026-08-25
 
 ### Added

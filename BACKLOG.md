@@ -102,15 +102,20 @@ Root causes and reusable lessons for everything below live in [SOLUTION.md](SOLU
   versioned `--json` pattern (doctor/status) to `ps`, `stats`, and backup
   listings so automation consumes results without scraping human-readable text.
 
-- [ ] [M11] Backup scheduling command — `compman schedule add|list|remove`
+- [x] [M11] Backup scheduling command — `compman schedule add|list|remove`
   registers platform-native jobs (launchd LaunchAgent on macOS, systemd timer
   or cron on Linux, Task Scheduler via schtasks on Windows) that invoke the
   installed compman binary to run `volume backup [--no-stop]`, composing with
-  the configured `backup.upload` target once [H4] ships. Registration must
-  resolve the absolute console-script path (scheduler environments have no
-  user PATH), store the working directory (the stack directory), and document
-  that non-interactive runs never auto-start Docker Desktop (clean failure +
-  exit code). Interval and calendar-time cadences both supported.
+  the configured backup store (`dirs.backup: s3://...`). Registration resolves
+  the absolute console-script path, pins the registering PATH into the job,
+  stores the working directory, and documents that non-interactive runs never
+  auto-start Docker Desktop. Verified end-to-end against live launchd + ministack.
+
+- [ ] [M12] Deploy/update image-tag consistency — `deploy --build --tag X`
+  scaffolds a compose file referencing image X, but a later tag-less `update`
+  rebuilds and tags `<directory-name>`, silently leaving the running stack on
+  the old image (found in end-to-end testing). Derive the update-time image
+  from the existing compose configuration, or warn loudly on mismatch.
 
 ## Lower (L)
 
@@ -200,6 +205,12 @@ Root causes and reusable lessons for everything below live in [SOLUTION.md](SOLU
   to directories so `compman --stack NAME status` works without cd-ing into
   each stack directory. Largest UX win but touches config bootstrap for every
   command (`cli.py` load_config); schedule only after the 1.6/1.7 themes ship.
+
+- [ ] [L15] Deploy config-error guidance — when `deploy`/`update` runs in a
+  directory whose `compman.yml` fails to parse, the ConfigError is swallowed and
+  the command prints the empty-directory onboarding hints instead, hiding the
+  real validation message (found while verifying auth-over-http rejection;
+  `doctor` surfaces it correctly). Print the parse error, then the hints.
 
 ## Resolved (2026-08-07)
 

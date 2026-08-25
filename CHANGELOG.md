@@ -3,6 +3,19 @@
 Major user-visible changes to compman are recorded here, with the newest release
 first.
 
+## [1.6.2] - 2026-08-25
+
+### Fixed
+
+- Scheduled backups now run correctly: the registered job payload placed
+  `--config` before the subcommand where the CLI does not accept it, so every
+  launchd/cron/systemd/schtasks firing failed with "No such option: -c".
+- Scheduled jobs embed the registering shell's `PATH` (launchd
+  EnvironmentVariables, a PATH line inside the crontab marker block, an
+  Environment directive in the systemd service) so the container runtime is
+  found without a user shell environment.
+- The corrupt-schedule-registry warning is translated like every other message.
+
 ## [1.6.1] - 2026-08-25
 
 ### Fixed

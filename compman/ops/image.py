@@ -6,7 +6,14 @@ import tarfile
 import typer
 
 from compman.archive import extract_tar
-from compman.backup_store import list_archives, local_root, new_backup_paths, put_archive
+from compman.backup_store import (
+    LocalBackupStore,
+    archive_location,
+    list_archives,
+    new_backup_paths,
+    put_archive,
+    staged_archive,
+)
 from compman.config import Config
 from compman.docker import ContainerRuntime, resolve_compose_context
 from compman.errors import CommandError
@@ -62,10 +69,11 @@ def backup(
     finally:
         for tag in backup_tags:
             runtime.remove_image(tag)
-        shutil.rmtree(backup_dir, ignore_errors=True)
+        if isinstance(config.backup_store, LocalBackupStore):
+            shutil.rmtree(backup_dir, ignore_errors=True)
 
-    typer.echo(t("msg.backup_done", kind="Image", path=tarball))
-    put_archive(config.backup_store, tarball.name, tarball)
+    location = put_archive(config.backup_store, tarball.name, tarball)
+    typer.echo(t("msg.backup_done", kind="Image", path=location))
 
 
 def restore(
@@ -79,24 +87,25 @@ def restore(
 
     validate_timestamp(timestamp)
 
-    backup_root = local_root(config.backup_store)
+    store = config.backup_store
     backup_name = f"{config.name}.image.{timestamp}"
-    tarball = backup_root / f"{backup_name}.tar.gz"
-    if timestamp not in list_archives(config.backup_store, config.name, "image"):
+    archive_name = f"{backup_name}.tar.gz"
+    if timestamp not in list_archives(store, config.name, "image"):
         _list_backups(config)
-        raise CommandError(t("msg.backup_not_found", tarball=tarball))
+        raise CommandError(t("msg.backup_not_found", tarball=archive_location(store, archive_name)))
 
-    restore_dir = backup_root / backup_name
-    restore_dir.mkdir(parents=True)
-    try:
-        with tarfile.open(tarball, "r:gz") as tar:
-            extract_tar(tar, restore_dir)
+    with staged_archive(store, archive_name) as tarball:
+        restore_dir = tarball.parent / backup_name
+        restore_dir.mkdir(parents=True)
+        try:
+            with tarfile.open(tarball, "r:gz") as tar:
+                extract_tar(tar, restore_dir)
 
-        for tar_file in restore_dir.glob("*.tar"):
-            typer.echo(t("msg.loading_image", name=tar_file.name))
-            runtime.load_image(tar_file)
-    finally:
-        shutil.rmtree(restore_dir, ignore_errors=True)
+            for tar_file in restore_dir.glob("*.tar"):
+                typer.echo(t("msg.loading_image", name=tar_file.name))
+                runtime.load_image(tar_file)
+        finally:
+            shutil.rmtree(restore_dir, ignore_errors=True)
     typer.echo(t("msg.restore_done", kind="Image") + " " + t("msg.image_restore_hint"))
 
 

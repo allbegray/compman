@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
-from compman.backup_store import local_root
+from compman.backup_store import archive_location, local_root
 from compman.config import Config, ConfigError, load_config
 from compman.docker import ContainerRuntime, detect_runtime, resolve_compose_context
 
@@ -114,6 +114,7 @@ def collect_doctor(config_path: str | None, profile: str | None = None) -> Docto
     _collect_aws(checks)
     if config is not None:
         _collect_secrets(config, checks)
+        _collect_backup_store(config, checks)
         _collect_deploy_checksum(config, checks)
         _collect_deploy_auth(config, checks)
     return DoctorReport(tuple(checks))
@@ -300,14 +301,18 @@ def _collect_aws(checks: list[CheckResult]) -> None:
     checks.append(CheckResult("aws", "warning", credentials_present, message))
 
 
-def _collect_secrets(config: Config, checks: list[CheckResult]) -> None:
-    if not config.secrets:
-        return
+def _aws_env_ready() -> bool:
     credentials_present = bool(os.environ.get("AWS_ACCESS_KEY_ID")) and bool(
         os.environ.get("AWS_SECRET_ACCESS_KEY")
     )
     region_present = bool(os.environ.get("AWS_DEFAULT_REGION") or os.environ.get("AWS_REGION"))
-    ok = credentials_present and region_present
+    return credentials_present and region_present
+
+
+def _collect_secrets(config: Config, checks: list[CheckResult]) -> None:
+    if not config.secrets:
+        return
+    ok = _aws_env_ready()
     message = (
         f"Secrets configured for {len(config.secrets)} env vars; "
         "AWS credentials and region are available."
@@ -315,6 +320,19 @@ def _collect_secrets(config: Config, checks: list[CheckResult]) -> None:
         else "Secrets configured but AWS credentials or region are missing."
     )
     checks.append(CheckResult("secrets", "warning", ok, message))
+
+
+def _collect_backup_store(config: Config, checks: list[CheckResult]) -> None:
+    if not config.backup_store.is_remote:
+        return
+    ok = _aws_env_ready()
+    message = (
+        f"Backup store configured for {archive_location(config.backup_store, '')}; "
+        "AWS credentials and region are available."
+        if ok
+        else "Backup store configured but AWS credentials or region are missing."
+    )
+    checks.append(CheckResult("backup_store", "warning", ok, message))
 
 
 def _collect_deploy_checksum(config: Config, checks: list[CheckResult]) -> None:

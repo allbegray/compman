@@ -18,7 +18,7 @@ If every convenient option has been answered with "not allowed," `compman` is fo
 - Deploys from an S3 prefix/archive or an HTTP/HTTPS `.tar.gz`/`.tgz`/`.zip` archive, with optional HTTPS header authentication and SHA-256 integrity pinning
 - Automatically creates `compman.yml` and `docker-compose.yml` when deploying into an empty directory
 - Creates and restores timestamped backups of volumes and container images
-- Replicates backup archives to S3-compatible storage automatically via `backup.upload`, or one-off with `--push`
+- Stores backups in a local directory or an S3-compatible bucket via `dirs.backup` (`s3://bucket/prefix`)
 - Korean and English help, plus shell completion
 - Supports Windows, Linux, and macOS
 
@@ -26,7 +26,7 @@ If every convenient option has been answered with "not allowed," `compman` is fo
 
 - Python 3.12 or later
 - Docker Compose or Podman Compose
-- For S3 deployments and remote backup uploads: accessible S3-compatible storage and AWS credentials
+- For S3 deployments and the S3 backup store: accessible S3-compatible storage and AWS credentials
 - For HTTP deployments: a public archive URL, or an authenticated HTTPS URL via the `deploy.auth` configuration (token supplied through an environment variable)
 
 CI verifies Python 3.12–3.14 on Ubuntu, macOS, and Windows. See the `Python version strategy` section of [BACKLOG.md](BACKLOG.md) for the Python 3.14 support plan and upgrade decision.
@@ -356,12 +356,12 @@ compman service status [--profile PROFILE] [-c|--config PATH]
 compman service log [CONTAINER] [-f] [-n 50] [--profile PROFILE] [-c|--config PATH]
 compman service connect [CONTAINER] [--profile PROFILE] [-c|--config PATH]
 
-compman volume backup [-z LEVEL] [--no-stop] [--push S3_URI] [--no-push] [--profile PROFILE] [-c|--config PATH]
+compman volume backup [-z LEVEL] [--no-stop] [--profile PROFILE] [-c|--config PATH]
 compman volume restore [TIMESTAMP] [--no-stop] [--replace] [--profile PROFILE] [-c|--config PATH]
 compman volume pull [--profile PROFILE] [-c|--config PATH]
 compman volume push [--replace] [--profile PROFILE] [-c|--config PATH]
 
-compman image backup [-z LEVEL] [--source-image] [--push S3_URI] [--no-push] [--profile PROFILE] [-c|--config PATH]
+compman image backup [-z LEVEL] [--source-image] [--profile PROFILE] [-c|--config PATH]
 compman image restore [TIMESTAMP] [--profile PROFILE] [-c|--config PATH]
 
 compman schedule add [--every N | --daily HH:MM | --weekly DAY HH:MM] [--no-stop] [-z LEVEL] [--profile PROFILE] [--name TEXT] [--scheduler systemd|cron] [-c|--config PATH]
@@ -418,38 +418,39 @@ Backup files are stored in `dirs.backup`.
 
 When restoring without a timestamp, choose an available backup interactively. Volume restore and `volume push` merge data into the target; they do not delete files that exist only at the target. Image restore loads the image into the runtime but does not automatically change the Compose `image` tag.
 
-### Remote upload to S3
+### S3 backup store
 
-Backups can be replicated to S3-compatible storage with the optional top-level `backup` key:
+`dirs.backup` accepts either a local relative path or an S3 URI. With an S3
+store, archives live in the bucket; compman stages them locally only while a
+backup or restore runs and deletes the staged copy after a successful upload.
 
 ```yaml
 compman:
   name: my-stack
-  backup:
-    upload: s3://my-bucket/backups
+  dirs:
+    backup: s3://my-bucket/backups
   compose:
     default:
       file: docker-compose.yml
 ```
 
-Once `backup.upload` is configured, every `volume backup` and `image backup` uploads its archive to `<prefix>/<archive-filename>` automatically after the local archive is created. The local archive always remains; the upload is only a replica. A failed upload exits non-zero with a message that names the local archive path, and the local backup stays intact.
-
-Both commands accept two flags:
-
-- `--push S3_URI`: upload to this URI instead of the configured target (one-off)
-- `--no-push`: skip the configured target for this run
-
-Combining both flags in one invocation is an error.
-
-Uploads use the standard AWS credential and region environment variables and honor `AWS_ENDPOINT_URL_S3` / `AWS_ENDPOINT_URL`, so S3-compatible stores such as Ministack or LocalStack work (see [S3-compatible storage](#s3-compatible-storage)). Uploaded objects get `Content-Type: application/gzip`, and compman verifies the uploaded object size against the local file after upload.
+- Every `volume backup` and `image backup` uploads its archive to
+  `<prefix>/<archive-filename>` with `Content-Type: application/gzip`, then
+  verifies the stored object size against the staged file.
+- Restores list available timestamps from the bucket and download the selected
+  archive automatically; there is no manual sync step.
+- A failed upload exits non-zero, keeps the staged archive, and names its path;
+  a successful upload removes it.
+- The store works with any S3-compatible endpoint via `AWS_ENDPOINT_URL_S3` /
+  `AWS_ENDPOINT_URL` (see [S3-compatible storage](#s3-compatible-storage)).
+- When an S3 backup store is configured but AWS credentials or region are
+  missing, `compman doctor` reports a warning.
 
 Operator note: aborted multipart transfers can leave billed orphaned parts in the bucket. On flaky networks, add a bucket lifecycle rule that aborts incomplete multipart uploads (7 days works well).
 
-When `backup.upload` is configured but AWS credentials or region are missing, `compman doctor` reports a warning.
-
 ### Scheduled backups
 
-`compman schedule add` registers an unattended `volume backup` job with the platform's native scheduler, so backups run on a cadence without a shell loop. Combined with `backup.upload`, scheduled backups replicate off-site automatically.
+`compman schedule add` registers an unattended `volume backup` job with the platform's native scheduler, so backups run on a cadence without a shell loop. With an S3 backup store configured, scheduled backups replicate off-site automatically.
 
 ```bash
 compman schedule add --daily 04:30 --no-stop      # every day at 04:30 local time
@@ -459,7 +460,7 @@ compman schedule list
 compman schedule remove daily-04-30               # name shown by `schedule list`
 ```
 
-Exactly one cadence option is required: `--every Nm|Nh`, `--daily HH:MM`, or `--weekly <day> HH:MM` (day names `sun`..`sat`, case-insensitive; all times are local). Pass-through flags mirror `volume backup`: `--no-stop`, `-z LEVEL`, and `--profile`. The job runs `[compman, -c <config>, volume backup, ...]` directly — no wrapper scripts — and appends output to `<dirs.backup>/schedule.log`. On Linux with systemd timers the output goes to journald instead (`journalctl --user -u compman-<name>.service`).
+Exactly one cadence option is required: `--every Nm|Nh`, `--daily HH:MM`, or `--weekly <day> HH:MM` (day names `sun`..`sat`, case-insensitive; all times are local). Pass-through flags mirror `volume backup`: `--no-stop`, `-z LEVEL`, and `--profile`. The job runs `[compman, -c <config>, volume backup, ...]` directly — no wrapper scripts — and appends output to `schedule.log` next to the schedule registry (`~/.config/compman/schedule.log`, or `%APPDATA%\compman\schedule.log` on Windows). On Linux with systemd timers the output goes to journald instead (`journalctl --user -u compman-<name>.service`).
 
 The scheduler mechanism is picked automatically: launchd on macOS, schtasks on Windows, and on Linux a systemd user timer when `systemctl --user show-environment` succeeds, otherwise crontab. Force the Linux mechanism with `--scheduler systemd|cron`. Cron cannot express every interval: `--every` values must divide 60 minutes (or be whole hours), otherwise registration fails and suggests `--scheduler systemd`.
 

@@ -10,7 +10,7 @@ from typing import Callable, Sequence
 
 import typer
 
-from compman.backup_store import list_archives, local_root
+from compman.backup_store import archive_location, list_archives
 from compman.config import Config
 from compman.docker import ComposeContext, ContainerRuntime, resolve_compose_context
 from compman.errors import CommandError
@@ -219,7 +219,8 @@ def prompt_select(title: str, options: list[str], default_index: int = 0) -> int
 def select_backup_timestamp(config: Config, kind: str) -> str:
     timestamps = list_archives(config.backup_store, config.name, kind)
     if not timestamps:
-        raise CommandError(t("msg.no_backups", kind=kind, path=local_root(config.backup_store)))
+        path = archive_location(config.backup_store, "")
+        raise CommandError(t("msg.no_backups", kind=kind, path=path))
 
     idx = prompt_select(
         t("msg.available_backups_title", kind=kind),

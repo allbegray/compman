@@ -6,9 +6,8 @@ from typing import Any, Protocol
 
 import typer
 
-from compman.backup_store import S3BackupStore
 from compman.config import Config, sanitize_project_name
-from compman.errors import CommandError, ConfigError
+from compman.errors import CommandError
 from compman.i18n import t
 from compman.scheduling import (
     JobRecord,
@@ -17,6 +16,7 @@ from compman.scheduling import (
     load_registry,
     parse_cadence,
     pick_scheduler,
+    registry_path,
     resolve_executable,
     save_registry,
 )
@@ -104,10 +104,6 @@ def add_schedule(
     if profile:
         args.extend(["--profile", profile])
 
-    if isinstance(config.backup_store, S3BackupStore):
-        raise ConfigError("schedule logs require a local backup directory")
-    log_path = str(config.backup_store.root / "schedule.log")
-
     record = JobRecord(
         name=job_name,
         platform=platform_name,
@@ -118,7 +114,7 @@ def add_schedule(
         workdir=str(config.root_dir),
         config_path=config_path,
         args=args,
-        log_path=log_path,
+        log_path=str(registry_path().parent / "schedule.log"),
         created=datetime.now(timezone.utc).isoformat(),
     )
 

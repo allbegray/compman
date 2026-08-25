@@ -1,18 +1,16 @@
 # Case 13 — Scheduled backups
 
 Register an unattended `volume backup` job with the platform scheduler so
-backups run on a cadence without a shell loop or cron-fu. Combine with
-`backup.upload` (Case 11) and every scheduled backup also replicates off-site.
+backups run on a cadence without a shell loop or cron-fu. Combine with the
+S3 backup store (Case 11) and every scheduled backup also replicates off-site.
 
 ## `compman.yml`
 
 ```yaml
 compman:
   name: my-stack
-  backup:
-    upload: s3://my-bucket/backups
   dirs:
-    backup: backup
+    backup: s3://my-bucket/backups
   compose:
     default:
       file: docker-compose.yml
@@ -35,7 +33,8 @@ compman schedule add --weekly sun 03:00 -z 9      # Sundays at 03:00, gzip level
 - `--no-stop`, `-z LEVEL`, and `--profile` are baked into the registered
   command verbatim, exactly as you would pass them to `compman volume backup`.
 - The job invokes `[compman, -c <abs config>, volume backup, ...]` directly —
-  no wrapper scripts — and appends output to `<dirs.backup>/schedule.log`.
+  no wrapper scripts — and appends output to `schedule.log` next to the
+  schedule registry (`~/.config/compman/schedule.log`).
 - On Linux with systemd timers, output goes to journald instead:
   `journalctl --user -u compman-<name>.service`.
 

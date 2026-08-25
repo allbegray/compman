@@ -755,6 +755,14 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "en": "{kind} backup done: {path}",
         "ko": "{kind} 백업 완료: {path}",
     },
+    "msg.backup_downloading": {
+        "en": "Downloading {name} from {path}",
+        "ko": "{path}에서 {name} 다운로드하는 중...",
+    },
+    "msg.backup_store_error": {
+        "en": "Backup store operation failed: {detail}",
+        "ko": "백업 저장소 작업이 실패했습니다: {detail}",
+    },
     "msg.restore_done": {
         "en": "{kind} restore done.",
         "ko": "{kind} 복원 완료.",
@@ -990,6 +998,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "msg.schedule.added": {
         "en": "Scheduled backup '{name}' registered ({platform}).",
         "ko": "예약 백업 '{name}'이(가) 등록되었습니다({platform}).",
+    },
+    "msg.schedule_registry_corrupt": {
+        "en": "Corrupt schedule registry at {path}; moved to {backup}. Starting with an empty registry.",
+        "ko": "손상된 예약 레지스트리를 {path}에서 발견하여 {backup}(으)로 옮겼습니다. 빈 레지스트리로 시작합니다.",
     },
     "msg.schedule.removed": {
         "en": "Scheduled backup '{name}' removed.",

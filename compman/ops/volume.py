@@ -10,7 +10,14 @@ from typing import Any
 import typer
 
 from compman.archive import extract_tar
-from compman.backup_store import list_archives, local_root, new_backup_paths, put_archive
+from compman.backup_store import (
+    LocalBackupStore,
+    archive_location,
+    list_archives,
+    new_backup_paths,
+    put_archive,
+    staged_archive,
+)
 from compman.config import Config
 from compman.docker import ComposeContext, ContainerRuntime, resolve_compose_context
 from compman.errors import CommandError
@@ -53,10 +60,11 @@ def backup(
             with tarfile.open(tarball, "w:gz", compresslevel=compression_level) as tar:
                 tar.add(backup_dir, arcname=".")
     finally:
-        shutil.rmtree(backup_dir, ignore_errors=True)
+        if isinstance(config.backup_store, LocalBackupStore):
+            shutil.rmtree(backup_dir, ignore_errors=True)
 
-    typer.echo(t("msg.backup_done", kind="Volume", path=tarball))
-    put_archive(config.backup_store, tarball.name, tarball)
+    location = put_archive(config.backup_store, tarball.name, tarball)
+    typer.echo(t("msg.backup_done", kind="Volume", path=location))
 
 
 def restore(
@@ -72,57 +80,58 @@ def restore(
         timestamp = select_backup_timestamp(config, "volume")
 
     validate_timestamp(timestamp)
-    backup_root = local_root(config.backup_store)
+    store = config.backup_store
     backup_name = f"{config.name}.volume.{timestamp}"
-    tarball = backup_root / f"{backup_name}.tar.gz"
-    if timestamp not in list_archives(config.backup_store, config.name, "volume"):
+    archive_name = f"{backup_name}.tar.gz"
+    if timestamp not in list_archives(store, config.name, "volume"):
         _list_backups(config, "volume")
-        raise CommandError(t("msg.backup_not_found", tarball=tarball))
+        raise CommandError(t("msg.backup_not_found", tarball=archive_location(store, archive_name)))
 
-    restore_dir = backup_root / backup_name
-    restore_dir.mkdir(parents=True, exist_ok=True)
-    try:
-        with tarfile.open(tarball, "r:gz") as tar:
-            extract_tar(tar, restore_dir)
+    with staged_archive(store, archive_name) as tarball:
+        restore_dir = tarball.parent / backup_name
+        restore_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            with tarfile.open(tarball, "r:gz") as tar:
+                extract_tar(tar, restore_dir)
 
-        map_path = restore_dir / "volume-map.json"
-        if not map_path.is_file():
-            raise CommandError(t("msg.volume_map_not_found", path=map_path))
+            map_path = restore_dir / "volume-map.json"
+            if not map_path.is_file():
+                raise CommandError(t("msg.volume_map_not_found", path=map_path))
 
-        mapping = _load_mapping(map_path)
-        _validate_mapping_entries(mapping, restore_dir, config, runtime, context)
+            mapping = _load_mapping(map_path)
+            _validate_mapping_entries(mapping, restore_dir, config, runtime, context)
 
-        if replace:
-            for vol_info in mapping:
-                container = vol_info["container"]
-                volume_name = vol_info["volume"]
-                dest = vol_info["destination"]
-                src = restore_dir / volume_name
-                if src.is_dir():
-                    _clear_destination(runtime, container, dest)
+            if replace:
+                for vol_info in mapping:
+                    container = vol_info["container"]
+                    volume_name = vol_info["volume"]
+                    dest = vol_info["destination"]
+                    src = restore_dir / volume_name
+                    if src.is_dir():
+                        _clear_destination(runtime, container, dest)
 
-        with stack_paused(runtime, context, enabled=not no_stop):
-            for vol_info in mapping:
-                container = vol_info["container"]
-                volume_name = vol_info["volume"]
-                dest = vol_info["destination"]
-                src = restore_dir / volume_name
-                if not src.is_dir():
-                    typer.echo(t("msg.warning_missing_data", path=src, container=container))
-                    continue
-                typer.echo(t("msg.restoring_data", container=container, destination=dest))
-                runtime.copy_to_container(f"{src}/.", container, dest)
+            with stack_paused(runtime, context, enabled=not no_stop):
+                for vol_info in mapping:
+                    container = vol_info["container"]
+                    volume_name = vol_info["volume"]
+                    dest = vol_info["destination"]
+                    src = restore_dir / volume_name
+                    if not src.is_dir():
+                        typer.echo(t("msg.warning_missing_data", path=src, container=container))
+                        continue
+                    typer.echo(t("msg.restoring_data", container=container, destination=dest))
+                    runtime.copy_to_container(f"{src}/.", container, dest)
 
-            for vol_info in mapping:
-                container = vol_info["container"]
-                volume_name = vol_info["volume"]
-                dest = vol_info["destination"]
-                src = restore_dir / volume_name
-                if not src.is_dir():
-                    continue
-                runtime.fix_permissions(container, dest)
-    finally:
-        shutil.rmtree(restore_dir, ignore_errors=True)
+                for vol_info in mapping:
+                    container = vol_info["container"]
+                    volume_name = vol_info["volume"]
+                    dest = vol_info["destination"]
+                    src = restore_dir / volume_name
+                    if not src.is_dir():
+                        continue
+                    runtime.fix_permissions(container, dest)
+        finally:
+            shutil.rmtree(restore_dir, ignore_errors=True)
 
     typer.echo(t("msg.restore_done", kind="Volume"))
 

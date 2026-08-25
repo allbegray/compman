@@ -7,8 +7,10 @@ import tarfile
 from unittest.mock import MagicMock, patch
 
 import pytest
+from botocore.exceptions import ClientError
+from test_backup_store import FakeS3, _patch_stage, _stage
 
-from compman.backup_store import local_root
+from compman.backup_store import S3BackupStore, local_root
 from compman.config import Config, Profile
 from compman.errors import CommandError
 from compman.ops import volume
@@ -52,6 +54,106 @@ def test_volume_backup_without_upload_never_imports_boto3(dummy_runtime, temp_di
         assert "botocore" not in sys.modules
     finally:
         sys.modules.update(saved)
+
+
+def _remote_config() -> Config:
+    return Config(
+        name="my_stack",
+        profiles={"default": Profile(file="docker-compose.yml")},
+        backup_store=S3BackupStore(bucket="bucket", prefix="backups"),
+    )
+
+
+def test_volume_backup_remote_store_uploads_outside_paused_window(dummy_runtime, temp_dir: pathlib.Path):
+    cfg = _remote_config()
+    events: list[str] = []
+    original_run_compose = dummy_runtime.run_compose
+
+    def recording_run_compose(args, **kwargs):
+        events.append(f"compose:{args[0]}")
+        return original_run_compose(args, **kwargs)
+
+    dummy_runtime.run_compose = recording_run_compose
+
+    fake = FakeS3()
+    real_upload = fake.upload_file
+
+    def recording_upload(*args, **kwargs):
+        events.append("upload")
+        real_upload(*args, **kwargs)
+
+    fake.upload_file = recording_upload
+
+    with patch("compman.ops.volume._inspect_mount", return_value=None), patch(
+        "compman.backup_store.create_client", return_value=fake
+    ), _patch_stage(temp_dir):
+        volume.backup(dummy_runtime, cfg)
+
+    key = str(fake.uploaded["Key"])
+    assert key.startswith("backups/my_stack.volume.")
+    assert key.endswith(".tar.gz")
+    assert fake.uploaded["ExtraArgs"] == {"ContentType": "application/gzip"}
+    upload_idx = events.index("upload")
+    assert "compose:start" in events[:upload_idx]
+    assert not any(event.startswith("compose:") for event in events[upload_idx + 1 :])
+    assert not _stage(temp_dir).exists()
+
+
+def test_volume_backup_remote_failure_keeps_staged_tarball(dummy_runtime, temp_dir: pathlib.Path):
+    cfg = _remote_config()
+    fake = FakeS3(error=ClientError({"Error": {"Code": "403"}}, "PutObject"))
+    with patch("compman.ops.volume._inspect_mount", return_value=None), patch(
+        "compman.backup_store.create_client", return_value=fake
+    ), _patch_stage(temp_dir):
+        with pytest.raises(CommandError) as excinfo:
+            volume.backup(dummy_runtime, cfg)
+
+    leftovers = list(_stage(temp_dir).glob("*.tar.gz"))
+    assert len(leftovers) == 1
+    assert leftovers[0].stat().st_size > 0
+    assert str(leftovers[0]) in str(excinfo.value)
+
+
+def test_volume_restore_remote_fetches_from_store(dummy_runtime, temp_dir: pathlib.Path):
+    cfg = _remote_config()
+    payload_dir = temp_dir / "payload"
+    payload_dir.mkdir()
+    (payload_dir / "volume-map.json").write_text(
+        json.dumps([{"container": "c1", "volume": "vol1", "destination": "/data"}]),
+        encoding="utf-8",
+    )
+    empty = temp_dir / "empty"
+    empty.mkdir()
+    source_archive = temp_dir / "source.tar.gz"
+    with tarfile.open(source_archive, "w:gz") as tar:
+        tar.add(empty, arcname=".")
+        tar.add(payload_dir / "volume-map.json", arcname="volume-map.json")
+    payload = source_archive.read_bytes()
+
+    class DownloadFake(FakeS3):
+        def download_file(self, bucket, key, destination):
+            self.downloads.append((bucket, key, destination))
+            pathlib.Path(destination).write_bytes(payload)
+
+    fake = DownloadFake(pages=[{"Contents": [{"Key": "backups/my_stack.volume.20260731_1200.tar.gz"}]}])
+    dummy_runtime.list_containers = MagicMock(return_value=["c1"])
+    with patch("compman.backup_store.create_client", return_value=fake), _patch_stage(temp_dir):
+        volume.restore(dummy_runtime, cfg, "20260731_1200", no_stop=True)
+
+    assert fake.downloads[0][1] == "backups/my_stack.volume.20260731_1200.tar.gz"
+    assert not _stage(temp_dir).exists()
+
+
+def test_volume_restore_remote_missing_timestamp_lists_and_errors(dummy_runtime, temp_dir: pathlib.Path):
+    cfg = _remote_config()
+    fake = FakeS3(pages=[{}])
+    with patch("compman.backup_store.create_client", return_value=fake), pytest.raises(
+        CommandError
+    ) as excinfo:
+        volume.restore(dummy_runtime, cfg, "20260601_0000", no_stop=True)
+
+    assert fake.downloads == []
+    assert "s3://bucket/backups/my_stack.volume.20260601_0000.tar.gz" in str(excinfo.value)
 
 
 def test_volume_restore(dummy_runtime, temp_dir: pathlib.Path):

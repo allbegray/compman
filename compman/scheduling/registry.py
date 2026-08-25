@@ -11,6 +11,7 @@ from typing import Any
 
 import typer
 
+from compman.i18n import t
 from compman.scheduling.cadence import Cadence, CadenceKind
 
 REGISTRY_VERSION = 1
@@ -68,8 +69,7 @@ def load_registry() -> dict[str, Any]:
         backup = path.with_name(path.name + ".bak")
         path.replace(backup)
         typer.echo(
-            f"Corrupt schedule registry at {path}; renamed to {backup}. "
-            "Starting with an empty registry.",
+            t("msg.schedule_registry_corrupt", path=path, backup=backup),
             err=True,
         )
         return _empty_registry()

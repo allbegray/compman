@@ -70,6 +70,20 @@ containers, not for authenticating to compman.
 - System environment variables inherited by docker compose need no config entry
   and are not stored anywhere by `compman`.
 
+## Deploy Source Integrity
+
+Deploy sources can be pinned to a known-good artifact with a SHA-256 digest,
+configured as `deploy: { url, sha256 }` in `compman.yml` or passed per
+invocation with `--sha256` on `compman deploy`. The digest is verified after
+download and before archive extraction, image build, or managed-tree
+replacement; a mismatch aborts the deploy and leaves the managed tree
+untouched. This protects against altered artifacts served from
+trusted-but-compromisable locations (for example, a compromised bucket). It
+does not authenticate the publisher: compute the digest yourself and publish it
+through a channel independent of the storage location. `.sha256` sidecar files
+are not auto-fetched, and redirected endpoints configured via
+`AWS_ENDPOINT_URL_S3`/`AWS_ENDPOINT_URL` are outside this control's scope.
+
 ## Vulnerability Reporting
 
 Please report suspected vulnerabilities privately so they can be fixed before

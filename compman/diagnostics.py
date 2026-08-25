@@ -113,6 +113,7 @@ def collect_doctor(config_path: str | None, profile: str | None = None) -> Docto
     _collect_aws(checks)
     if config is not None:
         _collect_secrets(config, checks)
+        _collect_deploy_checksum(config, checks)
     return DoctorReport(tuple(checks))
 
 
@@ -310,3 +311,18 @@ def _collect_secrets(config: Config, checks: list[CheckResult]) -> None:
         else "Secrets configured but AWS credentials or region are missing."
     )
     checks.append(CheckResult("secrets", "warning", ok, message))
+
+
+def _collect_deploy_checksum(config: Config, checks: list[CheckResult]) -> None:
+    if not config.deploy or config.deploy_sha256:
+        return
+    checks.append(
+        CheckResult(
+            "deploy_checksum",
+            "warning",
+            False,
+            "Deploy source is configured without a SHA-256 integrity pin.",
+            remediation="Add a 'sha256' key to the deploy mapping in compman.yml "
+            "(64 hexadecimal characters) or pass --sha256 on deploy.",
+        )
+    )

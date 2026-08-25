@@ -1,17 +1,18 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from urllib.parse import urlparse
 from urllib.request import urlopen
 
-from compman.archive_source import ARCHIVE_SUFFIXES, extract_archive, has_archive_suffix
+from compman.archive_source import ARCHIVE_SUFFIXES, ensure_digest, extract_archive, has_archive_suffix
 from compman.errors import CommandError
 from compman.i18n import t
 
 _CHUNK_SIZE = 1024 * 1024
 
 
-def fetch(url: str, tmp: Path, max_bytes: int | None = None) -> Path:
+def fetch(url: str, tmp: Path, max_bytes: int | None = None, sha256: str | None = None) -> Path:
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https") or not parsed.netloc:
         raise ValueError(f"Invalid HTTP source: {url}")
@@ -32,6 +33,7 @@ def fetch(url: str, tmp: Path, max_bytes: int | None = None) -> Path:
             raise ValueError(f"HTTP source must be a .tar.gz, .tgz, or .zip archive: {final_url}")
 
         total = 0
+        digest = hashlib.sha256()
         with archive_path.open("wb") as destination:
             while True:
                 chunk = response.read(_CHUNK_SIZE)
@@ -42,5 +44,8 @@ def fetch(url: str, tmp: Path, max_bytes: int | None = None) -> Path:
                     limit_mb = (max_bytes + 1024 * 1024 - 1) // (1024 * 1024)
                     raise CommandError(t("msg.deploy_limit_exceeded", limit=limit_mb, size=total))
                 destination.write(chunk)
+                digest.update(chunk)
 
+    if sha256 is not None:
+        ensure_digest(digest.hexdigest(), sha256)
     return extract_archive(archive_path, tmp / "extract", max_bytes=max_bytes)

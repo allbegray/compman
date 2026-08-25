@@ -49,6 +49,7 @@ def test_cli_lazy_wrappers_delegate_to_command_modules():
         s3_path="s3://bucket/key",
         config=None,
         runtime=None,
+        sha256=None,
     )
 
     with patch("compman.diagnostics.collect_doctor", return_value=doctor_report):

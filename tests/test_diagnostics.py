@@ -119,6 +119,58 @@ def test_secrets_check_ok_with_credentials_and_region(tmp_path, monkeypatch, dum
     assert secrets.ok is True
 
 
+def test_doctor_warns_when_deploy_lacks_checksum(tmp_path, monkeypatch, dummy_runtime):
+    (tmp_path / "compman.yml").write_text(
+        "compman:\n"
+        "  name: test-app\n"
+        "  deploy: s3://bucket/app.tar.gz\n"
+        "  compose:\n"
+        "    default:\n"
+        "      file: docker-compose.yml\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("compman.diagnostics.detect_runtime", lambda: dummy_runtime)
+
+    report = collect_doctor(None)
+
+    check = next(item for item in report.checks if item.id == "deploy_checksum")
+    assert check.severity == "warning"
+    assert check.ok is False
+    json_checks = report.to_dict()["checks"]
+    assert any(entry["id"] == "deploy_checksum" for entry in json_checks)
+
+
+def test_doctor_no_checksum_warning_when_pinned(tmp_path, monkeypatch, dummy_runtime):
+    (tmp_path / "compman.yml").write_text(
+        "compman:\n"
+        "  name: test-app\n"
+        "  deploy:\n"
+        "    url: s3://bucket/app.tar.gz\n"
+        f"    sha256: {'a' * 64}\n"
+        "  compose:\n"
+        "    default:\n"
+        "      file: docker-compose.yml\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("compman.diagnostics.detect_runtime", lambda: dummy_runtime)
+
+    report = collect_doctor(None)
+
+    assert all(check.id != "deploy_checksum" for check in report.checks)
+
+
+def test_doctor_no_checksum_warning_without_deploy(tmp_path, monkeypatch, dummy_runtime):
+    write_simple_project(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("compman.diagnostics.detect_runtime", lambda: dummy_runtime)
+
+    report = collect_doctor(None)
+
+    assert all(check.id != "deploy_checksum" for check in report.checks)
+
+
 @pytest.mark.parametrize("config_contents", [None, "invalid: : ["])
 def test_invalid_or_missing_config_is_a_failed_required_check(tmp_path, monkeypatch, dummy_runtime, config_contents):
     if config_contents is not None:

@@ -50,10 +50,11 @@ def _deploy(
     s3_path: str | None,
     config: Config | None = None,
     runtime: ContainerRuntime | None = None,
+    sha256: str | None = None,
 ) -> None:
     from compman.deploy import deploy
 
-    deploy(build=build, tag=tag, s3_path=s3_path, config=config, runtime=runtime)
+    deploy(build=build, tag=tag, s3_path=s3_path, config=config, runtime=runtime, sha256=sha256)
 
 
 def collect_doctor(config_path: str | None, profile: str | None):
@@ -218,8 +219,9 @@ def deploy_cmd(
     path: Annotated[str | None, typer.Option("--path", help=t("opt.path"))] = None,
     build: Annotated[bool, typer.Option("--build", help=t("opt.build"))] = False,
     tag: Annotated[str | None, typer.Option("--tag", help=t("opt.tag"))] = None,
+    sha256: Annotated[str | None, typer.Option("--sha256", help=t("opt.path_sha256"))] = None,
 ) -> None:
-    _deploy(build=build, tag=tag, s3_path=path)
+    _deploy(build=build, tag=tag, s3_path=path, sha256=sha256)
 
 
 # ---- update ----

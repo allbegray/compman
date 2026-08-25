@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 import typer
 
 from compman.archive_source import has_archive_suffix
-from compman.config import Config, ConfigError, load_config, sanitize_project_name
+from compman.config import SHA256_PATTERN, Config, ConfigError, load_config, sanitize_project_name
 from compman.docker import ContainerRuntime, detect_runtime
 from compman.errors import CommandError
 from compman.http_source import fetch as _fetch_http
@@ -28,6 +28,7 @@ def deploy(
     s3_path: str | None = None,
     config: Config | None = None,
     runtime: ContainerRuntime | None = None,
+    sha256: str | None = None,
 ) -> None:
     if config is None and (Path.cwd() / "compman.yml").exists():
         try:
@@ -74,6 +75,13 @@ def deploy(
     limit_mb = config.max_archive_mb if config else None
     max_bytes = limit_mb * 1024 * 1024 if limit_mb is not None else None
     try:
+        if sha256 is not None:
+            if not SHA256_PATTERN.fullmatch(sha256):
+                raise ValueError(f"Invalid --sha256 digest (expected 64 hexadecimal characters): {sha256}")
+            sha256 = sha256.lower()
+        effective_sha256 = sha256 or (
+            config.deploy_sha256 if config is not None and s3_path == config.deploy else None
+        )
         if parsed.scheme == "s3":
             if not bucket:
                 raise ValueError(f"Invalid S3 path: {s3_path}")
@@ -88,14 +96,14 @@ def deploy(
 
             try:
                 s3 = boto3.client("s3", endpoint_url=endpoint or None)
-                project_root = _fetch(s3, bucket, key, tmp, max_bytes=max_bytes)
+                project_root = _fetch(s3, bucket, key, tmp, max_bytes=max_bytes, sha256=effective_sha256)
             except (ClientError, EndpointConnectionError, NoCredentialsError, PartialCredentialsError) as e:
                 _handle_s3_error(e, s3_path)
         elif parsed.scheme in ("http", "https"):
             if not bucket or not has_archive_suffix(parsed.path):
                 raise ValueError(f"HTTP source must be a .tar.gz, .tgz, or .zip archive: {s3_path}")
             stage = "downloading from HTTP"
-            project_root = _fetch_http(s3_path, tmp, max_bytes=max_bytes)
+            project_root = _fetch_http(s3_path, tmp, max_bytes=max_bytes, sha256=effective_sha256)
         else:
             raise ValueError(f"Unsupported deploy source: {s3_path}")
 
@@ -105,6 +113,8 @@ def deploy(
             if size > limit * 1024 * 1024:
                 raise CommandError(t("msg.deploy_limit_exceeded", limit=limit, size=size))
             typer.echo(t("msg.deploy_provenance", source=s3_path, size=size))
+        if effective_sha256 is not None:
+            typer.echo(t("msg.deploy_checksum_verified", digest=effective_sha256))
 
         image = tag or sanitize_project_name(root.name)
         if build:

@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Protocol
 
-from compman.archive_source import extract_archive, has_archive_suffix
+from compman.archive_source import ensure_digest, extract_archive, has_archive_suffix, sha256_file
 from compman.errors import CommandError
 from compman.i18n import t
 
@@ -18,12 +18,23 @@ class _S3Client(Protocol):
     def head_object(self, bucket: str, key: str) -> Any: ...
 
 
-def fetch(s3: _S3Client, bucket: str, key: str, tmp: Path, max_bytes: int | None = None) -> Path:
+def fetch(
+    s3: _S3Client,
+    bucket: str,
+    key: str,
+    tmp: Path,
+    max_bytes: int | None = None,
+    sha256: str | None = None,
+) -> Path:
+    if sha256 is not None and not has_archive_suffix(key):
+        raise CommandError(t("msg.deploy_checksum_requires_archive", path=f"s3://{bucket}/{key}"))
     if has_archive_suffix(key):
         if max_bytes is not None:
             _check_size(int(s3.head_object(bucket, key)["ContentLength"]), max_bytes)
         archive_path = tmp / key.rsplit("/", 1)[-1]
         download(s3, bucket, key, archive_path)
+        if sha256 is not None:
+            ensure_digest(sha256_file(archive_path), sha256)
         return extract_archive(archive_path, tmp / "extract", max_bytes=max_bytes)
 
     source_dir = tmp / "src"

@@ -465,6 +465,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "en": "Image tag when building (default: directory name)",
         "ko": "빌드 시 이미지 태그명 (기본값: 디렉터리명)",
     },
+    "opt.path_sha256": {
+        "en": "Expected SHA-256 digest of the deploy archive (64 hexadecimal characters)",
+        "ko": "배포 아카이브의 예상 SHA-256 다이제스트(64자리 16진수)",
+    },
     "opt.install": {
         "en": "Automatically install completion script into shell profile.",
         "ko": "Shell 프로필에 자동완성 스크립트를 자동 등록합니다.",
@@ -878,6 +882,18 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "msg.deploy_provenance": {
         "en": "Source: {source} ({size} bytes)",
         "ko": "소스: {source} ({size} bytes)",
+    },
+    "msg.deploy_checksum_verified": {
+        "en": "Verified SHA-256: {digest}",
+        "ko": "SHA-256 검증 완료: {digest}",
+    },
+    "msg.deploy_checksum_mismatch": {
+        "en": "Deploy source failed SHA-256 verification (expected {expected}, got {actual})",
+        "ko": "배포 소스가 SHA-256 검증에 실패했습니다(예상 {expected}, 실제 {actual})",
+    },
+    "msg.deploy_checksum_requires_archive": {
+        "en": "SHA-256 verification requires an archive deploy source (.tar.gz, .tgz, or .zip), not an S3 prefix: {path}",
+        "ko": "SHA-256 검증은 아카이브 배포 소스(.tar.gz, .tgz, .zip)에서만 지원됩니다. S3 프리픽스: {path}",
     },
     "msg.unsupported_shell": {
         "en": "Unsupported shell: {shell}",

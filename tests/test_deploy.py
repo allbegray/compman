@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import io
 import pathlib
 import tarfile
@@ -7,6 +8,7 @@ import zipfile
 from unittest.mock import MagicMock, patch
 
 import pytest
+import yaml
 from botocore.exceptions import (
     ClientError,
     EndpointConnectionError,
@@ -15,9 +17,13 @@ from botocore.exceptions import (
 )
 from conftest import write_config
 
-from compman import deploy, http_source
-from compman.archive_source import extract_archive, has_archive_suffix
+from compman import deploy, http_source, s3_source
+from compman.archive_source import ensure_digest, extract_archive, has_archive_suffix, sha256_file
+from compman.config import load_config
 from compman.errors import CommandError
+
+_PIN_A = "a" * 64
+_PIN_B = "b" * 64
 
 
 class _FakeResponse:
@@ -549,3 +555,296 @@ def test_deploy_reports_local_build_stage(dummy_runtime, temp_dir: pathlib.Path,
     assert "building the container image" in error
     assert "Failed to download" not in error
     assert not (temp_dir / "project").exists()
+
+
+def _write_zip_bytes(path: pathlib.Path) -> bytes:
+    with zipfile.ZipFile(path, "w") as zip_file:
+        zip_file.writestr("test.txt", "hello")
+    return path.read_bytes()
+
+
+def _make_source_dir(temp_dir: pathlib.Path, name: str = "fetched-src") -> pathlib.Path:
+    source = temp_dir / name
+    source.mkdir()
+    (source / "app.txt").write_text("new", encoding="utf-8")
+    return source
+
+
+def _write_mapping_deploy_config(temp_dir: pathlib.Path, url: str, digest: str | None) -> None:
+    sha_line = f"    sha256: {digest}\n" if digest else ""
+    (temp_dir / "compman.yml").write_text(
+        "compman:\n"
+        "  name: app\n"
+        "  deploy:\n"
+        f"    url: {url}\n"
+        f"{sha_line}"
+        "  compose:\n"
+        "    default:\n"
+        "      file: docker-compose.yml\n",
+        encoding="utf-8",
+    )
+
+
+# ---- checksum plumbing ----
+
+
+def test_deploy_passes_sha256_flag_to_fetch(temp_dir: pathlib.Path):
+    with patch("compman.deploy._fetch", return_value=_make_source_dir(temp_dir)) as fetch:
+        deploy.deploy(s3_path="s3://b/k.tar.gz", sha256=_PIN_A)
+
+    assert fetch.call_args.kwargs["sha256"] == _PIN_A
+
+
+def test_deploy_sha256_flag_wins_over_config_pin(temp_dir: pathlib.Path):
+    _write_mapping_deploy_config(temp_dir, "s3://b/k.tar.gz", _PIN_B)
+    cfg = load_config(str(temp_dir / "compman.yml"))
+    with patch("compman.deploy._fetch", return_value=_make_source_dir(temp_dir)) as fetch:
+        deploy.deploy(s3_path=cfg.deploy, config=cfg, sha256=_PIN_A)
+
+    assert fetch.call_args.kwargs["sha256"] == _PIN_A
+
+
+def test_deploy_config_pin_applied_when_path_matches(temp_dir: pathlib.Path):
+    _write_mapping_deploy_config(temp_dir, "s3://b/k.tar.gz", _PIN_B)
+    cfg = load_config(str(temp_dir / "compman.yml"))
+    with patch("compman.deploy._fetch", return_value=_make_source_dir(temp_dir)) as fetch:
+        deploy.deploy(s3_path=cfg.deploy, config=cfg)
+
+    assert fetch.call_args.kwargs["sha256"] == _PIN_B
+
+
+def test_deploy_config_pin_not_applied_to_different_path(temp_dir: pathlib.Path):
+    _write_mapping_deploy_config(temp_dir, "s3://b/k.tar.gz", _PIN_B)
+    cfg = load_config(str(temp_dir / "compman.yml"))
+    with patch("compman.deploy._fetch", return_value=_make_source_dir(temp_dir)) as fetch:
+        deploy.deploy(s3_path="s3://other/z.tar.gz", config=cfg)
+
+    assert fetch.call_args.kwargs["sha256"] is None
+
+
+def test_deploy_invalid_sha256_flag_fails_in_validation_stage(temp_dir: pathlib.Path, capsys):
+    with patch("boto3.client") as boto_client, pytest.raises(SystemExit):
+        deploy.deploy(s3_path="s3://b/k.tar.gz", sha256="nothex")
+
+    assert "validating the deploy source" in capsys.readouterr().err
+    boto_client.assert_not_called()
+
+
+def test_deploy_uppercase_sha256_flag_is_normalized(temp_dir: pathlib.Path):
+    with patch("compman.deploy._fetch", return_value=_make_source_dir(temp_dir)) as fetch:
+        deploy.deploy(s3_path="s3://b/k.tar.gz", sha256=_PIN_A.upper())
+
+    assert fetch.call_args.kwargs["sha256"] == _PIN_A
+
+
+def test_cli_update_passes_configured_deploy_for_pin_inheritance(
+    runner, dummy_runtime, temp_dir: pathlib.Path
+):
+    from compman.cli import app
+
+    _write_mapping_deploy_config(temp_dir, "s3://b/k.tar.gz", _PIN_B)
+    (temp_dir / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+    with patch("compman.cli.detect_runtime", return_value=dummy_runtime), patch(
+        "compman.cli._deploy"
+    ) as deploy_mock:
+        res = runner.invoke(app, ["update"])
+
+    assert res.exit_code == 0
+    deploy_mock.assert_called_once()
+    kwargs = deploy_mock.call_args.kwargs
+    assert kwargs["s3_path"] == "s3://b/k.tar.gz"
+    assert kwargs["config"].deploy_sha256 == _PIN_B
+    assert "sha256" not in kwargs
+
+
+# ---- s3_source checksum ----
+
+
+def test_s3_source_archive_checksum_match(temp_dir: pathlib.Path):
+    zip_bytes = _write_zip_bytes(temp_dir / "real.zip")
+    mock_s3 = MagicMock()
+    mock_s3.download_file.side_effect = lambda _b, _k, dst: pathlib.Path(dst).write_bytes(zip_bytes)
+
+    result = s3_source.fetch(mock_s3, "bucket", "app.zip", temp_dir, sha256=hashlib.sha256(zip_bytes).hexdigest())
+
+    assert (result / "test.txt").read_text(encoding="utf-8") == "hello"
+
+
+def test_s3_source_archive_checksum_mismatch_skips_extraction(temp_dir: pathlib.Path):
+    zip_bytes = _write_zip_bytes(temp_dir / "real.zip")
+    mock_s3 = MagicMock()
+    mock_s3.download_file.side_effect = lambda _b, _k, dst: pathlib.Path(dst).write_bytes(zip_bytes)
+
+    with pytest.raises(CommandError, match="SHA-256 verification"):
+        s3_source.fetch(mock_s3, "bucket", "app.zip", temp_dir, sha256=_PIN_B)
+
+    assert not (temp_dir / "extract").exists()
+
+
+def test_s3_source_archive_without_sha256_unchanged(temp_dir: pathlib.Path):
+    zip_bytes = _write_zip_bytes(temp_dir / "real.zip")
+    mock_s3 = MagicMock()
+    mock_s3.download_file.side_effect = lambda _b, _k, dst: pathlib.Path(dst).write_bytes(zip_bytes)
+
+    result = s3_source.fetch(mock_s3, "bucket", "app.zip", temp_dir, sha256=None)
+
+    assert (result / "test.txt").exists()
+
+
+def test_s3_source_prefix_with_sha256_fails_before_pagination(temp_dir: pathlib.Path):
+    mock_s3 = MagicMock()
+
+    with pytest.raises(CommandError, match="S3 prefix"):
+        s3_source.fetch(mock_s3, "bucket", "my-prefix", temp_dir, sha256=_PIN_A)
+
+    mock_s3.get_paginator.assert_not_called()
+    mock_s3.download_file.assert_not_called()
+
+
+def test_s3_source_prefix_without_sha256_downloads_recursively(temp_dir: pathlib.Path):
+    mock_s3 = MagicMock()
+    mock_s3.get_paginator.return_value.paginate.return_value = [
+        {"Contents": [{"Key": "my-prefix/file1.txt"}]}
+    ]
+    mock_s3.download_file.side_effect = lambda _b, key, dst: pathlib.Path(dst).write_text(key, encoding="utf-8")
+
+    result = s3_source.fetch(mock_s3, "bucket", "my-prefix", temp_dir)
+
+    assert (result / "file1.txt").read_text(encoding="utf-8") == "my-prefix/file1.txt"
+
+
+# ---- http_source checksum ----
+
+
+def test_http_source_checksum_match(temp_dir: pathlib.Path):
+    archive = temp_dir / "payload.zip"
+    payload = _write_zip_bytes(archive)
+    response = _FakeResponse(payload, "https://example.test/app.zip")
+
+    with patch("compman.http_source.urlopen", return_value=response):
+        extracted = http_source.fetch(
+            "https://example.test/app.zip", temp_dir, sha256=hashlib.sha256(payload).hexdigest()
+        )
+
+    assert (extracted / "test.txt").read_text(encoding="utf-8") == "hello"
+
+
+def test_http_source_checksum_mismatch_skips_extraction(temp_dir: pathlib.Path):
+    archive = temp_dir / "payload.zip"
+    payload = _write_zip_bytes(archive)
+    response = _FakeResponse(payload, "https://example.test/app.zip")
+
+    with patch("compman.http_source.urlopen", return_value=response):
+        with pytest.raises(CommandError, match="SHA-256 verification"):
+            http_source.fetch("https://example.test/app.zip", temp_dir, sha256=_PIN_B)
+
+    assert not (temp_dir / "extract").exists()
+
+
+# ---- archive_source helpers ----
+
+
+def test_sha256_file_matches_hashlib_digest(temp_dir: pathlib.Path):
+    payload = b"chunked-hash-payload" * 3000
+    target = temp_dir / "blob.bin"
+    target.write_bytes(payload)
+
+    assert sha256_file(target) == hashlib.sha256(payload).hexdigest()
+
+
+def test_ensure_digest_compare_is_case_insensitive():
+    ensure_digest("ABC123", "abc123")
+
+
+def test_ensure_digest_mismatch_raises():
+    with pytest.raises(CommandError, match="expected abc"):
+        ensure_digest("fff", "abc")
+
+
+# ---- deploy() visibility and abort ordering ----
+
+
+def test_deploy_echoes_verified_checksum_without_limits(temp_dir: pathlib.Path, capsys):
+    zip_path = temp_dir / "real.zip"
+    zip_bytes = _write_zip_bytes(zip_path)
+    mock_s3 = MagicMock()
+    mock_s3.download_file.side_effect = lambda _b, _k, dst: pathlib.Path(dst).write_bytes(zip_bytes)
+
+    with patch("boto3.client", return_value=mock_s3):
+        deploy.deploy(s3_path="s3://my-bucket/app.zip", sha256=hashlib.sha256(zip_bytes).hexdigest())
+
+    out = capsys.readouterr().out
+    assert f"Verified SHA-256: {hashlib.sha256(zip_bytes).hexdigest()}" in out
+    assert "Source:" not in out
+
+
+def test_deploy_checksum_mismatch_aborts_before_build_and_swap(temp_dir: pathlib.Path):
+    zip_path = temp_dir / "real.zip"
+    zip_bytes = _write_zip_bytes(zip_path)
+    mock_s3 = MagicMock()
+    mock_s3.download_file.side_effect = lambda _b, _k, dst: pathlib.Path(dst).write_bytes(zip_bytes)
+
+    with patch("boto3.client", return_value=mock_s3), patch(
+        "compman.deploy.detect_runtime"
+    ) as detect, pytest.raises(CommandError) as excinfo:
+        deploy.deploy(s3_path="s3://my-bucket/app.zip", build=True, sha256=_PIN_B)
+
+    assert excinfo.value.code == 1
+    detect.assert_not_called()
+    assert not (temp_dir / "project").exists()
+
+
+def test_deploy_provenance_precedes_checksum_line(dummy_runtime, temp_dir: pathlib.Path, capsys):
+    (temp_dir / "compman.yml").write_text(
+        "compman:\n  name: app\n  limits:\n    max_archive_mb: 10\n  compose:\n    default:\n      file: docker-compose.yml\n",
+        encoding="utf-8",
+    )
+    zip_path = temp_dir / "real.zip"
+    zip_bytes = _write_zip_bytes(zip_path)
+    mock_s3 = MagicMock()
+    mock_s3.download_file.side_effect = lambda _b, _k, dst: pathlib.Path(dst).write_bytes(zip_bytes)
+
+    with patch("boto3.client", return_value=mock_s3):
+        deploy.deploy(s3_path="s3://my-bucket/app.zip", sha256=hashlib.sha256(zip_bytes).hexdigest())
+
+    out = capsys.readouterr().out
+    assert out.index("Source:") < out.index("Verified SHA-256:")
+
+
+# ---- scaffold.update_deploy mapping-form handling ----
+
+
+def test_update_deploy_mapping_same_url_left_untouched(temp_dir: pathlib.Path):
+    compman_yml = temp_dir / "compman.yml"
+    content = (
+        "compman:\n  name: app\n  deploy:\n    url: s3://old/path\n    sha256: abc\n"
+    )
+    compman_yml.write_text(content, encoding="utf-8")
+
+    deploy._update_compman_deploy(compman_yml, "s3://old/path")
+
+    assert compman_yml.read_text(encoding="utf-8") == content
+
+
+def test_update_deploy_mapping_different_url_replaces_whole_block(temp_dir: pathlib.Path):
+    compman_yml = temp_dir / "compman.yml"
+    compman_yml.write_text(
+        "compman:\n"
+        "  name: app\n"
+        "  deploy:\n"
+        "    url: s3://old/path\n"
+        "    sha256: aaaa\n"
+        "\n"
+        "  compose:\n"
+        "    default:\n"
+        "      file: docker-compose.yml\n",
+        encoding="utf-8",
+    )
+
+    deploy._update_compman_deploy(compman_yml, "s3://new/path")
+
+    new_content = compman_yml.read_text(encoding="utf-8")
+    parsed = yaml.safe_load(new_content)
+    assert parsed["compman"]["deploy"] == "s3://new/path"
+    assert "url:" not in new_content
+    assert "sha256:" not in new_content

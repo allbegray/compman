@@ -58,15 +58,24 @@ def update_deploy(compman_yml: Path, s3_path: str) -> None:
     except Exception:
         raw = None
 
-    if isinstance(raw, dict) and isinstance(raw.get("compman"), dict):
-        if raw["compman"].get("deploy") == s3_path:
+    compman_raw = raw.get("compman") if isinstance(raw, dict) else None
+    deploy_raw = compman_raw.get("deploy") if isinstance(compman_raw, dict) else None
+    if deploy_raw == s3_path:
+        return
+    if isinstance(deploy_raw, dict):
+        if deploy_raw.get("url") == s3_path:
             return
+        deploy_is_mapping = True
+    else:
+        deploy_is_mapping = False
 
     lines = content.splitlines(keepends=True)
     updated = False
     new_lines = []
     in_compman = False
     compman_indent = 0
+    strip_children = False
+    deploy_indent = 0
 
     for line in lines:
         stripped = line.strip()
@@ -77,12 +86,17 @@ def update_deploy(compman_yml: Path, s3_path: str) -> None:
             continue
         if in_compman:
             current_indent = len(line) - len(line.lstrip())
+            if strip_children:
+                if not stripped or current_indent > deploy_indent:
+                    continue
+                strip_children = False
             if stripped and not stripped.startswith("#") and current_indent <= compman_indent:
                 in_compman = False
             elif re.match(r"^\s*deploy\s*:", line):
-                indent = " " * (len(line) - len(line.lstrip()))
-                new_lines.append(f"{indent}deploy: {s3_path}\n")
+                deploy_indent = len(line) - len(line.lstrip())
+                new_lines.append(f"{' ' * deploy_indent}deploy: {s3_path}\n")
                 updated = True
+                strip_children = deploy_is_mapping
                 continue
         new_lines.append(line)
 

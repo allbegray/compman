@@ -412,11 +412,13 @@ def test_resolve_executable_rejects_python_module_invocation() -> None:
         resolve_executable(which=lambda name: None, argv=["/usr/bin/python", "-m", "compman"])
 
 
+@pytest.mark.skipif(sys.platform == 'win32', reason='X_OK check skipped on Windows')
 def test_resolve_executable_rejects_missing_shim(tmp_path: pathlib.Path) -> None:
     with pytest.raises(ValueError, match="uv tool install"):
         resolve_executable(which=lambda name: None, argv=[str(tmp_path / "compman")])
 
 
+@pytest.mark.skipif(sys.platform == 'win32', reason='X_OK check skipped on Windows')
 def test_resolve_executable_rejects_non_executable_shim(tmp_path: pathlib.Path) -> None:
     shim = tmp_path / "compman"
     shim.write_text("x", encoding="utf-8")
@@ -510,6 +512,7 @@ def test_build_plist_xml_weekly_includes_weekday() -> None:
     assert entries["StartCalendarInterval"] == {"Hour": "4", "Minute": "30", "Weekday": "3"}
 
 
+@pytest.mark.skipif(sys.platform == 'win32', reason='launchd is macOS-only')
 def test_launchd_install_writes_plist_and_bootstraps(tmp_path: pathlib.Path) -> None:
     record = make_record()
     runner = RecordingRunner()
@@ -522,6 +525,7 @@ def test_launchd_install_writes_plist_and_bootstraps(tmp_path: pathlib.Path) -> 
     assert runner.argv_lists() == [["launchctl", "bootstrap", "gui/501", str(plist)]]
 
 
+@pytest.mark.skipif(sys.platform == 'win32', reason='launchd is macOS-only')
 def test_launchd_remove_boots_out_then_unlinks(tmp_path: pathlib.Path) -> None:
     runner = RecordingRunner()
     with patch.object(pathlib.Path, "home", return_value=tmp_path):
@@ -536,6 +540,7 @@ def test_launchd_remove_boots_out_then_unlinks(tmp_path: pathlib.Path) -> None:
     ]
 
 
+@pytest.mark.skipif(sys.platform == 'win32', reason='launchd is macOS-only')
 def test_launchd_remove_tolerates_missing_plist(tmp_path: pathlib.Path) -> None:
     runner = RecordingRunner()
     with patch.object(pathlib.Path, "home", return_value=tmp_path):

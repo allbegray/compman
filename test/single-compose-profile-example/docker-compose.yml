@@ -1,8 +1,0 @@
-services:
-  web:
-    image: nginx:alpine
-    ports:
-      - "${PORT:-8080}:80"
-    environment:
-      - DATABASE_URL=${DATABASE_URL}
-      - LOG_LEVEL=${LOG_LEVEL}

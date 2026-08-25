@@ -38,7 +38,6 @@ compman/               # Python package
     launchd.py, systemd.py, crontab.py, schtasks.py  # pure builders + install/remove/exists adapters
     pick.py            # pick_scheduler platform/mechanism selection
 tests/                 # pytest unit/regression suite (1:1 module mirror, 100% branch coverage)
-test/                  # runnable examples and E2E guides (not pytest tests)
 examples/compman-config/  # case-by-case compman.yml examples
 docs/site/             # dependency-free GitHub Pages homepage
 docker-init/           # Ministack S3 seed bundle for integration/E2E
@@ -158,7 +157,7 @@ compose:
 - **Zero `type: ignore`, `# pragma: no cover`, TODO/FIXME/HACK markers** — codebase baseline is clean (only `noqa: F401` re-export shims in `deploy.py`). Keep it that way.
 - Coverage is a hard gate: `fail_under = 100` with branch coverage (pyproject + CI "Enforce 100% coverage" step). New branches require new tests.
 - Never pass secrets as standalone compose variables — only via `${secrets:NAME}` markers.
-- Do not add production code to `scratch/` (throwaway) or `test/` (examples, not pytest).
+- Do not add production code to `scratch/` (throwaway experiments are gitignored).
 - Korean text lives only in `i18n.py` TRANSLATIONS (enforced by `test_repository_urls.py` hangul policy).
 
 ## CLI quirks

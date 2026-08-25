@@ -513,4 +513,4 @@ CI는 다음을 검증합니다:
 - wheel 빌드, 격리 설치, CLI 실행
 - Ministack S3 다운로드, Docker 이미지 빌드, Compose 시작/중지 E2E
 
-현재 제약과 개선 백로그는 [BACKLOG.md](BACKLOG.md)를, 개발/테스트/디버깅 교훈은 [SOLUTION.md](SOLUTION.md)를, 테스트 프로젝트 사용법은 [`test/`](test/) 아래 각 README를 참고하세요.
+현재 제약과 개선 백로그는 [BACKLOG.md](BACKLOG.md)를, 개발/테스트/디버깅 교훈은 [SOLUTION.md](SOLUTION.md)를 참고하세요.

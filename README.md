@@ -552,4 +552,4 @@ CI verifies:
 - Wheel build, isolated installation, and CLI execution
 - Ministack S3 download, Docker image build, and Compose start/stop E2E
 
-For current constraints and the improvement backlog, see [BACKLOG.md](BACKLOG.md). For development, testing, and debugging lessons learned, see [SOLUTION.md](SOLUTION.md). For test-project usage, see each README under [`test/`](test/).
+For current constraints and the improvement backlog, see [BACKLOG.md](BACKLOG.md). For development, testing, and debugging lessons learned, see [SOLUTION.md](SOLUTION.md).

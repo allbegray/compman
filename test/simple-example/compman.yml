@@ -1,5 +1,0 @@
-compman:
-  name: simple-app
-  compose:
-    default:
-      file: docker-compose.yml

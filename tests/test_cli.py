@@ -502,6 +502,37 @@ def test_readme_command_list_matches_registered_command_tree():
             assert subcommand in actual_groups[command], f"unknown {command} subcommand {subcommand!r} in README: {line.strip()}"
 
 
+def _assert_readme_commands_match_cli(readme_path: pathlib.Path) -> None:
+    readme = readme_path.read_text(encoding="utf-8")
+    match = re.search(r"```text\n(compman init\b.*?\n)```", readme, re.DOTALL)
+    assert match is not None, f"Commands block not found in {readme_path.name}"
+    section = match.group(1)
+
+    actual_root = {c.name or c.callback.__name__ for c in app.registered_commands}
+    actual_groups = {
+        g.name: {c.name or c.callback.__name__ for c in g.typer_instance.registered_commands}
+        for g in app.registered_groups
+    }
+
+    for line in section.splitlines():
+        command_match = re.match(r"\s*compman (\w+)(?:\s+(\w+))?", line)
+        if not command_match:
+            continue
+        command, subcommand = command_match.group(1), command_match.group(2)
+        assert command in actual_root or command in actual_groups, (
+            f"unknown command {command!r} in {readme_path.name}: {line.strip()}"
+        )
+        if command in actual_groups and subcommand:
+            assert subcommand in actual_groups[command], (
+                f"unknown {command} subcommand {subcommand!r} in {readme_path.name}: {line.strip()}"
+            )
+
+
+def test_readme_ko_command_list_matches_registered_command_tree():
+    root = pathlib.Path(__file__).parents[1]
+    _assert_readme_commands_match_cli(root / "README.ko.md")
+
+
 def test_cli_completion_bash(runner: CliRunner):
     res = runner.invoke(app, ["completion", "bash"])
     assert res.exit_code == 0

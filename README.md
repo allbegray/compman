@@ -1,5 +1,7 @@
 # compman — Docker Compose Stack Manager CLI
 
+[ English | [한국어](README.ko.md) ]
+
 `compman` manages Docker or Podman Compose stacks—including execution, service operations, volume and image backup, and S3 or HTTP archive deployment—from one CLI.
 
 **Project homepage:** https://allbegray.github.io/compman/

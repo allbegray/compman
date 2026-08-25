@@ -240,6 +240,10 @@ that for compman). Rules:
   (`graphify query "<question>"`); after code changes, sync it with `graphify --update`.
 - When packages are added, architecture changes, or bug-fix approaches are learned,
   record them immediately in the Execution Log below.
+- Bilingual README: `README.md` (English) is authoritative and `README.ko.md` is
+  its Korean mirror kept in sync by the command-block validation test
+  (`test_readme_ko_command_list_matches_registered_command_tree`); prose changes to
+  either file must be mirrored in the other.
 
 ## Execution Log
 

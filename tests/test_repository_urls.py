@@ -216,10 +216,18 @@ def test_english_is_used_outside_korean_localization_resources():
         candidates.extend(path for path in (root / directory).rglob("*") if path.suffix in suffixes)
 
     hangul = re.compile(r"[\uac00-\ud7a3]")
+
+    def contains_hangul(path: Path) -> bool:
+        content = path.read_text(encoding="utf-8")
+        if path == root / "README.md":
+            # The language switcher intentionally names the Korean README.
+            content = content.replace("[한국어](README.ko.md)", "")
+        return bool(hangul.search(content))
+
     offenders = [
         str(path.relative_to(root))
         for path in candidates
-        if path not in allowed and hangul.search(path.read_text(encoding="utf-8"))
+        if path not in allowed and contains_hangul(path)
     ]
     assert offenders == []
     assert [

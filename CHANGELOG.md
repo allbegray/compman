@@ -3,6 +3,19 @@
 Major user-visible changes to compman are recorded here, with the newest release
 first.
 
+## [1.7.1] - 2026-08-25
+
+### Added
+
+- Korean README (`README.ko.md`) mirroring the English documentation, with
+  language-switcher links on both files and command-block sync validation so
+  the mirror cannot drift from the CLI.
+
+### Changed
+
+- Backup listings are ordered most-recent-first, and interactive restore now
+  preselects the newest backup.
+
 ## [1.7.0] - 2026-08-25
 
 ### Added

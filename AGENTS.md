@@ -226,7 +226,8 @@ that for compman). Rules:
 - The root directory holds only those six `.md` files; any other Markdown file
   lives under `docs/`.
 - `BACKLOG.md` items use priority labels `[H1]`/`[M1]`/`[L1]` (High/Medium/Lower)
-  with `- [ ]` checkboxes; completed items are marked `- [x]` and never deleted.
+  with `- [ ]` checkboxes; completed items are removed once shipped — git
+  history preserves them, and retired IDs are never reused.
 - `CHANGELOG.md` keeps dated, semantic-versioned sections (`## [x.y.z] - YYYY-MM-DD`)
   with `### Added` / `### Changed` / `### Fixed` / `### Removed` subsections.
 - `SECURITY.md` documents authentication/authorization, secret management,

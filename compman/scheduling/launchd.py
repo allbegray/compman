@@ -45,6 +45,11 @@ def build_plist_xml(record: JobRecord) -> str:
     for argument in record.args:
         program.append(_string(argument))
     entry("ProgramArguments", program)
+    environment = ET.Element("dict")
+    path_key = ET.SubElement(environment, "key")
+    path_key.text = "PATH"
+    environment.append(_string(record.path_env))
+    entry("EnvironmentVariables", environment)
 
     cadence = record.cadence()
     if cadence.kind == "interval":

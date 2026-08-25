@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import platform
 from datetime import datetime, timezone
 from typing import Any, Protocol
@@ -96,7 +97,7 @@ def add_schedule(
 
     job_name = sanitize_project_name(name or f"{config.name}.volume")
     config_path = str(config.source_path or config.root_dir / "compman.yml")
-    args = [executable, "-c", config_path, "volume", "backup"]
+    args = [executable, "volume", "backup", "-c", config_path]
     if no_stop:
         args.append("--no-stop")
     if level != 6:
@@ -115,6 +116,7 @@ def add_schedule(
         config_path=config_path,
         args=args,
         log_path=str(registry_path().parent / "schedule.log"),
+        path_env=os.environ.get("PATH", "/usr/bin:/bin"),
         created=datetime.now(timezone.utc).isoformat(),
     )
 

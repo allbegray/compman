@@ -107,10 +107,10 @@ def test_add_schedule_registers_launchd_job_and_writes_registry(
     assert record.created.endswith("+00:00")
     assert record.args == [
         "/opt/compman/bin/compman",
-        "-c",
-        str(tmp_path / "compman.yml"),
         "volume",
         "backup",
+        "-c",
+        str(tmp_path / "compman.yml"),
         "--no-stop",
     ]
     assert adapter.installed == [record]
@@ -412,8 +412,8 @@ def test_remove_schedule_warns_when_artifact_already_gone(
     adapter_patch, adapter = patch_adapters(exists=False)
     with patch.object(pathlib.Path, "home", return_value=tmp_path), adapter_patch:
         schedule_ops.remove_schedule("app.volume")
-    output = capsys.readouterr()
-    assert "already missing" in output.out
-    assert "removed" in output.out
-    assert adapter.removed == ["app.volume"]
-    assert load_registry()["jobs"] == {}
+        output = capsys.readouterr()
+        assert "already missing" in output.out
+        assert "removed" in output.out
+        assert adapter.removed == ["app.volume"]
+        assert load_registry()["jobs"] == {}

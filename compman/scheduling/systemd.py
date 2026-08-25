@@ -29,6 +29,7 @@ def build_systemd_units(record: JobRecord) -> tuple[str, str]:
         "\n"
         "[Service]\n"
         "Type=oneshot\n"
+        f'Environment="PATH={record.path_env}"\n'
         f"WorkingDirectory={record.workdir}\n"
         f"ExecStart={shlex.join(record.args)}\n"
     )

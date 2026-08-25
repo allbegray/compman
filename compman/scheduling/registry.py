@@ -32,6 +32,7 @@ class JobRecord:
     config_path: str
     args: list[str]
     log_path: str
+    path_env: str
     created: str
 
     def cadence(self) -> Cadence:

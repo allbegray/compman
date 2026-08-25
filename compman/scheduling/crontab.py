@@ -23,7 +23,7 @@ def build_crontab_block(record: JobRecord) -> str:
     command = " ".join(_escape_percent(part) for part in record.args)
     log = _escape_percent(record.log_path)
     line = f"{schedule} {command} >> {log} 2>&1"
-    return f"{begin_marker(record.name)}\n{line}\n{end_marker(record.name)}\n"
+    return f"{begin_marker(record.name)}\nPATH={record.path_env}\n{line}\n{end_marker(record.name)}\n"
 
 
 def without_block(content: str, name: str) -> str:

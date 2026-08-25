@@ -71,6 +71,7 @@ def make_record(**overrides: Any) -> JobRecord:
         "config_path": "/work/app/compman.yml",
         "args": ["/opt/compman", "-c", "/work/app/compman.yml", "volume", "backup", "--no-stop"],
         "log_path": "/work/app/backup/schedule.log",
+        "path_env": "/usr/bin:/bin",
         "created": "2026-08-25T10:00:00",
     }
     values.update(overrides)
@@ -657,6 +658,7 @@ def test_build_crontab_block_daily_exact_format() -> None:
     record = make_record()
     expected = (
         "# BEGIN compman:app.volume\n"
+        "PATH=/usr/bin:/bin\n"
         "30 4 * * * /opt/compman -c /work/app/compman.yml volume backup --no-stop"
         " >> /work/app/backup/schedule.log 2>&1\n"
         "# END compman:app.volume\n"
@@ -667,7 +669,7 @@ def test_build_crontab_block_daily_exact_format() -> None:
 def test_build_crontab_block_interval_minute_divisor() -> None:
     record = make_record(kind="interval", minutes=30, time=None)
     block = build_crontab_block(record)
-    assert block.splitlines()[1].startswith("*/30 * * * * ")
+    assert block.splitlines()[2].startswith("*/30 * * * * ")
 
 
 def test_build_crontab_block_escapes_percent_signs() -> None:

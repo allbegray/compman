@@ -122,6 +122,9 @@ def test_user_facing_echo_strings_are_translated():
         "     compman deploy --path s3://<your-bucket>/path/to/app.tar.gz",
         "     compman init",
         "compman ",
+        # Scheduling registry self-heal warning: English-only until the schedule
+        # command lands (Phase B owns its i18n keys).
+        "Corrupt schedule registry at ",
     }
 
     def sentence_like(text: str) -> bool:

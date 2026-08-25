@@ -3,6 +3,21 @@
 Major user-visible changes to compman are recorded here, with the newest release
 first.
 
+## [1.9.0] - 2026-08-26
+
+### Added
+
+- Zstandard backup format: `--zstd` on `volume backup` / `image backup` writes
+  `.tar.zst` archives (smaller and faster than gzip at default levels).
+  Requires the CLI to run on Python 3.14+; restores transparently detect and
+  read `.tar.zst` from any store.
+- Offline volume restore: when every container is stopped, restore temporarily
+  starts the stack, restores the volumes, then stops it again — previously this
+  failed mapping validation.
+- Deploy surfaces `compman.yml` parse errors directly instead of showing the
+  empty-directory onboarding hints.
+- Command-not-found errors keep the original exception chain for diagnostics.
+
 ## [1.8.0] - 2026-08-25
 
 ### Added

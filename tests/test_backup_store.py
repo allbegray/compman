@@ -440,12 +440,9 @@ def test_find_archive_local_prefers_gz_then_zst_then_none(tmp_path):
 def test_find_archive_remote_short_circuits_on_first_hit():
     from unittest.mock import patch
 
-    from botocore.exceptions import ClientError
-
     from compman.backup_store import S3BackupStore, find_archive
 
     store = S3BackupStore(bucket="bucket", prefix="backups")
-    not_found = ClientError({"Error": {"Code": "404", "Message": "nf"}}, "HeadObject")
     calls = []
 
     class H:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -16,6 +17,18 @@ class _S3Client(Protocol):
     def get_paginator(self, operation_name: str) -> Any: ...
 
     def head_object(self, bucket: str, key: str) -> Any: ...
+
+    def upload_file(
+        self, Filename: str, Bucket: str, Key: str, ExtraArgs: dict[str, str] | None = None
+    ) -> None: ...
+
+
+def create_client() -> Any:
+    """Build a boto3 S3 client, honoring the endpoint override environment variables."""
+    import boto3
+
+    endpoint = os.environ.get("AWS_ENDPOINT_URL_S3") or os.environ.get("AWS_ENDPOINT_URL")
+    return boto3.client("s3", endpoint_url=endpoint or None)
 
 
 def fetch(
@@ -70,3 +83,27 @@ def _check_size(size: int, max_bytes: int | None) -> None:
     if max_bytes is not None and size > max_bytes:
         limit_mb = (max_bytes + 1024 * 1024 - 1) // (1024 * 1024)
         raise CommandError(t("msg.deploy_limit_exceeded", limit=limit_mb, size=size))
+
+
+def s3_error_hint(e: Exception, path: str | None = None) -> str | None:
+    """Return a translated troubleshooting hint for a known S3 failure, else None."""
+    from botocore.exceptions import (
+        ClientError,
+        EndpointConnectionError,
+        NoCredentialsError,
+        PartialCredentialsError,
+    )
+
+    if isinstance(e, (NoCredentialsError, PartialCredentialsError)):
+        return t("msg.s3_no_creds")
+    if isinstance(e, ClientError):
+        err_code = str(e.response.get("Error", {}).get("Code", ""))
+        if err_code in ("403", "AccessDenied", "Forbidden"):
+            return t("msg.s3_403", path=path)
+        if err_code in ("404", "NoSuchBucket", "NoSuchKey", "NotFound"):
+            return t("msg.s3_404", path=path)
+        err_msg = str(e.response.get("Error", {}).get("Message", e))
+        return t("msg.s3_client_error", code=err_code, error=err_msg)
+    if isinstance(e, EndpointConnectionError):
+        return t("msg.s3_network")
+    return None

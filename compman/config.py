@@ -54,6 +54,7 @@ class Config:
     deploy: str | None = None
     deploy_sha256: str | None = None
     max_archive_mb: int | None = None
+    backup_upload: str | None = None
 
     @property
     def limits(self) -> dict[str, int]:
@@ -205,6 +206,19 @@ def load_config(config_path: str | None = None) -> Config:
         if max_archive_mb <= 0:
             raise ConfigError("'limits.max_archive_mb' must be greater than 0.")
 
+    backup_upload: str | None = None
+    raw_backup = root.get("backup")
+    if raw_backup is not None:
+        if not isinstance(raw_backup, dict):
+            raise ConfigError("'backup' must be a mapping.")
+        raw_upload = raw_backup.get("upload")
+        if raw_upload is not None:
+            if not isinstance(raw_upload, str):
+                raise ConfigError(
+                    "'backup.upload' must be a string S3 URI (e.g. 's3://bucket/backups')."
+                )
+            backup_upload = raw_upload
+
     config = Config(
         name=name,
         root_dir=path.parent,
@@ -217,6 +231,7 @@ def load_config(config_path: str | None = None) -> Config:
         deploy=deploy_url,
         deploy_sha256=deploy_sha256,
         max_archive_mb=max_archive_mb,
+        backup_upload=backup_upload,
     )
     # Resolve all paths while loading so unsafe configuration fails before a
     # command can create, replace, or recursively delete anything.
@@ -240,6 +255,9 @@ def dump_default_config(name: str) -> str:
   # deploy:                        # mapping form pins archive integrity:
   #   url: s3://bucket/app.tar.gz
   #   sha256: 64-hex-lowercase-digest-of-the-archive
+  # remote backup upload (volume/image backup pushes each archive here):
+  # backup:
+  #   upload: s3://bucket/backups
   # dirs:
   #   backup: backup
   #   volume: volume

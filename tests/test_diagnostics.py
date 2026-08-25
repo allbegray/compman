@@ -119,6 +119,94 @@ def test_secrets_check_ok_with_credentials_and_region(tmp_path, monkeypatch, dum
     assert secrets.ok is True
 
 
+def test_backup_upload_check_skipped_when_unset(tmp_path, monkeypatch, dummy_runtime):
+    write_simple_project(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("compman.diagnostics.detect_runtime", lambda: dummy_runtime)
+
+    report = collect_doctor(None)
+
+    assert all(check.id != "backup_upload" for check in report.checks)
+
+
+def _write_backup_upload_project(path: Path) -> None:
+    (path / "compman.yml").write_text(
+        "compman:\n"
+        "  name: test-app\n"
+        "  backup:\n"
+        "    upload: s3://bucket/backups\n"
+        "  compose:\n"
+        "    default:\n"
+        "      file: docker-compose.yml\n",
+        encoding="utf-8",
+    )
+    (path / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+
+
+def test_backup_upload_check_ok_with_credentials_and_region(tmp_path, monkeypatch, dummy_runtime):
+    _write_backup_upload_project(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "key")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "secret")
+    monkeypatch.setenv("AWS_DEFAULT_REGION", "ap-northeast-2")
+    monkeypatch.delenv("AWS_REGION", raising=False)
+    monkeypatch.setattr("compman.diagnostics.detect_runtime", lambda: dummy_runtime)
+
+    report = collect_doctor(None)
+
+    check = next(item for item in report.checks if item.id == "backup_upload")
+    assert check.severity == "warning"
+    assert check.ok is True
+    assert "s3://bucket/backups" in check.message
+
+
+def test_backup_upload_check_accepts_aws_region_fallback(tmp_path, monkeypatch, dummy_runtime):
+    _write_backup_upload_project(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "key")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "secret")
+    monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
+    monkeypatch.setenv("AWS_REGION", "ap-northeast-2")
+    monkeypatch.setattr("compman.diagnostics.detect_runtime", lambda: dummy_runtime)
+
+    report = collect_doctor(None)
+
+    check = next(item for item in report.checks if item.id == "backup_upload")
+    assert check.ok is True
+
+
+def test_backup_upload_check_reports_missing_credentials(tmp_path, monkeypatch, dummy_runtime):
+    _write_backup_upload_project(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("AWS_ACCESS_KEY_ID", raising=False)
+    monkeypatch.delenv("AWS_SECRET_ACCESS_KEY", raising=False)
+    monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
+    monkeypatch.delenv("AWS_REGION", raising=False)
+    monkeypatch.setattr("compman.diagnostics.detect_runtime", lambda: dummy_runtime)
+
+    report = collect_doctor(None)
+
+    check = next(item for item in report.checks if item.id == "backup_upload")
+    assert check.ok is False
+
+
+def test_backup_upload_check_reports_missing_region(tmp_path, monkeypatch, dummy_runtime):
+    _write_backup_upload_project(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "key")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "secret")
+    monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
+    monkeypatch.delenv("AWS_REGION", raising=False)
+    monkeypatch.setattr("compman.diagnostics.detect_runtime", lambda: dummy_runtime)
+
+    report = collect_doctor(None)
+
+    check = next(item for item in report.checks if item.id == "backup_upload")
+    assert check.ok is False
+    json_checks = report.to_dict()["checks"]
+    assert any(entry["id"] == "backup_upload" for entry in json_checks)
+
+
 def test_doctor_warns_when_deploy_lacks_checksum(tmp_path, monkeypatch, dummy_runtime):
     (tmp_path / "compman.yml").write_text(
         "compman:\n"
@@ -169,6 +257,26 @@ def test_doctor_no_checksum_warning_without_deploy(tmp_path, monkeypatch, dummy_
     report = collect_doctor(None)
 
     assert all(check.id != "deploy_checksum" for check in report.checks)
+
+
+def _write_auth_project(path) -> None:
+    (path / "compman.yml").write_text(
+        "compman:\n"
+        "  name: test-app\n"
+        "  deploy:\n"
+        "    url: https://example.test/app.zip\n"
+        "    auth:\n"
+        "      header: Authorization\n"
+        "      value_env: DEPLOY_TOKEN\n"
+        "  compose:\n"
+        "    default:\n"
+        "      file: docker-compose.yml\n",
+        encoding="utf-8",
+    )
+    (path / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+
+
+
 
 
 @pytest.mark.parametrize("config_contents", [None, "invalid: : ["])

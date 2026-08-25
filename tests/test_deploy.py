@@ -5,7 +5,9 @@ import io
 import pathlib
 import tarfile
 import zipfile
+from http.client import HTTPMessage
 from unittest.mock import MagicMock, patch
+from urllib.request import Request
 
 import pytest
 import yaml
@@ -21,6 +23,7 @@ from compman import deploy, http_source, s3_source
 from compman.archive_source import ensure_digest, extract_archive, has_archive_suffix, sha256_file
 from compman.config import load_config
 from compman.errors import CommandError
+from compman.i18n import t
 
 _PIN_A = "a" * 64
 _PIN_B = "b" * 64
@@ -536,6 +539,83 @@ def test_handle_s3_errors():
         deploy._handle_s3_error(RuntimeError("generic error"), "s3://b/k")
 
 
+def test_handle_s3_error_output_routes_through_s3_error_hint(capsys):
+    path = "s3://b/k"
+    error = ClientError({"Error": {"Code": "403"}}, "GetObject")
+
+    with pytest.raises(SystemExit):
+        deploy._handle_s3_error(error, path)
+
+    assert capsys.readouterr().err == t("msg.s3_failed", path=path) + "\n" + t("msg.s3_403", path=path) + "\n"
+
+    generic = RuntimeError("generic error")
+    with pytest.raises(SystemExit):
+        deploy._handle_s3_error(generic, path)
+
+    assert capsys.readouterr().err == t("msg.s3_failed", path=path) + "\n" + t("msg.download_error", error=generic) + "\n"
+
+
+# ---- s3_source.create_client endpoint precedence ----
+
+
+def test_create_client_prefers_aws_endpoint_url_s3(monkeypatch):
+    client = MagicMock()
+    monkeypatch.setenv("AWS_ENDPOINT_URL_S3", "http://s3:4566")
+    monkeypatch.setenv("AWS_ENDPOINT_URL", "http://generic:4566")
+    with patch("boto3.client", return_value=client) as boto_client:
+        assert s3_source.create_client() is client
+
+    boto_client.assert_called_once_with("s3", endpoint_url="http://s3:4566")
+
+
+def test_create_client_falls_back_to_aws_endpoint_url(monkeypatch):
+    client = MagicMock()
+    monkeypatch.delenv("AWS_ENDPOINT_URL_S3", raising=False)
+    monkeypatch.setenv("AWS_ENDPOINT_URL", "http://generic:4566")
+    with patch("boto3.client", return_value=client) as boto_client:
+        s3_source.create_client()
+
+    boto_client.assert_called_once_with("s3", endpoint_url="http://generic:4566")
+
+
+def test_create_client_without_endpoint_env_passes_none(monkeypatch):
+    client = MagicMock()
+    monkeypatch.delenv("AWS_ENDPOINT_URL_S3", raising=False)
+    monkeypatch.delenv("AWS_ENDPOINT_URL", raising=False)
+    with patch("boto3.client", return_value=client) as boto_client:
+        s3_source.create_client()
+
+    boto_client.assert_called_once_with("s3", endpoint_url=None)
+
+
+# ---- s3_source.s3_error_hint ----
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (NoCredentialsError(), t("msg.s3_no_creds")),
+        (PartialCredentialsError(provider="env", cred_var="X"), t("msg.s3_no_creds")),
+        (ClientError({"Error": {"Code": "AccessDenied"}}, "PutObject"), t("msg.s3_403", path="s3://b/k")),
+        (ClientError({"Error": {"Code": "NoSuchBucket"}}, "PutObject"), t("msg.s3_404", path="s3://b/k")),
+        (
+            ClientError({"Error": {"Code": "SlowDown", "Message": "slow"}}, "PutObject"),
+            t("msg.s3_client_error", code="SlowDown", error="slow"),
+        ),
+        (EndpointConnectionError(endpoint_url="http://x"), t("msg.s3_network")),
+    ],
+)
+def test_s3_error_hint_maps_known_failures(error: Exception, expected: str):
+    assert s3_source.s3_error_hint(error, "s3://b/k") == expected
+
+
+def test_s3_error_hint_returns_none_for_unknown_errors():
+    assert s3_source.s3_error_hint(RuntimeError("boom")) is None
+    assert s3_source.s3_error_hint(ClientError({"Error": {"Code": "404"}}, "PutObject")) == t(
+        "msg.s3_404", path=None
+    )
+
+
 def test_deploy_reports_local_build_stage(dummy_runtime, temp_dir: pathlib.Path, capsys):
     mock_s3 = MagicMock()
     mock_s3.get_paginator.return_value.paginate.return_value = [
@@ -848,3 +928,65 @@ def test_update_deploy_mapping_different_url_replaces_whole_block(temp_dir: path
     assert parsed["compman"]["deploy"] == "s3://new/path"
     assert "url:" not in new_content
     assert "sha256:" not in new_content
+
+
+# ---- authenticated HTTP deploy (M7) ----
+
+
+class _FakeOpener:
+    """Captures the request handed to open() and returns a canned response."""
+
+    def __init__(self, response: _FakeResponse) -> None:
+        self._response = response
+        self.requests: list[Request] = []
+
+    def open(self, request: Request, timeout: float = 30) -> _FakeResponse:
+        self.requests.append(request)
+        return self._response
+
+
+
+def _auth_zip_response(temp_dir: pathlib.Path, url: str = "https://example.test/app.zip") -> _FakeResponse:
+    archive = temp_dir / "auth.zip"
+    with zipfile.ZipFile(archive, "w") as zip_file:
+        zip_file.writestr("app.txt", "hello")
+    return _FakeResponse(archive.read_bytes(), url)
+
+
+def _header_value(request: Request, name: str) -> str | None:
+    return next((v for k, v in request.headers.items() if k.lower() == name.lower()), None)
+
+
+
+
+
+
+def _redirect_request(handler: http_source._AuthAwareRedirectHandler, newurl: str):
+    original = Request(
+        "https://example.test/app.zip",
+        headers={"Authorization": "Bearer sekret", "X-Custom": "keep-me"},
+    )
+    return handler.redirect_request(original, MagicMock(), 302, "Found", HTTPMessage(), newurl)
+
+
+
+
+
+def _write_auth_deploy_config(temp_dir: pathlib.Path) -> None:
+    (temp_dir / "compman.yml").write_text(
+        "compman:\n"
+        "  name: app\n"
+        "  deploy:\n"
+        "    url: https://example.test/app.zip\n"
+        "    auth:\n"
+        "      header: Authorization\n"
+        "      value_env: DEPLOY_TOKEN\n"
+        "  compose:\n"
+        "    default:\n"
+        "      file: docker-compose.yml\n",
+        encoding="utf-8",
+    )
+
+
+
+

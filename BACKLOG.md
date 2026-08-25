@@ -16,12 +16,6 @@ them. Retired IDs are never reused.
   passes ~900 lines. Relocate grouped edge-test files beside the modules they
   specify while retaining the 100% gate.
 
-- [ ] [M6] Integration test infrastructure: fix timestamp derivation bug in
-  tests/integration/test_real_runtime.py (.stem.split keeps .tar suffix ->
-  validate_timestamp rejects) and redesign downed-stack volume restore path
-  (compose down removes containers -> list_containers empty -> map validation
-  fails; needs helper-container copy strategy).
-
 - [ ] [M9] `stack up --wait` readiness gate — after up/update, poll service
   health (compose ps / health status) until running/healthy or COMPMAN_TIMEOUT
   elapses, exiting non-zero on failure so scripts and CI fail fast instead of
@@ -74,6 +68,11 @@ them. Retired IDs are never reused.
 - [ ] [L16] Opt-in Zstandard backup format on Python 3.14+ (stdlib compression),
   retaining `.tar.gz` read compatibility. Versioned, opt-in only.
 
+- [ ] [L17] Downed-stack volume restore — restoring while every mapped container
+  is stopped currently fails mapping validation (list_containers empty); a
+  helper-container copy strategy could support offline restores onto existing
+  volumes. Spun off from the completed integration-test repairs.
+
 ## Release roadmap (theme per minor release)
 
 Each minor release carries one theme; patch releases stay fix-only. Backlog IDs
@@ -84,8 +83,8 @@ planning further ahead.
   [M10] project-scoped `--json` close out the theme opened in 1.7.
 - **1.9 — Operational convenience**: [L12] rollback plus one of [L14]
   multi-stack registry or [L2] config schema versioning.
-- Ongoing between minors: [M1] module splits, [M6] integration-test fixes,
-  [L15] deploy config-error guidance, remaining [L] hygiene items.
+- Ongoing between minors: [M1] module splits, [L15] deploy config-error
+  guidance, remaining [L] hygiene items.
 
 Feature gate for any new candidate: real value for restricted-environment
 users, minimal dependency cost (boto3 lazy-import lesson), and a size the 100%

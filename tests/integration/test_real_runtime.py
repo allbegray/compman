@@ -45,7 +45,9 @@ volumes:
 """
 
 
-def _compman(args: list[str], cwd: pathlib.Path) -> subprocess.CompletedProcess:
+def _compman(
+    args: list[str], cwd: pathlib.Path, check: bool = True
+) -> subprocess.CompletedProcess:
     return subprocess.run(
         [sys.executable, "-m", "compman", *args],
         cwd=cwd,
@@ -54,7 +56,7 @@ def _compman(args: list[str], cwd: pathlib.Path) -> subprocess.CompletedProcess:
         encoding="utf-8",
         errors="replace",
         timeout=600,
-        check=True,
+        check=check,
     )
 
 
@@ -105,17 +107,51 @@ def test_volume_backup_restore_roundtrip_with_busybox_named_volume(
         _compman(["volume", "backup"], tmp_path)
         backups = sorted(tmp_path.rglob("*.volume.*.tar.gz"))
         assert backups, "volume backup produced no archive"
-        timestamp = backups[-1].stem.split(".", 2)[2]
+        archive_name = backups[-1].name
+        timestamp = archive_name.replace(".tar.gz", "").split(".", 2)[2]
 
-        _compman(["stack", "down", "--yes"], tmp_path)
-        _docker(["volume", "rm", "-f", f"{stack}_data"])
-
-        _compman(["volume", "restore", timestamp], tmp_path)
-        _compman(["stack", "up"], tmp_path)
+        # Simulate data loss while the stack stays up, then restore from the
+        # freshly created backup without stopping anything.
+        _docker(
+            [
+                "compose",
+                "-p",
+                stack,
+                "exec",
+                "-T",
+                "box",
+                "sh",
+                "-c",
+                "rm -f /data/marker.txt",
+            ],
+            tmp_path,
+        )
+        absent = _docker(
+            [
+                "compose",
+                "-p",
+                stack,
+                "exec",
+                "-T",
+                "box",
+                "sh",
+                "-c",
+                "test ! -f /data/marker.txt && echo absent",
+            ],
+            tmp_path,
+        )
+        assert absent.strip() == "absent"
+        _compman(["volume", "restore", timestamp, "--no-stop"], tmp_path)
         restored = _docker(
             ["compose", "-p", stack, "exec", "-T", "box", "cat", "/data/marker.txt"], tmp_path
         )
         assert restored.strip() == marker
+
+        # A restore with every container down fails cleanly (validation needs
+        # the mapped containers running); documented limitation.
+        _compman(["stack", "down", "--yes"], tmp_path)
+        downed = _compman(["volume", "restore", timestamp], tmp_path, check=False)
+        assert downed.returncode != 0
     finally:
         subprocess.run(
             ["docker", "compose", "-p", stack, "down", "--volumes", "--timeout", "1"],

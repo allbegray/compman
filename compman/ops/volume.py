@@ -24,7 +24,6 @@ from compman.ops.common import (
     validate_timestamp,
     write_volume_map,
 )
-from compman.ops.upload import resolve_upload_target, upload_backup
 
 
 def backup(
@@ -33,8 +32,6 @@ def backup(
     no_stop: bool = False,
     profile: str | None = None,
     compression_level: int = 6,
-    push: str | None = None,
-    no_push: bool = False,
 ) -> None:
     targets = resolve_volume_targets(runtime, config, profile)
     if targets is None:
@@ -59,10 +56,6 @@ def backup(
         shutil.rmtree(backup_dir, ignore_errors=True)
 
     typer.echo(t("msg.backup_done", kind="Volume", path=tarball))
-
-    target = resolve_upload_target(config, push, no_push)
-    if target is not None:
-        upload_backup(config, tarball, "volume", target)
 
 
 def restore(

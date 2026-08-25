@@ -11,7 +11,6 @@ from compman.docker import ContainerRuntime, resolve_compose_context
 from compman.errors import CommandError
 from compman.i18n import t
 from compman.ops.common import select_backup_timestamp, unique_backup_paths, validate_timestamp
-from compman.ops.upload import resolve_upload_target, upload_backup
 
 
 def backup(
@@ -20,8 +19,6 @@ def backup(
     source_mode: bool = False,
     profile: str | None = None,
     compression_level: int = 6,
-    push: str | None = None,
-    no_push: bool = False,
 ) -> None:
     context = resolve_compose_context(config, profile)
     if not runtime.stack_exists(config.name, context.files, context.env):
@@ -67,10 +64,6 @@ def backup(
         shutil.rmtree(backup_dir, ignore_errors=True)
 
     typer.echo(t("msg.backup_done", kind="Image", path=tarball))
-
-    target = resolve_upload_target(config, push, no_push)
-    if target is not None:
-        upload_backup(config, tarball, "image", target)
 
 
 def restore(

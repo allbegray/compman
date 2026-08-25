@@ -550,8 +550,6 @@ def volume_backup(
     profile: Annotated[str | None, typer.Option("--profile", help=t("opt.profile"))] = None,
     config: Annotated[str | None, typer.Option("--config", "-c", help=t("opt.config"))] = None,
     level: Annotated[int, typer.Option("-z", "--level", min=1, max=9, help=t("opt.compression_level"))] = 6,
-    push: Annotated[str | None, typer.Option("--push", help=t("opt.push"))] = None,
-    no_push: Annotated[bool, typer.Option("--no-push", help=t("opt.no_push"))] = False,
 ) -> None:
     ctx = _load(config)
     _volume_ops().backup(
@@ -560,8 +558,6 @@ def volume_backup(
         no_stop=no_stop,
         profile=profile,
         compression_level=level,
-        push=push,
-        no_push=no_push,
     )
 
 
@@ -616,8 +612,6 @@ def image_backup(
     profile: Annotated[str | None, typer.Option("--profile", help=t("opt.profile"))] = None,
     config: Annotated[str | None, typer.Option("--config", "-c", help=t("opt.config"))] = None,
     level: Annotated[int, typer.Option("-z", "--level", min=1, max=9, help=t("opt.compression_level"))] = 6,
-    push: Annotated[str | None, typer.Option("--push", help=t("opt.push"))] = None,
-    no_push: Annotated[bool, typer.Option("--no-push", help=t("opt.no_push"))] = False,
 ) -> None:
     ctx = _load(config)
     _image_ops().backup(
@@ -626,8 +620,6 @@ def image_backup(
         source_mode=source_image,
         profile=profile,
         compression_level=level,
-        push=push,
-        no_push=no_push,
     )
 
 

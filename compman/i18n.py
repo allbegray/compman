@@ -481,14 +481,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "en": "Don't stop stack during backup/restore",
         "ko": "백업/복원 시 스택을 정지하지 않고 진행",
     },
-    "opt.push": {
-        "en": "Upload the backup to this S3 URI instead of the configured backup.upload target",
-        "ko": "설정된 backup.upload 대신 이 S3 URI로 백업을 업로드합니다",
-    },
-    "opt.no_push": {
-        "en": "Skip uploading to the configured backup.upload target",
-        "ko": "이번 실행에서는 설정된 backup.upload 업로드를 건너뜁니다",
-    },
     "opt.source_image": {
         "en": "Backup original image instead of committing runtime state",
         "ko": "실행 중인 상태 커밋 대신 원본 이미지를 백업",
@@ -766,26 +758,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "msg.backup_done": {
         "en": "{kind} backup done: {path}",
         "ko": "{kind} 백업 완료: {path}",
-    },
-    "msg.backup_uploading": {
-        "en": "Uploading {kind} backup to {uri} ...",
-        "ko": "{kind} 백업을 {uri}(으)로 업로드하는 중...",
-    },
-    "msg.backup_uploaded": {
-        "en": "{kind} backup uploaded: {key} ({size} bytes)",
-        "ko": "{kind} 백업 업로드 완료: {key} ({size}바이트)",
-    },
-    "msg.backup_upload_failed": {
-        "en": "Local backup succeeded at {path}, but upload failed: {detail}",
-        "ko": "로컬 백업은 {path}에 저장되었지만 업로드에 실패했습니다: {detail}",
-    },
-    "msg.backup_upload_size_mismatch": {
-        "en": "Upload verification failed: remote size {remote} != local size {local}",
-        "ko": "업로드 검증 실패: 원격 크기 {remote} != 로컬 크기 {local}",
-    },
-    "msg.backup_push_conflict": {
-        "en": "--push and --no-push cannot be combined.",
-        "ko": "--push와 --no-push는 함께 사용할 수 없습니다.",
     },
     "msg.restore_done": {
         "en": "{kind} restore done.",

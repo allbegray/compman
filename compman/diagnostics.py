@@ -113,7 +113,6 @@ def collect_doctor(config_path: str | None, profile: str | None = None) -> Docto
     _collect_aws(checks)
     if config is not None:
         _collect_secrets(config, checks)
-        _collect_backup_upload(config, checks)
         _collect_deploy_checksum(config, checks)
         _collect_deploy_auth(config, checks)
     return DoctorReport(tuple(checks))
@@ -313,23 +312,6 @@ def _collect_secrets(config: Config, checks: list[CheckResult]) -> None:
         else "Secrets configured but AWS credentials or region are missing."
     )
     checks.append(CheckResult("secrets", "warning", ok, message))
-
-
-def _collect_backup_upload(config: Config, checks: list[CheckResult]) -> None:
-    if config.backup_upload is None:
-        return
-    credentials_present = bool(os.environ.get("AWS_ACCESS_KEY_ID")) and bool(
-        os.environ.get("AWS_SECRET_ACCESS_KEY")
-    )
-    region_present = bool(os.environ.get("AWS_DEFAULT_REGION") or os.environ.get("AWS_REGION"))
-    ok = credentials_present and region_present
-    message = (
-        f"Backup upload configured for {config.backup_upload}; "
-        "AWS credentials and region are available."
-        if ok
-        else "Backup upload configured but AWS credentials or region are missing."
-    )
-    checks.append(CheckResult("backup_upload", "warning", ok, message))
 
 
 def _collect_deploy_checksum(config: Config, checks: list[CheckResult]) -> None:

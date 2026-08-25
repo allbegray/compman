@@ -7,7 +7,6 @@ import tarfile
 from unittest.mock import MagicMock, patch
 
 import pytest
-from botocore.exceptions import ClientError
 
 from compman.config import Config, Profile
 from compman.errors import CommandError
@@ -36,60 +35,6 @@ def test_volume_backup_not_running(dummy_runtime, temp_dir: pathlib.Path):
     cfg = Config(name="my_stack", profiles={"default": Profile(file="docker-compose.yml")})
     with pytest.raises(CommandError):
         volume.backup(dummy_runtime, cfg)
-
-
-def test_volume_backup_pushes_configured_upload_outside_paused_window(dummy_runtime, temp_dir: pathlib.Path):
-    cfg = Config(name="my_stack", profiles={"default": Profile(file="docker-compose.yml")})
-    cfg.backup_upload = "s3://bucket/backups"
-    events: list[str] = []
-    original_run_compose = dummy_runtime.run_compose
-
-    def recording_run_compose(args, **kwargs):
-        events.append(f"compose:{args[0]}")
-        return original_run_compose(args, **kwargs)
-
-    dummy_runtime.run_compose = recording_run_compose
-
-    client = MagicMock()
-    uploaded: dict[str, str] = {}
-
-    def record_upload(Filename, Bucket, Key, ExtraArgs=None):
-        uploaded.update(Filename=Filename, Bucket=Bucket, Key=Key)
-        events.append("upload")
-
-    client.upload_file.side_effect = record_upload
-    client.head_object.side_effect = lambda b, k: {
-        "ContentLength": pathlib.Path(uploaded["Filename"]).stat().st_size
-    }
-
-    with patch("compman.ops.volume._inspect_mount", return_value=None), patch(
-        "compman.ops.upload.create_client", return_value=client
-    ):
-        volume.backup(dummy_runtime, cfg)
-
-    assert uploaded["Bucket"] == "bucket"
-    assert uploaded["Key"] == f"backups/{pathlib.Path(uploaded['Filename']).name}"
-    upload_idx = events.index("upload")
-    assert "compose:start" in events[:upload_idx]
-    assert not any(event.startswith("compose:") for event in events[upload_idx + 1 :])
-
-
-def test_volume_backup_upload_failure_keeps_local_tarball(dummy_runtime, temp_dir: pathlib.Path):
-    cfg = Config(name="my_stack", profiles={"default": Profile(file="docker-compose.yml")})
-    cfg.backup_upload = "s3://bucket/backups"
-    client = MagicMock()
-    client.upload_file.side_effect = ClientError({"Error": {"Code": "403"}}, "PutObject")
-
-    with patch("compman.ops.volume._inspect_mount", return_value=None), patch(
-        "compman.ops.upload.create_client", return_value=client
-    ):
-        with pytest.raises(CommandError) as excinfo:
-            volume.backup(dummy_runtime, cfg)
-
-    leftovers = list(cfg.backup_dir.glob("*.tar.gz"))
-    assert len(leftovers) == 1
-    assert leftovers[0].stat().st_size > 0
-    assert str(leftovers[0]) in str(excinfo.value)
 
 
 def test_volume_backup_without_upload_never_imports_boto3(dummy_runtime, temp_dir: pathlib.Path):

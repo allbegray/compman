@@ -346,36 +346,6 @@ def test_readme_lists_schedule_commands():
     assert "compman schedule remove NAME" in section
 
 
-def test_cli_volume_backup_push_flags_reach_dispatcher(runner: CliRunner, dummy_runtime, temp_dir: pathlib.Path):
-    write_config(temp_dir / "compman.yml")
-    (temp_dir / "docker-compose.yml").touch()
-    with patch("compman.cli.detect_runtime", return_value=dummy_runtime), patch("compman.ops.volume.backup") as backup:
-        res_push = runner.invoke(app, ["volume", "backup", "--push", "s3://b/p"])
-        assert res_push.exit_code == 0
-        assert backup.call_args.kwargs["push"] == "s3://b/p"
-        assert backup.call_args.kwargs["no_push"] is False
-
-        res_no_push = runner.invoke(app, ["volume", "backup", "--no-push"])
-        assert res_no_push.exit_code == 0
-        assert backup.call_args.kwargs["push"] is None
-        assert backup.call_args.kwargs["no_push"] is True
-
-
-def test_cli_image_backup_push_flags_reach_dispatcher(runner: CliRunner, dummy_runtime, temp_dir: pathlib.Path):
-    write_config(temp_dir / "compman.yml")
-    (temp_dir / "docker-compose.yml").touch()
-    with patch("compman.cli.detect_runtime", return_value=dummy_runtime), patch("compman.ops.image.backup") as backup:
-        res_push = runner.invoke(app, ["image", "backup", "--push", "s3://b/p"])
-        assert res_push.exit_code == 0
-        assert backup.call_args.kwargs["push"] == "s3://b/p"
-        assert backup.call_args.kwargs["no_push"] is False
-
-        res_no_push = runner.invoke(app, ["image", "backup", "--no-push"])
-        assert res_no_push.exit_code == 0
-        assert backup.call_args.kwargs["push"] is None
-        assert backup.call_args.kwargs["no_push"] is True
-
-
 def test_cli_load_error(runner: CliRunner, temp_dir: pathlib.Path):
     res = runner.invoke(app, ["stack", "up"])
     assert res.exit_code != 0

@@ -353,66 +353,6 @@ def test_load_config_deploy_auth_requires_https(temp_dir: pathlib.Path, url):
         load_config(str(config_file))
 
 
-def test_load_config_backup_upload_absent_is_none(temp_dir: pathlib.Path):
-    config_file = write_config(temp_dir / "compman.yml")
-    cfg = load_config(str(config_file))
-    assert cfg.backup_upload is None
-
-
-def test_load_config_backup_upload_parses_string(temp_dir: pathlib.Path):
-    config_file = temp_dir / "compman.yml"
-    config_file.write_text(
-        "compman:\n  name: app\n  backup:\n    upload: s3://bucket/backups\n  compose:\n    default:\n      file: docker-compose.yml\n",
-        encoding="utf-8",
-    )
-    cfg = load_config(str(config_file))
-    assert cfg.backup_upload == "s3://bucket/backups"
-
-
-def test_load_config_backup_mapping_without_upload_is_none(temp_dir: pathlib.Path):
-    config_file = temp_dir / "compman.yml"
-    config_file.write_text(
-        "compman:\n  name: app\n  backup: {}\n  compose:\n    default:\n      file: docker-compose.yml\n",
-        encoding="utf-8",
-    )
-    cfg = load_config(str(config_file))
-    assert cfg.backup_upload is None
-
-
-def test_load_config_backup_not_mapping(temp_dir: pathlib.Path):
-    config_file = temp_dir / "compman.yml"
-    config_file.write_text(
-        "compman:\n  name: app\n  backup: []\n  compose:\n    default:\n      file: docker-compose.yml\n",
-        encoding="utf-8",
-    )
-    with pytest.raises(ConfigError, match="'backup' must be a mapping"):
-        load_config(str(config_file))
-
-
-@pytest.mark.parametrize("raw_upload", ["123", ["s3://b"]])
-def test_load_config_backup_upload_not_string(temp_dir: pathlib.Path, raw_upload):
-    config_file = temp_dir / "compman.yml"
-    list_yaml = "\n      - s3://bucket/backups" if isinstance(raw_upload, list) else str(raw_upload)
-    config_file.write_text(
-        "compman:\n"
-        "  name: app\n"
-        "  backup:\n"
-        f"    upload: {list_yaml}\n"
-        "  compose:\n"
-        "    default:\n"
-        "      file: docker-compose.yml\n",
-        encoding="utf-8",
-    )
-    with pytest.raises(ConfigError, match="backup.upload"):
-        load_config(str(config_file))
-
-
-def test_dump_default_config_mentions_backup_upload():
-    content = dump_default_config("my-app")
-    assert "# backup:" in content
-    assert "#   upload: s3://bucket/backups" in content
-
-
 def test_load_config_limits_absent_ok(temp_dir: pathlib.Path):
     config_file = write_config(temp_dir / "compman.yml")
     cfg = load_config(str(config_file))

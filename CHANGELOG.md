@@ -3,6 +3,42 @@
 Major user-visible changes to compman are recorded here, with the newest release
 first.
 
+## [1.6.0] - 2026-08-25
+
+### Added
+
+- Deploy integrity pinning: an optional `deploy.sha256` value (or `--sha256 HEX`
+  on `compman deploy`) verifies the fetched source after download and before
+  extraction, image build, or managed-tree swap; a mismatch aborts with exit
+  status 1 and nothing changes. The pin applies whenever the deployed source URL
+  equals the configured `deploy` URL, so `update` inherits it automatically.
+  `compman doctor` warns when a deploy source is configured without a pin.
+- Authenticated HTTPS deploy sources: an optional `deploy.auth { header,
+  value_env }` block sends a request header whose value is read at fetch time
+  from the named environment variable. The token is never stored in
+  `compman.yml` nor echoed, authenticated sources require `https://`, and a
+  redirect to a different host drops the auth header. `compman doctor` warns
+  when the environment variable is unset.
+- Scheduled volume backups: `compman schedule add|list|remove` registers
+  platform-native jobs (launchd on macOS, systemd user timers with crontab
+  fallback on Linux, Task Scheduler on Windows) that run `volume backup`
+  unattended. Cadences are `--every Nm|Nh`, `--daily HH:MM`, or
+  `--weekly DAY HH:MM`; jobs compose with the configured backup store, list
+  marks absent platform artifacts `[missing]`, and remove tolerates them.
+  Shell completion covers the new commands; help ships in English and Korean.
+- S3 as a first-class backup store: `dirs.backup` accepts either a local path
+  or `s3://bucket/prefix`. Backups stage locally, upload with content-type and
+  remote size verification, and delete the staged copy after success (a failed
+  upload preserves it and names its path); restores list, select, and download
+  from the store automatically. Scheduled backups inherit the store from the
+  configuration. `compman doctor` warns when a remote store is configured but
+  AWS credentials or region are missing.
+
+### Changed
+
+- Scheduled-job output logs live next to `schedules.json` (the schedule
+  registry) instead of inside the backup directory.
+
 ## [1.5.0] - 2026-08-24
 
 ### Added

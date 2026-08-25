@@ -65,7 +65,13 @@ markers = [
 ]
 addopts = "-ra --strict-markers -m 'not integration'"
 xfail_strict = true
-filterwarnings = ["error"]
+filterwarnings = [
+    "error",
+    # Python 3.12.4+/3.13 emit this when tarfile.extract is called without a
+    # filter argument; manual path/link validation in archive.py already
+    # covers the security concern, and Python 3.14 defaults to filter="data".
+    "ignore:Python 3.14 will, by default, filter extracted tar archives:DeprecationWarning",
+]
 
 [tool.coverage.run]
 source = ["compman"]

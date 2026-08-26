@@ -24,6 +24,13 @@ from compman.scheduling import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _strip_appdata(monkeypatch):
+    """Windows runners set APPDATA; registry_dir() must not escape tmp homes."""
+
+    monkeypatch.delenv("APPDATA", raising=False)
+
+
 @dataclass
 class FakeProc:
     returncode: int = 0

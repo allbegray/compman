@@ -1355,6 +1355,26 @@ def test_restore_rollback_swaps_and_restores_config(temp_dir: pathlib.Path):
     assert not snap.exists()
     assert not (temp_dir / ".compman").exists()
 
+
+
+def test_restore_rollback_keeps_compman_when_other_entries_exist(temp_dir: pathlib.Path):
+    snap = temp_dir / ".compman" / "rollback"
+    (snap / "tree").mkdir(parents=True)
+    (snap / "meta.json").write_text(
+        json.dumps({"timestamp": "2026-01-02T03:04:05+00:00", "target": "project"}),
+        encoding="utf-8",
+    )
+    (temp_dir / ".compman" / "unrelated.txt").write_text("keep me", encoding="utf-8")
+    managed = temp_dir / "project"
+    managed.mkdir()
+
+    timestamp = deploy.restore_rollback(temp_dir)
+
+    assert timestamp == "2026-01-02T03:04:05+00:00"
+    assert not snap.exists()
+    assert (temp_dir / ".compman" / "unrelated.txt").exists()
+
+
 def test_restore_rollback_without_snapshot_raises_command_error(temp_dir: pathlib.Path):
     with pytest.raises(CommandError, match="No rollback snapshot"):
         deploy.restore_rollback(temp_dir)

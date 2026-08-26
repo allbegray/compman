@@ -8,7 +8,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from botocore.exceptions import ClientError
-from compression import zstd as pyzstd
 from test_backup_store import FakeS3, _patch_stage, _stage
 
 from compman.backup_store import S3BackupStore, local_root
@@ -16,6 +15,9 @@ from compman.config import Config, Profile
 from compman.errors import CommandError
 from compman.ops import image
 
+requires_py314 = pytest.mark.skipif(
+    sys.version_info < (3, 14), reason="compression.zstd requires Python 3.14+"
+)
 
 def test_image_backup(dummy_runtime, temp_dir: pathlib.Path):
     cfg = Config(name="my_stack", profiles={"default": Profile(file="docker-compose.yml")})
@@ -218,6 +220,7 @@ def test_image_backup_default_gzip_names_tarball_gz(dummy_runtime, temp_dir: pat
     assert list(backup_root.glob("*.tar.zst")) == []
 
 
+@requires_py314
 def test_image_backup_zstd_writes_tar_zst_archive(dummy_runtime, temp_dir: pathlib.Path):
     cfg = Config(name="my_stack", profiles={"default": Profile(file="docker-compose.yml")})
     backup_root = local_root(cfg.backup_store)
@@ -228,12 +231,15 @@ def test_image_backup_zstd_writes_tar_zst_archive(dummy_runtime, temp_dir: pathl
     assert list(backup_root.glob("*.tar.gz")) == []
 
 
+@requires_py314
 def test_image_restore_resolves_zstd_suffixed_archive(dummy_runtime, temp_dir: pathlib.Path):
     cfg = Config(name="my_stack", profiles={"default": Profile(file="docker-compose.yml")})
     backup_dir = local_root(cfg.backup_store)
     backup_dir.mkdir(parents=True, exist_ok=True)
     timestamp = "20260826_1200"
     archive = backup_dir / f"my_stack.image.{timestamp}.tar.zst"
+    from compression import zstd as pyzstd
+
     inner = temp_dir / "img.tar"
     inner.touch()
     with pyzstd.open(archive, "wb") as zout:

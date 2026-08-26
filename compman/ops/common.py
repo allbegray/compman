@@ -249,32 +249,60 @@ def select_backup_timestamp(config: Config, kind: str) -> str:
 
 @contextmanager
 def stack_paused(runtime: ContainerRuntime, context: ComposeContext, enabled: bool = True):
-    stopped = False
-    if enabled:
-        typer.echo(t("msg.stack_stopping"))
-        runtime.run_compose(
-            ["stop"], project=context.project, compose_files=context.files,
-            env=context.env, capture=False,
-        )
-        stopped = True
+    stopped_services: list[str] = []
     failed = False
     try:
+        if enabled:
+            result = runtime.run_compose(
+                ["ps", "--services", "--filter", "status=running"],
+                project=context.project,
+                compose_files=context.files,
+                env=context.env,
+                capture=True,
+            )
+            services = parse_running_services(result.stdout)
+            if services:
+                typer.echo(t("msg.stack_stopping"))
+                stopped_services = list(services)
+                runtime.run_compose(
+                    ["stop", *services],
+                    project=context.project,
+                    compose_files=context.files,
+                    env=context.env,
+                    capture=False,
+                )
         yield
     except BaseException:
         failed = True
         raise
     finally:
-        if stopped:
+        if stopped_services:
             try:
                 typer.echo(t("msg.stack_starting"))
                 runtime.run_compose(
-                    ["start"], project=context.project, compose_files=context.files,
-                    env=context.env, capture=False,
+                    ["start", *stopped_services],
+                    project=context.project,
+                    compose_files=context.files,
+                    env=context.env,
+                    capture=False,
                 )
             except Exception as error:
                 if not failed:
                     raise
                 typer.echo(t("msg.stack_restart_failed", error=error), err=True)
+
+
+def parse_running_services(stdout: str) -> list[str]:
+    """Parse plain ``compose ps --services`` output into unique service names."""
+    services: list[str] = []
+    seen: set[str] = set()
+    for line in stdout.splitlines():
+        name = line.strip()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        services.append(name)
+    return services
 
 
 def parse_compose_ps(stdout: str) -> list[dict[str, Any]]:

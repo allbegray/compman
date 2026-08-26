@@ -5,7 +5,7 @@ import pathlib
 import pytest
 from conftest import write_config
 
-from compman.backup_store import LocalBackupStore, S3BackupStore
+from compman.backup_store import LocalBackupStore, S3BackupStore, SshBackupStore
 from compman.config import (
     Config,
     ConfigError,
@@ -57,6 +57,66 @@ def test_load_config_dirs_backup_s3_uri_builds_remote_store(temp_dir: pathlib.Pa
     )
     cfg = load_config(str(config_file))
     assert cfg.backup_store == S3BackupStore(bucket="bucket", prefix="backups")
+
+
+def test_load_config_dirs_backup_ssh_uri_builds_remote_store(temp_dir: pathlib.Path):
+    config_file = temp_dir / "compman.yml"
+    config_file.write_text(
+        "compman:\n"
+        "  name: app\n"
+        "  dirs:\n"
+        "    backup: ssh://amy@backup.host:2200/srv/backups\n"
+        "  compose:\n"
+        "    default:\n"
+        "      file: docker-compose.yml\n",
+        encoding="utf-8",
+    )
+    cfg = load_config(str(config_file))
+    assert cfg.backup_store == SshBackupStore(
+        host="backup.host", path="srv/backups", user="amy", port=2200
+    )
+
+
+def test_load_config_dirs_backup_ssh_uri_minimal(temp_dir: pathlib.Path):
+    config_file = temp_dir / "compman.yml"
+    write_config(
+        config_file,
+        "compman:\n"
+        "  name: app\n"
+        "  dirs:\n"
+        "    backup: ssh://host/backups\n"
+        "  compose:\n"
+        "    default:\n"
+        "      file: docker-compose.yml\n",
+    )
+    cfg = load_config(str(config_file))
+    assert cfg.backup_store == SshBackupStore(host="host", path="backups")
+
+
+@pytest.mark.parametrize(
+    ("value", "match"),
+    [
+        ("ssh://only-host", "missing a remote path"),
+        ("ssh:///no-host/backups", "missing a host name"),
+        ("ssh://host:99999/backups", "invalid port"),
+    ],
+)
+def test_load_config_dirs_backup_ssh_malformed_raises(
+    temp_dir: pathlib.Path, value: str, match: str
+):
+    config_file = temp_dir / "compman.yml"
+    write_config(
+        config_file,
+        f"compman:\n"
+        f"  name: app\n"
+        f"  dirs:\n"
+        f"    backup: {value}\n"
+        f"  compose:\n"
+        f"    default:\n"
+        f"      file: docker-compose.yml\n",
+    )
+    with pytest.raises(ConfigError, match=match):
+        load_config(str(config_file))
 
 
 def test_load_config_dirs_backup_bad_scheme_raises(temp_dir: pathlib.Path):
@@ -475,6 +535,18 @@ def test_load_config_max_backups_valid(temp_dir: pathlib.Path):
     assert cfg.max_backups == 10
 
 
+@pytest.mark.parametrize("value", ["true", "false"])
+@pytest.mark.parametrize("key", ["max_archive_mb", "max_backups"])
+def test_load_config_limits_boolean_rejected(temp_dir: pathlib.Path, key: str, value: str):
+    config_file = temp_dir / "compman.yml"
+    config_file.write_text(
+        f"compman:\n  name: app\n  limits:\n    {key}: {value}\n  compose:\n    default:\n      file: docker-compose.yml\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigError, match=f"'limits.{key}'"):
+        load_config(str(config_file))
+
+
 def test_dump_default_config_documents_max_backups():
     content = dump_default_config("my-app")
     assert "#   max_backups: 10                # keep newest 10 archives per stack and kind" in content
@@ -492,6 +564,33 @@ def test_load_config_compose_invalid_profile_value(temp_dir: pathlib.Path):
     config_file.write_text("compman:\n  name: app\n  compose:\n    dev: 123\n", encoding="utf-8")
     with pytest.raises(ConfigError):
         load_config(str(config_file))
+
+
+@pytest.mark.parametrize(
+    "compose_yaml",
+    [
+        "compman:\n  name: app\n  compose:\n    base: docker-compose.base.yml\n",
+        "compman:\n  name: app\n  compose: {}\n",
+    ],
+)
+def test_load_config_compose_without_profiles_rejected(
+    temp_dir: pathlib.Path, compose_yaml: str
+):
+    config_file = temp_dir / "compman.yml"
+    config_file.write_text(compose_yaml, encoding="utf-8")
+    with pytest.raises(ConfigError, match="must define at least one named profile"):
+        load_config(str(config_file))
+
+
+def test_load_config_compose_base_with_profile_accepted(temp_dir: pathlib.Path):
+    config_file = temp_dir / "compman.yml"
+    config_file.write_text(
+        "compman:\n  name: app\n  compose:\n    base: docker-compose.base.yml\n    default:\n      file: docker-compose.yml\n",
+        encoding="utf-8",
+    )
+    cfg = load_config(str(config_file))
+    assert cfg.compose_base == "docker-compose.base.yml"
+    assert cfg.profiles["default"].file == "docker-compose.yml"
 
 
 def test_load_config_invalid_nested_types(temp_dir: pathlib.Path):

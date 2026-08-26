@@ -8,6 +8,7 @@ from compman.archive import create_tar, extract_tar, open_tarball
 from compman.backup_store import (
     LocalBackupStore,
     archive_location,
+    find_archive,
     list_archives,
     new_backup_paths,
     put_archive,
@@ -32,7 +33,9 @@ def backup(
     if not runtime.stack_exists(config.name, context.files, context.env):
         raise CommandError(t("msg.stack_not_running", name=config.name))
 
-    backup_dir, tarball = new_backup_paths(config.backup_store, config.name, "image")
+    backup_dir, tarball = new_backup_paths(
+        config.backup_store, config.name, "image", zstd_format=zstd_format
+    )
     backup_tags: list[str] = []
 
     try:
@@ -89,10 +92,12 @@ def restore(
 
     store = config.backup_store
     backup_name = f"{config.name}.image.{timestamp}"
-    archive_name = f"{backup_name}.tar.gz"
-    if timestamp not in list_archives(store, config.name, "image"):
+    archive_name = find_archive(store, config.name, "image", timestamp)
+    if archive_name is None:
         _list_backups(config)
-        raise CommandError(t("msg.backup_not_found", tarball=archive_location(store, archive_name)))
+        raise CommandError(
+            t("msg.backup_not_found", tarball=archive_location(store, f"{backup_name}.tar.gz"))
+        )
 
     with staged_archive(store, archive_name) as tarball:
         restore_dir = tarball.parent / backup_name

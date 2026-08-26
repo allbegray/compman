@@ -5,7 +5,8 @@ These tests are marked ``integration`` and deselected by default through the
 
     uv run pytest -m integration
 
-CI runs that same selector after its Docker-dependent services are up.
+CI executes this selector inside its ``integration`` job via
+``uv run pytest -m integration -ra``, after the Ministack services are up.
 Skips (no docker CLI / unreachable daemon) are acceptable outcomes.
 """
 

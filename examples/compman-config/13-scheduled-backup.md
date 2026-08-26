@@ -16,9 +16,10 @@ compman:
       file: docker-compose.yml
 ```
 
-No scheduling-specific configuration exists; the registry lives at
-`~/.config/compman/schedules.json` (`%APPDATA%\compman\schedules.json` on
-Windows) and is managed entirely by the commands below.
+No scheduling-specific configuration exists; the registry lives under
+`%APPDATA%\compman` when the `APPDATA` environment variable is set (always set
+on Windows), otherwise `~/.config/compman`, in a file named `schedules.json`
+that is managed entirely by the commands below.
 
 ## Register a schedule
 
@@ -34,7 +35,8 @@ compman schedule add --weekly sun 03:00 -z 9      # Sundays at 03:00, gzip level
   command verbatim, exactly as you would pass them to `compman volume backup`.
 - The job invokes `[compman, -c <abs config>, volume backup, ...]` directly —
   no wrapper scripts — and appends output to `schedule.log` next to the
-  schedule registry (`~/.config/compman/schedule.log`).
+  schedule registry (`%APPDATA%\compman\schedule.log` when `APPDATA` is set,
+  otherwise `~/.config/compman/schedule.log`).
 - On Linux with systemd timers, output goes to journald instead:
   `journalctl --user -u compman-<name>.service`.
 
@@ -42,7 +44,7 @@ compman schedule add --weekly sun 03:00 -z 9      # Sundays at 03:00, gzip level
 
 ```bash
 compman schedule list             # shows name, mechanism, cadence, config path
-compman schedule remove daily-04-30
+compman schedule remove my-stack.volume       # default name: <project>.volume
 ```
 
 `schedule list` probes each platform artifact and marks drifted entries

@@ -19,7 +19,8 @@ from compman.scheduling import (
     load_registry,
     parse_cadence,
     pick_scheduler,
-    registry_path,
+    registry_dir,
+    registry_lock,
     resolve_executable,
     save_registry,
 )
@@ -117,7 +118,7 @@ def add_schedule(
         workdir=str(config.root_dir),
         config_path=config_path,
         args=args,
-        log_path=str(registry_path().parent / "schedule.log"),
+        log_path=str(registry_dir() / "schedule.log"),
         path_env=os.environ.get("PATH", "/usr/bin:/bin"),
         created=datetime.now(timezone.utc).isoformat(),
     )
@@ -131,16 +132,17 @@ def add_schedule(
         if not available:
             raise CommandError(t("msg.schedule.no_mechanism", detail=detail))
 
-    registry = load_registry()
-    existing = registry["jobs"].get(job_name)
-    if existing is not None:
-        raise CommandError(
-            t("msg.schedule.exists", name=job_name, path=existing["config_path"])
-        )
+    with registry_lock():
+        registry = load_registry()
+        existing = registry["jobs"].get(job_name)
+        if existing is not None:
+            raise CommandError(
+                t("msg.schedule.exists", name=job_name, path=existing["config_path"])
+            )
 
-    _adapter_for(platform_name).install(record)
-    registry["jobs"][job_name] = record
-    save_registry(registry)
+        _adapter_for(platform_name).install(record)
+        registry["jobs"][job_name] = record
+        save_registry(registry)
     typer.echo(t("msg.schedule.added", name=job_name, platform=platform_name))
     return record
 
@@ -180,14 +182,15 @@ def list_schedules(json_output: bool = False) -> None:
 
 
 def remove_schedule(name: str) -> None:
-    registry = load_registry()
-    job = registry["jobs"].get(name)
-    if job is None:
-        raise CommandError(t("msg.schedule.not_found", name=name))
-    adapter = _adapter_for(job["platform"])
-    if not adapter.exists(name):
-        typer.echo(t("msg.schedule.already_gone", name=name))
-    adapter.remove(name)
-    del registry["jobs"][name]
-    save_registry(registry)
+    with registry_lock():
+        registry = load_registry()
+        job = registry["jobs"].get(name)
+        if job is None:
+            raise CommandError(t("msg.schedule.not_found", name=name))
+        adapter = _adapter_for(job["platform"])
+        if not adapter.exists(name):
+            typer.echo(t("msg.schedule.already_gone", name=name))
+        adapter.remove(name)
+        del registry["jobs"][name]
+        save_registry(registry)
     typer.echo(t("msg.schedule.removed", name=name))

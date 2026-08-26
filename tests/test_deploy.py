@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import os
 import pathlib
+import shutil
 import tarfile
 import zipfile
 from http.client import HTTPMessage
@@ -20,7 +22,7 @@ from botocore.exceptions import (
 )
 from conftest import write_config
 
-from compman import deploy, http_source, s3_source
+from compman import backup_store, deploy, http_source, s3_source
 from compman.archive_source import ensure_digest, extract_archive, has_archive_suffix, sha256_file
 from compman.config import DeployAuth, load_config
 from compman.errors import CommandError
@@ -28,6 +30,16 @@ from compman.i18n import t
 
 _PIN_A = "a" * 64
 _PIN_B = "b" * 64
+
+
+@pytest.fixture(autouse=True)
+def _isolate_stack_registry(tmp_path, monkeypatch):
+    """Deploy tests must never touch the developer's real stacks.json."""
+
+    from compman import stack_registry
+
+    monkeypatch.setattr(stack_registry, "stacks_path", lambda: tmp_path / "stacks.json")
+    yield
 
 
 class _FakeResponse:
@@ -105,11 +117,36 @@ def test_http_source_downloads_archive(url: str, archive_name: str, temp_dir: pa
     download_dir = temp_dir / "download"
     download_dir.mkdir()
 
-    with patch("compman.http_source.urlopen", return_value=response) as urlopen:
+    with (
+        patch.dict(os.environ, {}, clear=True),
+        patch("compman.http_source.urlopen", return_value=response) as urlopen,
+    ):
         extracted = http_source.fetch(url, download_dir)
 
-    urlopen.assert_called_once_with(url, timeout=30)
+    urlopen.assert_called_once_with(url, timeout=300.0)
     assert (extracted / "app.txt").read_text(encoding="utf-8") == "hello"
+
+
+@pytest.mark.parametrize(
+    ("env_value", "expected"),
+    [(None, 300.0), ("42", 42.0), ("not-a-number", 300.0), ("0", 300.0)],
+)
+def test_http_source_fetch_derives_timeout_from_env(
+    env_value: str | None, expected: float, temp_dir: pathlib.Path
+):
+    archive = temp_dir / "app.zip"
+    with zipfile.ZipFile(archive, "w") as zip_file:
+        zip_file.writestr("app.txt", "hello")
+    response = _FakeResponse(archive.read_bytes(), "https://example.test/app.zip")
+    env = {} if env_value is None else {"COMPMAN_TIMEOUT": env_value}
+
+    with (
+        patch.dict(os.environ, env, clear=True),
+        patch("compman.http_source.urlopen", return_value=response) as urlopen,
+    ):
+        http_source.fetch("https://example.test/app.zip", temp_dir)
+
+    urlopen.assert_called_once_with("https://example.test/app.zip", timeout=expected)
 
 
 @pytest.mark.parametrize("url", ["https://example.test/app.tar", "ftp://example.test/app.zip"])
@@ -566,7 +603,9 @@ def test_create_client_prefers_aws_endpoint_url_s3(monkeypatch):
     with patch("boto3.client", return_value=client) as boto_client:
         assert s3_source.create_client() is client
 
-    boto_client.assert_called_once_with("s3", endpoint_url="http://s3:4566")
+    boto_client.assert_called_once()
+    assert boto_client.call_args.args == ("s3",)
+    assert boto_client.call_args.kwargs["endpoint_url"] == "http://s3:4566"
 
 
 def test_create_client_falls_back_to_aws_endpoint_url(monkeypatch):
@@ -576,7 +615,9 @@ def test_create_client_falls_back_to_aws_endpoint_url(monkeypatch):
     with patch("boto3.client", return_value=client) as boto_client:
         s3_source.create_client()
 
-    boto_client.assert_called_once_with("s3", endpoint_url="http://generic:4566")
+    boto_client.assert_called_once()
+    assert boto_client.call_args.args == ("s3",)
+    assert boto_client.call_args.kwargs["endpoint_url"] == "http://generic:4566"
 
 
 def test_create_client_without_endpoint_env_passes_none(monkeypatch):
@@ -586,7 +627,32 @@ def test_create_client_without_endpoint_env_passes_none(monkeypatch):
     with patch("boto3.client", return_value=client) as boto_client:
         s3_source.create_client()
 
-    boto_client.assert_called_once_with("s3", endpoint_url=None)
+    boto_client.assert_called_once()
+    assert boto_client.call_args.args == ("s3",)
+    assert boto_client.call_args.kwargs["endpoint_url"] is None
+
+@pytest.mark.parametrize(
+    ("env_value", "expected_read_timeout"),
+    [(None, 300.0), ("42", 42.0), ("not-a-number", 300.0), ("0", 300.0)],
+)
+def test_create_client_config_derives_timeouts_from_env(
+    env_value: str | None, expected_read_timeout: float, monkeypatch
+):
+    monkeypatch.delenv("COMPMAN_TIMEOUT", raising=False)
+    if env_value is not None:
+        monkeypatch.setenv("COMPMAN_TIMEOUT", env_value)
+    client = MagicMock()
+    with patch("boto3.client", return_value=client) as boto_client:
+        s3_source.create_client()
+
+    config = boto_client.call_args.kwargs["config"]
+    assert config.connect_timeout == 10
+    assert config.read_timeout == expected_read_timeout
+    assert config.retries == {"max_attempts": 3, "mode": "standard"}
+
+
+def test_backup_store_create_client_delegates_to_s3_source():
+    assert backup_store.create_client is s3_source.create_client
 
 
 # ---- s3_source.s3_error_hint ----
@@ -940,9 +1006,11 @@ class _FakeOpener:
     def __init__(self, response: _FakeResponse) -> None:
         self._response = response
         self.requests: list[Request] = []
+        self.timeouts: list[float] = []
 
     def open(self, request: Request, timeout: float = 30) -> _FakeResponse:
         self.requests.append(request)
+        self.timeouts.append(timeout)
         return self._response
 
 
@@ -964,7 +1032,7 @@ def test_http_source_auth_sends_configured_header(temp_dir: pathlib.Path):
     opener = _FakeOpener(_auth_zip_response(temp_dir))
 
     with (
-        patch.dict(os.environ, {"DEPLOY_TOKEN": "Bearer sekret"}),
+        patch.dict(os.environ, {"DEPLOY_TOKEN": "Bearer sekret"}, clear=True),
         patch("compman.http_source.build_opener", return_value=opener) as build_opener,
     ):
         extracted = http_source.fetch("https://example.test/app.zip", temp_dir, auth=_AUTH)
@@ -976,18 +1044,20 @@ def test_http_source_auth_sends_configured_header(temp_dir: pathlib.Path):
     assert request.full_url == "https://example.test/app.zip"
     assert _header_value(request, "Authorization") == "Bearer sekret"
     assert (extracted / "app.txt").read_text(encoding="utf-8") == "hello"
+    assert opener.timeouts == [300.0]
 
 
 def test_http_source_without_auth_keeps_bare_urlopen(temp_dir: pathlib.Path):
     response = _auth_zip_response(temp_dir)
 
     with (
+        patch.dict(os.environ, {}, clear=True),
         patch("compman.http_source.urlopen", return_value=response) as urlopen,
         patch("compman.http_source.build_opener") as build_opener,
     ):
         http_source.fetch("https://example.test/app.zip", temp_dir)
 
-    urlopen.assert_called_once_with("https://example.test/app.zip", timeout=30)
+    urlopen.assert_called_once_with("https://example.test/app.zip", timeout=300.0)
     build_opener.assert_not_called()
 
 
@@ -1018,32 +1088,41 @@ def test_http_source_auth_rejects_line_breaks_in_env_value(temp_dir: pathlib.Pat
     build_opener.assert_not_called()
 
 
-def _redirect_request(handler: http_source._AuthAwareRedirectHandler, newurl: str):
+def _redirect_request(
+    handler: http_source._AuthAwareRedirectHandler,
+    newurl: str,
+    original_url: str = "https://example.test/app.zip",
+):
     original = Request(
-        "https://example.test/app.zip",
+        original_url,
         headers={"Authorization": "Bearer sekret", "X-Custom": "keep-me"},
     )
     return handler.redirect_request(original, MagicMock(), 302, "Found", HTTPMessage(), newurl)
 
 
 @pytest.mark.parametrize(
-    "newurl",
-    ["https://example.test/releases/app.zip", "https://example.test:443/releases/app.zip"],
+    ("original_url", "newurl", "keeps_auth"),
+    [
+        ("https://example.test/app.zip", "https://example.test/releases/app.zip", True),
+        ("https://example.test/app.zip", "https://example.test:443/releases/app.zip", True),
+        ("http://example.test/app.zip", "https://example.test/releases/app.zip", True),
+        ("https://example.test/app.zip", "http://example.test/releases/app.zip", False),
+        ("https://example.test/app.zip", "https://mirror.example.org/app.zip", False),
+        ("https://example.test/app.zip", "file:///etc/passwd", False),
+    ],
 )
-def test_redirect_same_host_keeps_auth_header(newurl: str):
-    new_request = _redirect_request(http_source._AuthAwareRedirectHandler("Authorization"), newurl)
+def test_redirect_request_applies_auth_header_policy(
+    original_url: str, newurl: str, keeps_auth: bool
+):
+    new_request = _redirect_request(
+        http_source._AuthAwareRedirectHandler("Authorization"), newurl, original_url
+    )
 
     assert new_request is not None
-    assert _header_value(new_request, "Authorization") == "Bearer sekret"
-    assert _header_value(new_request, "X-Custom") == "keep-me"
-
-
-@pytest.mark.parametrize("newurl", ["https://mirror.example.org/app.zip", "file:///etc/passwd"])
-def test_redirect_cross_host_or_unparsable_drops_auth_header(newurl: str):
-    new_request = _redirect_request(http_source._AuthAwareRedirectHandler("Authorization"), newurl)
-
-    assert new_request is not None
-    assert _header_value(new_request, "Authorization") is None
+    if keeps_auth:
+        assert _header_value(new_request, "Authorization") == "Bearer sekret"
+    else:
+        assert _header_value(new_request, "Authorization") is None
     assert _header_value(new_request, "X-Custom") == "keep-me"
 
 
@@ -1105,3 +1184,397 @@ def test_deploy_string_config_has_no_auth_to_forward(temp_dir: pathlib.Path):
         deploy.deploy(s3_path=cfg.deploy, config=cfg)
 
     assert fetch_http.call_args.kwargs["auth"] is None
+
+
+# ---- L12: rollback snapshot capture and restore ----
+
+
+def _deploy_with_previous_tree(temp_dir: pathlib.Path) -> None:
+    """Deploy over an existing managed tree with a previous compman.yml."""
+    managed = temp_dir / "project"
+    managed.mkdir()
+    (managed / "old.txt").write_text("previous", encoding="utf-8")
+    config_text = "compman:\n  name: app\n  deploy: old\n"
+    (temp_dir / "compman.yml").write_text(config_text, encoding="utf-8")
+
+    source = temp_dir / "fetched"
+    source.mkdir()
+    (source / "new.txt").write_text("current", encoding="utf-8")
+    with patch("compman.deploy._fetch_http", return_value=source):
+        deploy.deploy(s3_path="https://example.test/app.zip")
+
+
+def test_deploy_captures_rollback_snapshot(temp_dir: pathlib.Path, capsys):
+    _deploy_with_previous_tree(temp_dir)
+
+    snap = temp_dir / ".compman" / "rollback"
+    assert (snap / "tree" / "old.txt").read_text(encoding="utf-8") == "previous"
+    assert (snap / "compman.yml").read_text(encoding="utf-8") == (
+        "compman:\n  name: app\n  deploy: old\n"
+    )
+    meta = json.loads((snap / "meta.json").read_text(encoding="utf-8"))
+    assert meta["timestamp"].endswith("+00:00")
+    assert meta["target"] == "project"
+    assert (temp_dir / "project" / "new.txt").exists()
+    assert not (temp_dir / "project" / "old.txt").exists()
+    assert str(snap) in capsys.readouterr().out
+
+
+def test_deploy_replaces_previous_snapshot_atomically(temp_dir: pathlib.Path):
+    _deploy_with_previous_tree(temp_dir)
+    first_meta = json.loads(
+        (temp_dir / ".compman" / "rollback" / "meta.json").read_text(encoding="utf-8")
+    )
+
+    second = temp_dir / "second-source"
+    second.mkdir()
+    (second / "v2.txt").write_text("v2", encoding="utf-8")
+    with patch("compman.deploy._fetch_http", return_value=second):
+        deploy.deploy(s3_path="https://example.test/v2.zip")
+
+    snap = temp_dir / ".compman" / "rollback"
+    assert (snap / "tree" / "new.txt").exists()
+    assert not (snap / "tree" / "old.txt").exists()
+    second_meta = json.loads((snap / "meta.json").read_text(encoding="utf-8"))
+    assert second_meta["timestamp"] >= first_meta["timestamp"]
+    leftovers = [p.name for p in snap.parent.iterdir() if p.name != "rollback"]
+    assert leftovers == []
+
+
+def test_deploy_snapshot_failure_warns_and_continues(temp_dir: pathlib.Path, capsys):
+    (temp_dir / "compman.yml").write_text(
+        "compman:\n  name: app\n  deploy: s3://b/k.tar.gz\n", encoding="utf-8"
+    )
+    zip_path = temp_dir / "app.zip"
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        zf.writestr("test.txt", "hello")
+    mock_s3 = MagicMock()
+    mock_s3.download_file.side_effect = lambda b, k, dst: pathlib.Path(dst).write_bytes(
+        zip_path.read_bytes()
+    )
+
+    with patch("boto3.client", return_value=mock_s3), patch(
+        "compman.deploy._capture_rollback_snapshot",
+        side_effect=RuntimeError("disk full"),
+    ):
+        deploy.deploy(build=False, tag=None, s3_path="s3://my-bucket/app.zip")
+
+    err = capsys.readouterr().err
+    assert "disk full" in err
+    assert (temp_dir / "project" / "test.txt").exists()
+    assert not (temp_dir / ".compman").exists() or not (
+        temp_dir / ".compman" / "rollback"
+    ).exists()
+
+
+def test_deploy_scaffold_failure_after_swap_keeps_snapshot_recoverable(
+    temp_dir: pathlib.Path,
+):
+    (temp_dir / "compman.yml").write_text(
+        "compman:\n  name: app\n  deploy: s3://b/k.tar.gz\n", encoding="utf-8"
+    )
+    zip_path = temp_dir / "app.zip"
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        zf.writestr("test.txt", "hello")
+    mock_s3 = MagicMock()
+    mock_s3.download_file.side_effect = lambda b, k, dst: pathlib.Path(dst).write_bytes(
+        zip_path.read_bytes()
+    )
+
+    with patch("boto3.client", return_value=mock_s3), patch(
+        "compman.deploy._generate_scaffold", side_effect=RuntimeError("template boom")
+    ):
+        with pytest.raises(SystemExit):
+            deploy.deploy(build=False, tag=None, s3_path="s3://my-bucket/app.zip")
+
+    snap = temp_dir / ".compman" / "rollback"
+    assert (snap / "tree").is_dir()
+    assert (temp_dir / "project" / "test.txt").exists()
+
+
+def test_swap_old_dest_preserves_previous_tree(temp_dir: pathlib.Path):
+    src = temp_dir / "source"
+    src.mkdir()
+    (src / "a-new").write_text("new", encoding="utf-8")
+    target = temp_dir / "target"
+    target.mkdir()
+    (target / "a-old").write_text("old", encoding="utf-8")
+    keep = temp_dir / "keep"
+
+    deploy._swap(src, target, old_dest=keep)
+
+    assert (keep / "a-old").read_text(encoding="utf-8") == "old"
+    assert (target / "a-new").exists()
+
+
+def test_swap_old_dest_restores_previous_tree_on_failure(temp_dir: pathlib.Path):
+    src = temp_dir / "source"
+    src.mkdir()
+    (src / "a-new").write_text("new", encoding="utf-8")
+    (src / "z-bomb").mkdir()
+    target = temp_dir / "target"
+    target.mkdir()
+    (target / "a-old").write_text("old", encoding="utf-8")
+    keep = temp_dir / "keep"
+
+    real_move = shutil.move
+
+    def failing_move(src_path, dst_path, *args, **kwargs):
+        if "z-bomb" in str(src_path) or "z-bomb" in str(dst_path):
+            raise OSError("cannot move bomb")
+        return real_move(src_path, dst_path, *args, **kwargs)
+
+    with patch("compman.deploy.shutil.move", side_effect=failing_move):
+        with pytest.raises(OSError, match="bomb"):
+            deploy._swap(src, target, old_dest=keep)
+
+    assert (target / "a-old").read_text(encoding="utf-8") == "old"
+    assert not (target / "a-new").exists()
+
+
+def test_restore_rollback_swaps_and_restores_config(temp_dir: pathlib.Path):
+    snap = temp_dir / ".compman" / "rollback"
+    (snap / "tree").mkdir(parents=True)
+    (snap / "tree" / "old.txt").write_text("previous", encoding="utf-8")
+    (snap / "compman.yml").write_bytes(b"compman:\n  name: previous\n")
+    (snap / "meta.json").write_text(
+        json.dumps({"timestamp": "2026-01-02T03:04:05+00:00", "target": "project"}),
+        encoding="utf-8",
+    )
+    managed = temp_dir / "project"
+    managed.mkdir()
+    (managed / "new.txt").write_text("current", encoding="utf-8")
+    (temp_dir / "compman.yml").write_text("compman:\n  name: current\n", encoding="utf-8")
+
+    timestamp = deploy.restore_rollback(temp_dir)
+
+    assert timestamp == "2026-01-02T03:04:05+00:00"
+    assert (managed / "old.txt").exists()
+    assert not (managed / "new.txt").exists()
+    assert (temp_dir / "compman.yml").read_bytes() == b"compman:\n  name: previous\n"
+    assert not snap.exists()
+    assert not (temp_dir / ".compman").exists()
+
+def test_restore_rollback_without_snapshot_raises_command_error(temp_dir: pathlib.Path):
+    with pytest.raises(CommandError, match="No rollback snapshot"):
+        deploy.restore_rollback(temp_dir)
+
+
+def test_restore_rollback_with_corrupt_meta_treated_as_missing(temp_dir: pathlib.Path):
+    snap = temp_dir / ".compman" / "rollback"
+    (snap / "tree").mkdir(parents=True)
+    (snap / "meta.json").write_text("{not json", encoding="utf-8")
+    with pytest.raises(CommandError, match="No rollback snapshot"):
+        deploy.restore_rollback(temp_dir)
+
+
+def test_deploy_snapshot_records_absolute_target_outside_cwd(
+    temp_dir: pathlib.Path, tmp_path_factory
+):
+    cfg_dir = tmp_path_factory.mktemp("outer") / "cfg"
+    cfg_dir.mkdir(parents=True)
+    (cfg_dir / "compman.yml").write_text(
+        "compman:\n  name: app\n  compose:\n    default:\n      file: docker-compose.yml\n  dirs:\n    project: managed\n",
+        encoding="utf-8",
+    )
+    source = temp_dir / "fetched"
+    source.mkdir()
+    (source / "x.txt").write_text("x", encoding="utf-8")
+    cfg = load_config(str(cfg_dir / "compman.yml"))
+
+    with (
+        patch("compman.deploy._fetch_http", return_value=source),
+        patch("compman.deploy.record_stack") as record,
+    ):
+        deploy.deploy(s3_path="https://example.test/app.zip", config=cfg)
+    record.assert_called_once_with("app", str(cfg_dir))
+
+    meta = json.loads(
+        (temp_dir / ".compman" / "rollback" / "meta.json").read_text(encoding="utf-8")
+    )
+    assert meta["target"] == str(cfg_dir / "managed")
+
+
+def test_commit_replace_failure_restores_previous_snapshot(
+    temp_dir: pathlib.Path, capsys
+):
+    _deploy_with_previous_tree(temp_dir)
+    snap = temp_dir / ".compman" / "rollback"
+    original_meta = (snap / "meta.json").read_text(encoding="utf-8")
+
+    second = temp_dir / "second-source"
+    second.mkdir()
+    (second / "v2.txt").write_text("v2", encoding="utf-8")
+    real_replace = os.replace
+
+    def failing_replace(src, dst, *args, **kwargs):
+        if "rollback_tmp_" in str(src):
+            raise OSError("replace boom")
+        return real_replace(src, dst, *args, **kwargs)
+
+    with patch("compman.deploy._fetch_http", return_value=second), patch(
+        "compman.deploy.os.replace", side_effect=failing_replace
+    ):
+        deploy.deploy(s3_path="https://example.test/v2.zip")
+
+    assert "replace boom" in capsys.readouterr().err
+    assert json.loads((snap / "meta.json").read_text(encoding="utf-8")) == json.loads(
+        original_meta
+    )
+    assert (snap / "tree" / "old.txt").exists()
+    leftovers = [p.name for p in snap.parent.iterdir() if p.name != "rollback"]
+    assert leftovers == []
+
+
+def test_deploy_swap_failure_inside_capture_falls_back_to_plain_swap(
+    temp_dir: pathlib.Path, capsys
+):
+    managed = temp_dir / "project"
+    managed.mkdir()
+    (managed / "old.txt").write_text("previous", encoding="utf-8")
+    (temp_dir / "compman.yml").write_text(
+        "compman:\n  name: app\n  deploy: old\n", encoding="utf-8"
+    )
+    source = temp_dir / "fetched"
+    source.mkdir()
+    (source / "new.txt").write_text("current", encoding="utf-8")
+    real_move = shutil.move
+
+    def failing_staging_move(src, dst, *args, **kwargs):
+        if ".compman" in str(dst):
+            raise OSError("cannot move into staging")
+        return real_move(src, dst, *args, **kwargs)
+
+    with patch("compman.deploy._fetch_http", return_value=source), patch(
+        "compman.deploy.shutil.move", side_effect=failing_staging_move
+    ):
+        deploy.deploy(s3_path="https://example.test/app.zip")
+
+    assert "cannot move into staging" in capsys.readouterr().err
+    assert (managed / "new.txt").exists()
+    snap = temp_dir / ".compman" / "rollback"
+    assert not snap.exists()
+    leftovers = [p.name for p in snap.parent.iterdir()] if snap.parent.exists() else []
+    assert not any(name.startswith(".rollback_tmp_") for name in leftovers)
+
+
+def test_deploy_commit_failure_warns_but_keeps_deployment(temp_dir: pathlib.Path, capsys):
+    source = temp_dir / "fetched"
+    source.mkdir()
+    (source / "new.txt").write_text("current", encoding="utf-8")
+    with patch("compman.deploy._fetch_http", return_value=source), patch(
+        "compman.deploy._commit_rollback_snapshot",
+        side_effect=RuntimeError("meta boom"),
+    ):
+        deploy.deploy(s3_path="https://example.test/app.zip")
+
+    assert "meta boom" in capsys.readouterr().err
+    assert (temp_dir / "project" / "new.txt").exists()
+    assert not (temp_dir / ".compman" / "rollback").exists()
+
+
+def test_restore_rollback_absolute_target_without_saved_config(temp_dir: pathlib.Path):
+    snap = temp_dir / ".compman" / "rollback"
+    (snap / "tree").mkdir(parents=True)
+    (snap / "tree" / "old.txt").write_text("previous", encoding="utf-8")
+    (snap / "meta.json").write_text(
+        json.dumps({"timestamp": "2026-01-02T03:04:05+00:00", "target": str(temp_dir / "project")}),
+        encoding="utf-8",
+    )
+    managed = temp_dir / "project"
+    managed.mkdir()
+    (managed / "new.txt").write_text("current", encoding="utf-8")
+
+    timestamp = deploy.restore_rollback(temp_dir)
+
+    assert timestamp == "2026-01-02T03:04:05+00:00"
+    assert (managed / "old.txt").exists()
+    assert not (managed / "new.txt").exists()
+    assert not (temp_dir / "compman.yml").exists()
+    assert not snap.exists()
+
+
+def test_commit_replace_failure_without_prior_snapshot_warns(temp_dir: pathlib.Path, capsys):
+    source = temp_dir / "fetched"
+    source.mkdir()
+    (source / "new.txt").write_text("current", encoding="utf-8")
+    real_replace = os.replace
+
+    def failing_replace(src, dst, *args, **kwargs):
+        if "rollback_tmp_" in str(src):
+            raise OSError("fresh replace boom")
+        return real_replace(src, dst, *args, **kwargs)
+
+    with patch("compman.deploy._fetch_http", return_value=source), patch(
+        "compman.deploy.os.replace", side_effect=failing_replace
+    ):
+        deploy.deploy(s3_path="https://example.test/app.zip")
+
+    assert "fresh replace boom" in capsys.readouterr().err
+    assert (temp_dir / "project" / "new.txt").exists()
+    assert not (temp_dir / ".compman" / "rollback").exists()
+
+
+
+
+# ---- L18: scaffold schema header and .bak fallback ----
+
+
+def test_generate_scaffold_writes_schema_header_matching_default_config(
+    dummy_runtime, temp_dir: pathlib.Path
+):
+    from compman.config import YAML_SCHEMA_HEADER, dump_default_config
+
+    root = temp_dir / "proj"
+    root.mkdir()
+    deploy._generate_scaffold(root, "project", "s3://b/k.tar.gz", "img")
+
+    content = (root / "compman.yml").read_text(encoding="utf-8")
+    assert content.startswith(YAML_SCHEMA_HEADER + "\n")
+    assert dump_default_config("x").startswith(YAML_SCHEMA_HEADER + "\n")
+
+
+def test_update_deploy_fallback_writes_bak_before_safe_dump(temp_dir: pathlib.Path, capsys):
+    compman_yml = temp_dir / "compman.yml"
+    original = "compman:\n  # keep me\n  name: app\n  deploy: {a: 1}\n"
+    compman_yml.write_text(original, encoding="utf-8")
+
+    with patch("yaml.safe_load", side_effect=[{"compman": {"deploy": {"a": 1}}}, ValueError("bad")]):
+        deploy._update_compman_deploy(compman_yml, "s3://new/path")
+
+    bak = temp_dir / "compman.yml.bak"
+    assert bak.exists()
+    assert bak.read_text(encoding="utf-8") == original
+    new_content = compman_yml.read_text(encoding="utf-8")
+    parsed = yaml.safe_load(new_content)
+    assert parsed["compman"]["deploy"] == "s3://new/path"
+    out = capsys.readouterr().out
+    assert str(bak) in out
+    assert t("msg.updated_deploy", s3_path="s3://new/path") in out
+
+
+def test_update_deploy_mapping_line_edit_preserves_comments(temp_dir: pathlib.Path, capsys):
+    compman_yml = temp_dir / "compman.yml"
+    original = (
+        "# yaml-language-server: $schema=https://allbegray.github.io/compman/compman.schema.json\n"
+        "compman:\n"
+        "  name: app\n"
+        "  # deployment pin below\n"
+        "  deploy:\n"
+        "    url: s3://old/app.tar.gz\n"
+        "    sha256: " + _PIN_A + "\n"
+        "  dirs:\n"
+        "    project: project\n"
+        "# trailing comment\n"
+    )
+    compman_yml.write_text(original, encoding="utf-8")
+
+    deploy._update_compman_deploy(compman_yml, "s3://new/app.tar.gz")
+
+    new_content = compman_yml.read_text(encoding="utf-8")
+    assert "# yaml-language-server:" in new_content
+    assert "# deployment pin below" in new_content
+    assert "# trailing comment" in new_content
+    parsed = yaml.safe_load(new_content)
+    assert parsed["compman"]["deploy"] == "s3://new/app.tar.gz"
+    assert "compman.yml.bak" not in [p.name for p in temp_dir.iterdir()]

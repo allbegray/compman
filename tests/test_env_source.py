@@ -4,8 +4,10 @@ import json
 from unittest.mock import Mock, patch
 
 import pytest
+from botocore.config import Config as BotoConfig
 from botocore.exceptions import ClientError, NoRegionError
 
+from compman._proc import _env_timeout
 from compman.config import SecretRef
 from compman.env_source import interpolate_secrets, resolve_secrets
 from compman.errors import ConfigError
@@ -130,8 +132,23 @@ def test_resolve_secrets_default_client_used(mock_client):
     refs = {"DB_URL": SecretRef(arn="arn:app", key="url")}
     resolved = resolve_secrets(refs)
     assert resolved == {"DB_URL": "db.example.com"}
-    mock_client.assert_called_once_with("secretsmanager")
+    mock_client.assert_called_once_with("secretsmanager", config=mock_client.call_args.kwargs["config"])
+    assert mock_client.call_args.args == ("secretsmanager",)
 
+
+
+@patch("compman.env_source.boto3.client")
+def test_secretsmanager_client_matches_s3_timeout_config(mock_client):
+    mock_client.return_value.get_secret_value.return_value = {
+        "SecretString": json.dumps({"url": "db.example.com"})
+    }
+    refs = {"DB_URL": SecretRef(arn="arn:app", key="url")}
+    resolve_secrets(refs)
+    cfg = mock_client.call_args.kwargs["config"]
+    assert isinstance(cfg, BotoConfig)
+    assert cfg.connect_timeout == 10
+    assert cfg.read_timeout == _env_timeout()
+    assert cfg.retries == {"max_attempts": 3, "mode": "standard"}
 
 def test_interpolate_secrets_full_reference():
     resolved = {"DB_URL": "db.example.com"}

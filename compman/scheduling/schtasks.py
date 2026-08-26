@@ -3,13 +3,28 @@ from __future__ import annotations
 import subprocess
 
 from compman.scheduling.cadence import schtasks_cadence_args
-from compman.scheduling.registry import JobRecord, Runner
+from compman.scheduling.registry import JobRecord, Runner, require_success
 
 TR_MAX_LENGTH = 261
 
+_CMD_ARG_SAFE_CHARS = frozenset(
+    "abcdefghijklmnopqrstuvwxyz"
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    "0123456789"
+    "-_.\\/:=+"
+)
+
+
+def cmd_quote(argument: str) -> str:
+    """Quote one cmd.exe payload argument holding whitespace or metacharacters."""
+    if argument and all(char in _CMD_ARG_SAFE_CHARS for char in argument):
+        return argument
+    return f'"{argument}"'
+
+
 
 def _tr_payload(record: JobRecord) -> str:
-    rest = " ".join(record.args[1:])
+    rest = " ".join(cmd_quote(argument) for argument in record.args[1:])
     return f'cmd.exe /c ""{record.args[0]}" {rest} >> "{record.log_path}" 2>&1"'
 
 
@@ -34,7 +49,13 @@ def build_schtasks_command(record: JobRecord) -> list[str]:
 
 class SchtasksAdapter:
     def install(self, record: JobRecord, runner: Runner = subprocess.run) -> None:
-        runner(build_schtasks_command(record), capture_output=True, text=True, check=False)
+        created = runner(
+            build_schtasks_command(record),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        require_success(created, "schtasks")
 
     def remove(self, name: str, runner: Runner = subprocess.run) -> None:
         runner(

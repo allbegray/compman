@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import shlex
 import subprocess
 from pathlib import Path
 
 from compman.scheduling.cadence import require_minutes, systemd_oncalendar
-from compman.scheduling.registry import JobRecord, Runner
+from compman.scheduling.registry import JobRecord, Runner, require_success
 
 
 def unit_dir() -> Path:
@@ -20,6 +19,24 @@ def _active_span(minutes: int) -> str:
     return f"{minutes // 60}h" if minutes % 60 == 0 else f"{minutes}min"
 
 
+_SYSTEMD_ARG_SAFE_CHARS = frozenset(
+    "abcdefghijklmnopqrstuvwxyz"
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    "0123456789"
+    "-_.:/=@+"
+)
+
+
+def systemd_quote(argument: str) -> str:
+    """Quote one ExecStart argument using systemd syntax rather than POSIX shlex."""
+    if argument and all(char in _SYSTEMD_ARG_SAFE_CHARS for char in argument):
+        return argument
+    escaped = argument.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
+
+
 def build_systemd_units(record: JobRecord) -> tuple[str, str]:
     _service_name, timer_name = unit_names(record.name)
     description = f"compman scheduled volume backup ({record.name})"
@@ -31,7 +48,7 @@ def build_systemd_units(record: JobRecord) -> tuple[str, str]:
         "Type=oneshot\n"
         f'Environment="PATH={record.path_env}"\n'
         f"WorkingDirectory={record.workdir}\n"
-        f"ExecStart={shlex.join(record.args)}\n"
+        f"ExecStart={' '.join(systemd_quote(argument) for argument in record.args)}\n"
     )
     cadence = record.cadence()
     if cadence.kind == "interval":
@@ -60,18 +77,20 @@ class SystemdAdapter:
         service, timer = build_systemd_units(record)
         (directory / service_name).write_text(service, encoding="utf-8")
         (directory / timer_name).write_text(timer, encoding="utf-8")
-        runner(
+        reload_done = runner(
             ["systemctl", "--user", "daemon-reload"],
             capture_output=True,
             text=True,
             check=False,
         )
-        runner(
+        require_success(reload_done, "systemd")
+        enabled = runner(
             ["systemctl", "--user", "enable", "--now", timer_name],
             capture_output=True,
             text=True,
             check=False,
         )
+        require_success(enabled, "systemd")
 
     def remove(self, name: str, runner: Runner = subprocess.run) -> None:
         service_name, timer_name = unit_names(name)
@@ -93,4 +112,10 @@ class SystemdAdapter:
 
     def exists(self, name: str, runner: Runner = subprocess.run) -> bool:
         _service_name, timer_name = unit_names(name)
-        return (unit_dir() / timer_name).is_file()
+        state = runner(
+            ["systemctl", "--user", "is-enabled", timer_name],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        return state.returncode == 0

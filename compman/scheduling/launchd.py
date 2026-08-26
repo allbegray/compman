@@ -6,7 +6,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from compman.scheduling.cadence import parse_time_value, require_minutes, require_weekday
-from compman.scheduling.registry import JobRecord, Runner
+from compman.scheduling.registry import JobRecord, Runner, require_success
 
 LABEL_PREFIX = "com.compman.volume."
 
@@ -79,12 +79,13 @@ class LaunchdAdapter:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(build_plist_xml(record), encoding="utf-8")
         uid = os.getuid()
-        runner(
+        bootstrapped = runner(
             ["launchctl", "bootstrap", f"gui/{uid}", str(path)],
             capture_output=True,
             text=True,
             check=False,
         )
+        require_success(bootstrapped, "launchd")
 
     def remove(self, name: str, runner: Runner = subprocess.run) -> None:
         uid = os.getuid()
@@ -97,4 +98,11 @@ class LaunchdAdapter:
         plist_path(name).unlink(missing_ok=True)
 
     def exists(self, name: str, runner: Runner = subprocess.run) -> bool:
-        return plist_path(name).is_file()
+        uid = os.getuid()
+        printed = runner(
+            ["launchctl", "print", f"gui/{uid}/{label_for(name)}"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        return printed.returncode == 0

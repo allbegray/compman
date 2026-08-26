@@ -55,15 +55,20 @@ if ($LASTEXITCODE -ne 0) {
     throw "uv tool install failed with exit code $LASTEXITCODE."
 }
 
-# 4. Automatically register PowerShell Tab auto-completion & execution policy
+# 4. Best-effort PowerShell tab-completion registration (never mutates execution policy)
 if (Get-Command compman -ErrorAction SilentlyContinue) {
     try {
-        Set-ExecutionPolicy RemoteSigned -Scope CurrentUser -Force -ErrorAction SilentlyContinue
         compman completion powershell --install | Out-Null
         Write-Host "✅ Registered shell auto-completion for PowerShell." -ForegroundColor Green
     } catch {
-        # ignore if profile cannot be modified
+        Write-Host "⚠️  Could not register PowerShell completion: $($_.Exception.Message)" -ForegroundColor Yellow
     }
+}
+$execPolicy = Get-ExecutionPolicy
+if ($execPolicy -eq "Restricted" -or $execPolicy -eq "AllSigned") {
+    Write-Host "⚠️  Execution policy '$execPolicy' prevents profile scripts from loading, so tab completion stays off." -ForegroundColor Yellow
+    Write-Host "   To enable it, run this command yourself:" -ForegroundColor Yellow
+    Write-Host "      Set-ExecutionPolicy RemoteSigned -Scope CurrentUser" -ForegroundColor Cyan
 }
 
 Write-Host "`n🎉 compman installed successfully! Run 'compman --help' to get started." -ForegroundColor Cyan

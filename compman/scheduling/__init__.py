@@ -11,7 +11,14 @@ from compman.scheduling.cadence import (
 from compman.scheduling.crontab import CrontabAdapter, build_crontab_block, crontab_status
 from compman.scheduling.launchd import LaunchdAdapter, build_plist_xml
 from compman.scheduling.pick import pick_scheduler
-from compman.scheduling.registry import JobRecord, load_registry, registry_path, save_registry
+from compman.scheduling.registry import (
+    JobRecord,
+    load_registry,
+    registry_dir,
+    registry_lock,
+    registry_path,
+    save_registry,
+)
 from compman.scheduling.resolve import resolve_executable
 from compman.scheduling.schtasks import SchtasksAdapter, build_schtasks_command
 from compman.scheduling.systemd import SystemdAdapter, build_systemd_units
@@ -33,6 +40,8 @@ __all__ = [
     "load_registry",
     "parse_cadence",
     "pick_scheduler",
+    "registry_dir",
+    "registry_lock",
     "registry_path",
     "resolve_executable",
     "save_registry",

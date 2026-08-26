@@ -7,7 +7,7 @@ from pathlib import Path
 import typer
 import yaml
 
-from compman.config import sanitize_project_name
+from compman.config import YAML_SCHEMA_HEADER, sanitize_project_name
 from compman.i18n import t
 
 
@@ -15,6 +15,7 @@ def generate(root: Path, project_subfolder: str, s3_path: str, image: str) -> No
     compman_yml = root / "compman.yml"
     if not compman_yml.exists():
         content = (
+            f"{YAML_SCHEMA_HEADER}\n"
             f"compman:\n"
             f"  name: {sanitize_project_name(root.name)}\n"
             f"  deploy: {s3_path}\n"
@@ -52,6 +53,13 @@ def generate(root: Path, project_subfolder: str, s3_path: str, image: str) -> No
 
 
 def update_deploy(compman_yml: Path, s3_path: str) -> None:
+    """Point compman.yml's deploy entry at ``s3_path``, preserving comments.
+
+    A comment-preserving line edit is attempted first. Only when that edit
+    cannot produce a valid file does this fall back to a whole-file
+    ``yaml.safe_dump`` rewrite; in that case the original bytes are kept next
+    to the file as ``compman.yml.bak`` before the rewrite.
+    """
     content = compman_yml.read_text(encoding="utf-8-sig")
     try:
         raw = yaml.safe_load(content)
@@ -132,6 +140,9 @@ def update_deploy(compman_yml: Path, s3_path: str) -> None:
 
     if isinstance(raw, dict) and isinstance(raw.get("compman"), dict):
         raw["compman"]["deploy"] = s3_path
+        backup = compman_yml.with_name(compman_yml.name + ".bak")
+        backup.write_bytes(compman_yml.read_bytes())
         dumped = yaml.safe_dump(raw, sort_keys=False, allow_unicode=True)
         compman_yml.write_text(dumped, encoding="utf-8")
+        typer.echo(str(backup))
         typer.echo(t("msg.updated_deploy", s3_path=s3_path))

@@ -47,7 +47,7 @@ SOLUTION.md            # dev/test/debug lessons (read before touching runtime/CL
 ```
 
 - `compman init` provides an interactive 3-mode menu (1. Scaffold compman.yml, 2. S3 URL deploy, 3. Test seed project). Direct flags `--scaffold`, `--s3 <url>`, and `--seed` are also supported.
-- Current package version: `1.5.0`.
+- Current package version: `1.10.0`.
 - English is the default UI and documentation language. Korean remains supported through `--lang ko` or `COMPMAN_LANG=ko`; keep Korean text isolated to `i18n.py` TRANSLATIONS and their tests.
 - Build/running is `uv`-based (`pyproject.toml` has `[tool.uv] package = true`).
 - Python >=3.12; runtime deps: typer, PyYAML, boto3, botocore.
@@ -126,12 +126,15 @@ compose:
   redirects drop the auth header (same-host redirects keep it). Auth applies
   only when the deployed source URL equals the configured `deploy` URL; an
   explicit `--path` deploy is unauthenticated.
-- `dirs.backup` accepts a relative local path or an `s3://bucket/prefix` URI
-  (parsed into a frozen `BackupStore` union in `compman/backup_store.py`).
-  Remote mode: archives live in the bucket; each backup stages locally, uploads
-  (`Content-Type: application/gzip`, head_object size verify), then deletes the
-  staged copy. Upload failure exits non-zero keeping and naming the staged
-  archive; restores list/download from the store automatically.
+- `dirs.backup` accepts a relative local path, an `s3://bucket/prefix` URI, or an
+  `ssh://[user@]host[:port]/path` URI (parsed into a frozen `BackupStore` union in
+  `compman/backup_store.py`). S3 remote mode: archives live in the bucket; each
+  backup stages locally, uploads (`Content-Type: application/gzip`, head_object
+  size verify), then deletes the staged copy. SSH remote mode drives `scp`/`ssh`
+  subprocesses (`BatchMode=yes`, `StrictHostKeyChecking=accept-new`, keys assumed
+  pre-provisioned; `COMPMAN_TIMEOUT` applies) and cleans the staged copy the same
+  way. Upload failure exits non-zero keeping and naming the staged archive;
+  restores list/download from the store automatically.
 - Long-running Docker/subprocess operations default to a 300s timeout, overridable
   per process with `COMPMAN_TIMEOUT=<seconds>` (invalid values fall back to 300).
 
@@ -171,18 +174,20 @@ compose:
 - `image backup` defaults to committing runtime container state; `--source-image` flag saves the original image instead.
 - `volume backup/restore` optional `--no-stop` flag skips stack teardown.
 - `volume restore/push` optional `--replace` flag deletes destination-only files before copying (byte-for-byte replace instead of merge); the container destination is validated as an absolute, non-root path.
-- `volume backup` and `image backup` accept `-z`/`--level` from 1 to 9; the default gzip compression level is 6.
+- `volume backup` and `image backup` accept `-z`/`--level` from 1 to 9; the default gzip compression level is 6. `--zstd` writes a Zstandard `.tar.zst` archive instead of `.tar.gz` (requires Python 3.14+, stdlib `compression.zstd`; `-z` applies to gzip only). Restore/list resolve stored suffixes automatically.
 - `service log` displays last 50 lines by default (`docker logs -n 50`), supports `-f`/`--follow` to stream and `-n`/`--tail N` for line count.
 - `service connect` runs `docker exec -it` with bash fallback to sh.
 - `service log`/`connect` accept Compose **service** names; the runtime container is resolved via `compose ps -q <service>`. Zero instances fail with a "no running containers" error; a scaled service with multiple instances fails with guidance to name the exact container.
 - `deploy` sources come from `compman.yml: deploy` (single value, no per-profile) or `--path`. S3 uses boto3 (no AWS CLI needed); `AWS_ENDPOINT_URL_S3` or `AWS_ENDPOINT_URL` redirects the client (e.g. ministack at `http://localhost:4566`). Credentials use standard AWS environment variables.
 - Deploy accepts an S3 **prefix** or `.tar.gz`/`.tgz`/`.zip` archive, plus public HTTP/HTTPS archives with those suffixes. HTTP uses standard TLS/redirect behavior and a 30-second timeout; authenticated fetches send a header sourced from an environment variable and require HTTPS. Archives reject absolute/traversal paths and links; a single top-level directory is flattened.
 - `deploy` accepts `--sha256 HEX` (or `deploy.sha256` in config); the digest is verified after download, before extraction/build/swap, and a mismatch exits 1 with nothing changed. The pin applies whenever the deployed source URL equals the configured `deploy` URL, so `update` inherits it.
-- `compman upgrade` refreshes the uv tool from its stored source with `uv tool upgrade compman --reinstall --managed-python --python 3.13`. To recover a damaged installation, run `uv tool uninstall compman`, then `uv tool install --managed-python --python 3.13 git+https://github.com/allbegray/compman.git`, and verify with `compman --version`. Keep the recovery source unpinned so future `uv tool upgrade` runs can move to newer releases.
+- `compman upgrade` refreshes the uv tool from its stored source with `uv tool upgrade compman --reinstall --managed-python --python <major.minor>`, where `<major.minor>` is derived from the running interpreter (`sys.version_info`), not pinned to a fixed version. To recover a damaged installation, run `uv tool uninstall compman`, then `uv tool install --managed-python --python <same major.minor> git+https://github.com/allbegray/compman.git`, and verify with `compman --version`. Keep the recovery source unpinned so future `uv tool upgrade` runs can move to newer releases.
 - The fetched tree replaces the contents of the managed `dirs.project` directory, preserving `.git` and `.gitkeep`. Root `compman.yml` and `docker-compose.yml` are scaffolded or updated separately.
 - Deploy with `--build` is transactional up to the managed-tree swap: the image builds from the temporary source first, so a build failure leaves the existing tree and configuration untouched. The swap itself rolls back on failure; only a scaffold-generation failure after the swap can leave the new source tree in place.
+- `compman rollback` restores the automatic snapshot captured by the previous successful deploy (managed tree plus root `compman.yml`) transactionally; without a snapshot it fails with a concise error. Snapshot capture problems warn but never fail the deploy.
+- `compman stacks list [--json]|remove NAME` manage the multi-stack registry (`stacks.json` beside the schedules registry); a successful deploy records the stack directory, and the global `--stack NAME` option runs any command against a registered stack from any directory (explicit `-c/--config` wins).
 - `update` rebuilds and force-recreates containers; it is not a zero-downtime rolling deployment.
-- `compman schedule add|list|remove` registers unattended `volume backup` jobs with the platform scheduler: launchd on macOS, schtasks on Windows, systemd user timer (probe `systemctl --user show-environment`) else crontab on Linux; `--scheduler systemd|cron` forces the Linux mechanism only. Exactly one cadence option (`--every Nm|Nh`, `--daily HH:MM`, `--weekly <day> HH:MM`) is required; cron targets additionally require 60-divisible minutes or whole-hour intervals. Jobs run `[exe, -c <config>, volume backup, ...baked flags]` with output appended to `<registry_dir>/schedule.log` (journald for systemd). The registry at `~/.config/compman/schedules.json` (`%APPDATA%\compman\schedules.json` on Windows) is the source of truth: `list` marks absent artifacts `[missing]`, `remove` tolerates already-missing artifacts and always deletes the entry.
+- `compman schedule add|list|remove` registers unattended `volume backup` jobs with the platform scheduler: launchd on macOS, schtasks on Windows, systemd user timer (probe `systemctl --user show-environment`) else crontab on Linux; `--scheduler systemd|cron` forces the Linux mechanism only. Exactly one cadence option (`--every Nm|Nh`, `--daily HH:MM`, `--weekly <day> HH:MM`) is required; cron targets additionally require 60-divisible minutes or whole-hour intervals. Jobs run `[exe, -c <config>, volume backup, ...baked flags]` with output appended to `<registry_dir>/schedule.log` (journald for systemd). The default job name is `<sanitized config name>.volume`. The registry file `schedules.json` lives under `%APPDATA%\compman` when the `APPDATA` environment variable is set (always set on Windows), otherwise `~/.config/compman`, and is the source of truth: `list` marks absent artifacts `[missing]`, `remove` tolerates already-missing artifacts and always deletes the entry.
 - Expected operational failures, including Docker Desktop readiness failures, are shown as concise errors without Python tracebacks.
 - Root version flags are `-v` and `--version`; help flags are `-h` and `--help` for the root and command groups.
 
@@ -192,6 +197,8 @@ compose:
 <stackname>.volume.<YYYYMMDD_HHMMSS>[_<microseconds>].tar.gz
 <stackname>.image.<YYYYMMDD_HHMMSS>[_<microseconds>].tar.gz
 ```
+
+With `--zstd` the archive suffix is `.tar.zst` instead of `.tar.gz`; restores resolve whichever suffix was stored.
 
 ## Verification
 

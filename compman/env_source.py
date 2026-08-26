@@ -5,11 +5,13 @@ import re
 from typing import Any, Mapping
 
 import boto3
+from botocore.config import Config
 from botocore.exceptions import (
     ClientError,
     NoRegionError,
 )
 
+from compman._proc import _env_timeout
 from compman.config import SecretRef
 from compman.errors import ConfigError
 
@@ -76,7 +78,14 @@ def interpolate_secrets(
 
 def _client() -> Any:
     try:
-        return boto3.client("secretsmanager")
+        return boto3.client(
+            "secretsmanager",
+            config=Config(
+                connect_timeout=10,
+                read_timeout=_env_timeout(),
+                retries={"max_attempts": 3, "mode": "standard"},
+            ),
+        )
     except NoRegionError as exc:
         raise ConfigError(
             "AWS region is not configured. Set AWS_DEFAULT_REGION "

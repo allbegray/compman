@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 from typing import Any, Protocol
 
+from compman._proc import _env_timeout
 from compman.archive_source import ensure_digest, extract_archive, has_archive_suffix, sha256_file
 from compman.errors import CommandError
 from compman.i18n import t
@@ -28,9 +29,18 @@ class _S3Client(Protocol):
 def create_client() -> Any:
     """Build a boto3 S3 client, honoring the endpoint override environment variables."""
     import boto3
+    from botocore.config import Config
 
     endpoint = os.environ.get("AWS_ENDPOINT_URL_S3") or os.environ.get("AWS_ENDPOINT_URL")
-    return boto3.client("s3", endpoint_url=endpoint or None)
+    return boto3.client(
+        "s3",
+        endpoint_url=endpoint or None,
+        config=Config(
+            connect_timeout=10,
+            read_timeout=_env_timeout(),
+            retries={"max_attempts": 3, "mode": "standard"},
+        ),
+    )
 
 
 def fetch(

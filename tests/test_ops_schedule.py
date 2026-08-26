@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 import pathlib
+from collections.abc import Generator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
 from unittest.mock import patch
@@ -29,12 +32,15 @@ class FakeProc:
 
 
 class FakeAdapter:
-    def __init__(self, exists: bool = True) -> None:
+    def __init__(self, exists: bool = True, install_error: Exception | None = None) -> None:
         self.exists_result = exists
+        self.install_error = install_error
         self.installed: list[JobRecord] = []
         self.removed: list[str] = []
 
     def install(self, record: JobRecord, runner: Any = None) -> None:
+        if self.install_error is not None:
+            raise self.install_error
         self.installed.append(record)
 
     def remove(self, name: str, runner: Any = None) -> None:
@@ -54,12 +60,25 @@ def seed_registry(tmp_path: pathlib.Path, jobs: dict[str, Any]) -> None:
     target.write_text(json.dumps({"version": 1, "jobs": jobs}), encoding="utf-8")
 
 
-def patch_adapters(exists: bool = True) -> tuple[Any, FakeAdapter]:
-    adapter = FakeAdapter(exists=exists)
+def patch_adapters(
+    exists: bool = True, install_error: Exception | None = None
+) -> tuple[Any, FakeAdapter]:
+    adapter = FakeAdapter(exists=exists, install_error=install_error)
     return (
         patch(schedule_ops.__name__ + "._adapter_for", return_value=adapter),
         adapter,
     )
+
+
+@contextmanager
+def isolated_home(tmp_path: pathlib.Path) -> Generator[None, None, None]:
+    """Pin Path.home and clear APPDATA so registry paths resolve under tmp_path."""
+    env = {key: value for key, value in os.environ.items() if key != "APPDATA"}
+    with (
+        patch.dict(os.environ, env, clear=True),
+        patch.object(pathlib.Path, "home", return_value=tmp_path),
+    ):
+        yield
 
 
 # ---------------------------------------------------------------------------
@@ -90,7 +109,7 @@ def test_add_schedule_registers_launchd_job_and_writes_registry(
 ) -> None:
     adapter_patch, adapter = patch_adapters()
     with (
-        patch.object(pathlib.Path, "home", return_value=tmp_path),
+        isolated_home(tmp_path),
         patch("compman.ops.schedule.platform.system", return_value="Darwin"),
         patch("compman.ops.schedule.resolve_executable", return_value="/opt/compman/bin/compman"),
         adapter_patch,
@@ -114,7 +133,7 @@ def test_add_schedule_registers_launchd_job_and_writes_registry(
         "--no-stop",
     ]
     assert adapter.installed == [record]
-    with patch.object(pathlib.Path, "home", return_value=tmp_path):
+    with isolated_home(tmp_path):
         stored = load_registry()["jobs"]["app-volume"]
     assert stored["platform"] == "launchd"
     assert stored["args"] == record.args
@@ -199,9 +218,8 @@ def test_add_schedule_rejects_non_divisible_interval_for_cron(
 ) -> None:
     adapter_patch, adapter = patch_adapters()
     with (
-        patch.object(pathlib.Path, "home", return_value=tmp_path),
+        isolated_home(tmp_path),
         patch("compman.ops.schedule.platform.system", return_value="Linux"),
-        patch("compman.ops.schedule.resolve_executable", return_value="/exe"),
         patch("compman.scheduling.pick.subprocess.run", return_value=FakeProc(returncode=1)),
         patch("compman.ops.schedule.crontab_status", return_value=(True, "")),
         adapter_patch,
@@ -231,11 +249,27 @@ def test_add_schedule_rejects_unavailable_crontab(tmp_path: pathlib.Path) -> Non
     assert adapter.installed == []
 
 
+def test_add_schedule_does_not_persist_job_when_install_fails(
+    tmp_path: pathlib.Path,
+) -> None:
+    adapter_patch, adapter = patch_adapters(install_error=CommandError("register blew up"))
+    with (
+        isolated_home(tmp_path),
+        patch("compman.ops.schedule.platform.system", return_value="Darwin"),
+        patch("compman.ops.schedule.resolve_executable", return_value="/exe"),
+        adapter_patch,
+    ):
+        with pytest.raises(CommandError, match="register blew up"):
+            schedule_ops.add_schedule(make_config(tmp_path), daily="04:30")
+        assert load_registry()["jobs"] == {}
+    assert adapter.installed == []
+
+
 def test_add_schedule_rejects_duplicate_name(tmp_path: pathlib.Path) -> None:
     seed_registry(tmp_path, {"app-volume": {"config_path": "/other/compman.yml"}})
     adapter_patch, adapter = patch_adapters()
     with (
-        patch.object(pathlib.Path, "home", return_value=tmp_path),
+        isolated_home(tmp_path),
         patch("compman.ops.schedule.platform.system", return_value="Darwin"),
         patch("compman.ops.schedule.resolve_executable", return_value="/exe"),
         adapter_patch,
@@ -257,6 +291,82 @@ def test_add_schedule_sanitizes_name_override(tmp_path: pathlib.Path) -> None:
             make_config(tmp_path), daily="04:30", name="My Stack!!"
         )
     assert record.name == "my-stack"
+
+
+def test_add_schedule_holds_registry_lock_across_load_and_save(
+    tmp_path: pathlib.Path,
+) -> None:
+    events: list[str] = []
+
+    @contextmanager
+    def fake_lock() -> Generator[None, None, None]:
+        events.append("lock")
+        try:
+            yield
+        finally:
+            events.append("unlock")
+
+    def fake_save(registry: dict[str, Any]) -> None:
+        events.append("save")
+
+    adapter_patch, _adapter = patch_adapters()
+    with (
+        isolated_home(tmp_path),
+        patch("compman.ops.schedule.platform.system", return_value="Darwin"),
+        patch("compman.ops.schedule.resolve_executable", return_value="/exe"),
+        patch(schedule_ops.__name__ + ".registry_lock", fake_lock),
+        patch(schedule_ops.__name__ + ".save_registry", fake_save),
+        adapter_patch,
+    ):
+        schedule_ops.add_schedule(make_config(tmp_path), daily="04:30")
+    assert events == ["lock", "save", "unlock"]
+
+
+def test_remove_schedule_holds_registry_lock_across_load_and_save(
+    tmp_path: pathlib.Path,
+) -> None:
+    events: list[str] = []
+
+    @contextmanager
+    def fake_lock() -> Generator[None, None, None]:
+        events.append("lock")
+        try:
+            yield
+        finally:
+            events.append("unlock")
+
+    def fake_save(registry: dict[str, Any]) -> None:
+        events.append("save")
+
+    seed_registry(tmp_path, {"app.volume": {"platform": "launchd", "kind": "daily"}})
+    adapter_patch, adapter = patch_adapters()
+    with (
+        isolated_home(tmp_path),
+        patch(schedule_ops.__name__ + ".registry_lock", fake_lock),
+        patch(schedule_ops.__name__ + ".save_registry", fake_save),
+        adapter_patch,
+    ):
+        schedule_ops.remove_schedule("app.volume")
+    assert events == ["lock", "save", "unlock"]
+    assert adapter.removed == ["app.volume"]
+
+
+def test_add_schedule_derives_log_and_registry_under_appdata_when_set(
+    tmp_path: pathlib.Path,
+) -> None:
+    appdata = tmp_path / "roaming"
+    adapter_patch, _adapter = patch_adapters()
+    with (
+        patch.dict(os.environ, {"APPDATA": str(appdata)}),
+        patch.object(pathlib.Path, "home", return_value=tmp_path),
+        patch("compman.ops.schedule.platform.system", return_value="Darwin"),
+        patch("compman.ops.schedule.resolve_executable", return_value="/exe"),
+        adapter_patch,
+    ):
+        record = schedule_ops.add_schedule(make_config(tmp_path), daily="04:30")
+        stored = load_registry()["jobs"]["app-volume"]
+    assert record.log_path == str(appdata / "compman" / "schedule.log")
+    assert stored["log_path"] == str(appdata / "compman" / "schedule.log")
 
 
 def test_add_schedule_rejects_conflicting_cadence_options(tmp_path: pathlib.Path) -> None:
@@ -312,7 +422,7 @@ def test_add_schedule_rejects_scheduler_force_off_linux(tmp_path: pathlib.Path) 
 
 
 def test_list_schedules_prints_empty_notice(tmp_path: pathlib.Path, capsys: Any) -> None:
-    with patch.object(pathlib.Path, "home", return_value=tmp_path):
+    with isolated_home(tmp_path):
         schedule_ops.list_schedules()
     assert "No backup schedules registered." in capsys.readouterr().out
 
@@ -331,7 +441,7 @@ def test_list_schedules_renders_cadence_summaries(
 ) -> None:
     seed_registry(tmp_path, {"job.one": {**job, "config_path": "/cfg.yml"}})
     adapter_patch, _adapter = patch_adapters(exists=True)
-    with patch.object(pathlib.Path, "home", return_value=tmp_path), adapter_patch:
+    with isolated_home(tmp_path), adapter_patch:
         schedule_ops.list_schedules()
     out = capsys.readouterr().out
     assert "Registered backup schedules:" in out
@@ -365,7 +475,7 @@ def test_list_schedules_marks_missing_artifacts(tmp_path: pathlib.Path, capsys: 
         "schtasks": FakeAdapter(exists=False),
     }
     with (
-        patch.object(pathlib.Path, "home", return_value=tmp_path),
+        isolated_home(tmp_path),
         patch(schedule_ops.__name__ + "._adapter_for", side_effect=lambda p: adapters[p]),
     ):
         schedule_ops.list_schedules()
@@ -382,7 +492,7 @@ def test_list_schedules_marks_missing_artifacts(tmp_path: pathlib.Path, capsys: 
 
 
 def test_remove_schedule_fails_when_name_unknown(tmp_path: pathlib.Path) -> None:
-    with patch.object(pathlib.Path, "home", return_value=tmp_path):
+    with isolated_home(tmp_path):
         with pytest.raises(CommandError, match="No schedule named 'ghost'"):
             schedule_ops.remove_schedule("ghost")
 
@@ -393,7 +503,7 @@ def test_remove_schedule_removes_present_artifact(tmp_path: pathlib.Path, capsys
         {"app.volume": {"platform": "launchd", "kind": "daily", "config_path": "/a.yml"}},
     )
     adapter_patch, adapter = patch_adapters(exists=True)
-    with patch.object(pathlib.Path, "home", return_value=tmp_path), adapter_patch:
+    with isolated_home(tmp_path), adapter_patch:
         schedule_ops.remove_schedule("app.volume")
     assert adapter.removed == ["app.volume"]
     assert load_registry()["jobs"] == {}
@@ -410,7 +520,7 @@ def test_remove_schedule_warns_when_artifact_already_gone(
         {"app.volume": {"platform": "launchd", "kind": "daily", "config_path": "/a.yml"}},
     )
     adapter_patch, adapter = patch_adapters(exists=False)
-    with patch.object(pathlib.Path, "home", return_value=tmp_path), adapter_patch:
+    with isolated_home(tmp_path), adapter_patch:
         schedule_ops.remove_schedule("app.volume")
         output = capsys.readouterr()
         assert "already missing" in output.out
@@ -434,7 +544,7 @@ def test_list_schedules_json_payload(tmp_path: pathlib.Path, capsys: Any) -> Non
         },
     )
     adapter_patch, adapter = patch_adapters(exists=False)
-    with patch.object(pathlib.Path, "home", return_value=tmp_path), adapter_patch:
+    with isolated_home(tmp_path), adapter_patch:
         schedule_ops.list_schedules(json_output=True)
     payload = json.loads(capsys.readouterr().out)
     assert payload["schema_version"] == 1

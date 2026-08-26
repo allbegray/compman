@@ -6,8 +6,10 @@ import pathlib
 import re
 import subprocess
 import sys
+from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
+import pytest
 from conftest import write_config
 from typer._click.utils import strip_ansi
 from typer.testing import CliRunner
@@ -424,7 +426,7 @@ def test_cli_upgrade_uses_uv_tool_upgrade_with_utf8_decoding(runner: CliRunner):
             "--reinstall",
             "--managed-python",
             "--python",
-            "3.13",
+            f"{sys.version_info.major}.{sys.version_info.minor}",
         ],
         capture_output=True,
         text=True,
@@ -934,3 +936,421 @@ def test_existing_stack_image_skips_service_without_image(temp_dir: pathlib.Path
     )
     cfg = __import__("compman").config.load_config(str(temp_dir / "compman.yml"))
     assert _existing_stack_image(cfg) == (None, [])
+
+
+# ---- L15: doctor detail/remediation rendering ----
+
+def test_render_doctor_prints_detail_and_remediation_for_failing_check(capsys):
+    from compman.cli import _render_doctor
+
+    report = DoctorReport(
+        (
+            CheckResult(
+                "deploy_checksum",
+                "required",
+                False,
+                "Deploy source has no pin.",
+                remediation="Add a sha256 key.",
+                detail="deploy: s3://b/k",
+            ),
+        )
+    )
+    _render_doctor(report)
+    out = capsys.readouterr().out
+    assert "X deploy_checksum: Deploy source has no pin." in out
+    assert "    deploy: s3://b/k" in out
+    assert "    Add a sha256 key." in out
+
+
+def test_render_doctor_prints_remediation_for_warning_check(capsys):
+    from compman.cli import _render_doctor
+
+    report = DoctorReport(
+        (
+            CheckResult(
+                "aws",
+                "warning",
+                True,
+                "AWS credentials are not configured.",
+                remediation="Export AWS_ACCESS_KEY_ID.",
+            ),
+        )
+    )
+    _render_doctor(report)
+    out = capsys.readouterr().out
+    assert "! aws: AWS credentials are not configured." in out
+    assert "    Export AWS_ACCESS_KEY_ID." in out
+
+
+def test_render_doctor_omits_detail_for_passing_required_check(capsys):
+    from compman.cli import _render_doctor
+
+    report = DoctorReport(
+        (
+            CheckResult(
+                "config",
+                "required",
+                True,
+                "valid",
+                remediation="unused",
+                detail="unused detail",
+            ),
+        )
+    )
+    _render_doctor(report)
+    out = capsys.readouterr().out
+    assert "OK config: valid" in out
+    assert "unused" not in out
+
+
+# ---- M17b: unreadable config ----
+
+
+def test_cli_load_oserror_reports_unreadable_config(runner: CliRunner, temp_dir: pathlib.Path):
+    set_lang("en")
+    with patch("compman.cli.load_config", side_effect=OSError("permission denied")):
+        res = runner.invoke(app, ["stack", "up"])
+    assert res.exit_code == 1
+    assert "Cannot read compman.yml: permission denied" in res.output
+
+
+# ---- Boundary: TimeoutExpired at group.main ----
+
+
+def test_group_main_reports_timeout_expired(runner: CliRunner):
+    from typer.core import TyperGroup
+
+    set_lang("en")
+    with patch.object(
+        TyperGroup,
+        "main",
+        side_effect=subprocess.TimeoutExpired(cmd=["compman"], timeout=42.0),
+    ):
+        res = runner.invoke(app, ["version"])
+    assert res.exit_code == 1
+    assert "Operation timed out after 42s" in res.output
+
+
+def test_group_main_timeout_without_value_falls_back_to_env(runner: CliRunner):
+    from typer.core import TyperGroup
+
+    set_lang("en")
+    with patch.dict(os.environ, {"COMPMAN_TIMEOUT": "7"}), patch.object(
+        TyperGroup,
+        "main",
+        side_effect=subprocess.TimeoutExpired(cmd=["compman"], timeout=None),
+    ):
+        res = runner.invoke(app, ["version"])
+    assert res.exit_code == 1
+    assert "Operation timed out after 7s" in res.output
+
+
+# ---- L17: upgrade python derivation ----
+
+def test_managed_python_derives_from_running_interpreter():
+    from compman.cli import _managed_python
+
+    assert _managed_python() == f"{sys.version_info.major}.{sys.version_info.minor}"
+
+
+# ---- L16: init mode routing ignores --port ----
+
+
+def test_cli_init_port_only_shows_interactive_menu(runner: CliRunner, temp_dir: pathlib.Path):
+    with patch("compman.ops.common.prompt_select", return_value=0) as prompt:
+        res = runner.invoke(app, ["init", "-p", "8080", "--force"])
+    assert res.exit_code == 0
+    prompt.assert_called_once()
+
+
+def test_cli_init_archive_flag_routes_directly_to_seed(
+    runner: CliRunner, temp_dir: pathlib.Path
+):
+    with patch("compman.ops.seed.generate_seed") as gen, patch(
+        "compman.ops.common.prompt_select"
+    ) as prompt:
+        res = runner.invoke(app, ["init", "--archive", "-o", "seeded", "--force"])
+    assert res.exit_code == 0
+    prompt.assert_not_called()
+    gen.assert_called_once_with(output="seeded", archive=True, port=18080, force=True)
+
+
+def test_cli_init_seed_flag_routes_directly_to_seed(runner: CliRunner, temp_dir: pathlib.Path):
+    with patch("compman.ops.seed.generate_seed") as gen, patch(
+        "compman.ops.common.prompt_select"
+    ) as prompt:
+        res = runner.invoke(app, ["init", "--seed", "-p", "9999", "--force"])
+    assert res.exit_code == 0
+    prompt.assert_not_called()
+    gen.assert_called_once()
+
+
+# ---- L12: rollback command ----
+
+
+def _make_snapshot(root: pathlib.Path) -> None:
+    snap = root / ".compman" / "rollback"
+    (snap / "tree").mkdir(parents=True)
+    (snap / "tree" / "old.txt").write_text("previous", encoding="utf-8")
+    (snap / "compman.yml").write_bytes(b"compman:\n  name: previous\n")
+    (snap / "meta.json").write_text(
+        json.dumps({"timestamp": "2026-08-26T00:00:00+00:00", "target": "project"}),
+        encoding="utf-8",
+    )
+
+
+def test_cli_rollback_restores_snapshot(runner: CliRunner, temp_dir: pathlib.Path):
+    set_lang("en")
+    managed = temp_dir / "project"
+    managed.mkdir()
+    (managed / "new.txt").write_text("current", encoding="utf-8")
+    (temp_dir / "compman.yml").write_text("compman:\n  name: current\n", encoding="utf-8")
+    _make_snapshot(temp_dir)
+
+    res = runner.invoke(app, ["rollback"])
+
+    assert res.exit_code == 0
+    assert (managed / "old.txt").read_text(encoding="utf-8") == "previous"
+    assert not (managed / "new.txt").exists()
+    assert (temp_dir / "compman.yml").read_bytes() == b"compman:\n  name: previous\n"
+    assert not (temp_dir / ".compman" / "rollback").exists()
+    assert "Rollback complete: restored the snapshot from 2026-08-26T00:00:00+00:00." in res.output
+
+
+def test_cli_rollback_without_snapshot_errors(runner: CliRunner, temp_dir: pathlib.Path):
+    set_lang("en")
+    res = runner.invoke(app, ["rollback"])
+    assert res.exit_code == 1
+    assert "No rollback snapshot available." in res.output
+
+
+# ---- L14: multi-stack registry ----
+
+
+@contextmanager
+def _isolated_stack_home(tmp_path):
+    """Pin Path.home and clear APPDATA so stacks.json resolves under tmp_path."""
+    env = {key: value for key, value in os.environ.items() if key != "APPDATA"}
+    with (
+        patch.dict(os.environ, env, clear=True),
+        patch.object(pathlib.Path, "home", return_value=tmp_path),
+    ):
+        yield
+
+
+@pytest.fixture(autouse=True)
+def _reset_current_stack():
+    from compman import stack_registry
+
+    yield
+    stack_registry._CURRENT_STACK.set(None)
+
+
+def test_cli_stack_option_loads_registered_config(
+    runner: CliRunner, dummy_runtime, temp_dir: pathlib.Path
+):
+    set_lang("en")
+    project = temp_dir / "proj"
+    project.mkdir()
+    write_config(project / "compman.yml")
+    with _isolated_stack_home(temp_dir / "home"):
+        (temp_dir / "home").mkdir()
+        from compman import stack_registry
+
+        stack_registry.record("app", str(project))
+        with patch("compman.cli.collect_status") as collect:
+            res = runner.invoke(app, ["--stack", "app", "status"])
+    assert res.exit_code == 0, res.output
+    assert collect.call_args.args[0] == str(project / "compman.yml")
+
+
+def test_cli_stack_option_drives_ps_from_any_directory(
+    runner: CliRunner, dummy_runtime, temp_dir: pathlib.Path
+):
+    project = temp_dir / "proj"
+    project.mkdir()
+    write_config(project / "compman.yml")
+    (project / "docker-compose.yml").write_text(
+        "services:\n  web:\n    image: nginx\n", encoding="utf-8"
+    )
+    with _isolated_stack_home(temp_dir / "home"):
+        (temp_dir / "home").mkdir()
+        from compman import stack_registry
+
+        stack_registry.record("proj", str(project))
+        with patch("compman.cli.detect_runtime", return_value=dummy_runtime):
+            res = runner.invoke(app, ["--stack", "proj", "ps"])
+    assert res.exit_code == 0, res.output
+    assert dummy_runtime.compose_runs, "compose ps never ran against the registered dir"
+
+
+def test_cli_unknown_stack_name_fails_with_registry_error(
+    runner: CliRunner, temp_dir: pathlib.Path
+):
+    set_lang("en")
+    with _isolated_stack_home(temp_dir / "home"):
+        (temp_dir / "home").mkdir()
+        res = runner.invoke(app, ["--stack", "ghost", "status"])
+    assert res.exit_code == 1
+    assert "No registered stack named 'ghost'." in res.output
+
+
+def test_cli_explicit_config_wins_over_stack_option(
+    runner: CliRunner, temp_dir: pathlib.Path
+):
+    set_lang("en")
+    project = temp_dir / "proj"
+    project.mkdir()
+    write_config(project / "compman.yml")
+    custom = temp_dir / "custom" / "other.yml"
+    custom.parent.mkdir()
+    write_config(custom)
+    with _isolated_stack_home(temp_dir / "home"):
+        (temp_dir / "home").mkdir()
+        from compman import stack_registry
+
+        stack_registry.record("app", str(project))
+        with patch("compman.cli.collect_status") as collect:
+            res = runner.invoke(app, ["--stack", "app", "status", "-c", str(custom)])
+    assert res.exit_code == 0, res.output
+    assert collect.call_args.args[0] == str(custom)
+
+
+def test_cli_stacks_list_empty(runner: CliRunner, temp_dir: pathlib.Path):
+    set_lang("en")
+    with _isolated_stack_home(temp_dir / "home"):
+        (temp_dir / "home").mkdir()
+        res = runner.invoke(app, ["stacks", "list"])
+    assert res.exit_code == 0
+    assert (
+        "No stacks registered yet; a successful 'compman deploy' records the current stack."
+        in res.output
+    )
+
+
+def test_cli_stacks_list_human_output_is_sorted(
+    runner: CliRunner, temp_dir: pathlib.Path
+):
+    set_lang("en")
+    with _isolated_stack_home(temp_dir / "home"):
+        (temp_dir / "home").mkdir()
+        from compman import stack_registry
+
+        stack_registry.record("beta", "/b")
+        stack_registry.record("alpha", "/a")
+        res = runner.invoke(app, ["stacks", "list"])
+    assert res.exit_code == 0
+    lines = res.output.splitlines()
+    header_index = lines.index("Registered stacks:")
+    assert lines[header_index + 1 : header_index + 3] == ["alpha -> /a", "beta -> /b"]
+
+
+def test_cli_stacks_list_json_envelope(runner: CliRunner, temp_dir: pathlib.Path):
+    from datetime import datetime
+
+    with _isolated_stack_home(temp_dir / "home"):
+        (temp_dir / "home").mkdir()
+        from compman import stack_registry
+
+        stack_registry.record("beta", "/b")
+        stack_registry.record("alpha", "/a")
+        res = runner.invoke(app, ["stacks", "list", "--json"])
+    assert res.exit_code == 0
+    payload = json.loads(res.output)
+    assert payload["schema_version"] == 1
+    assert datetime.fromisoformat(payload["generated_at"]) is not None
+    assert payload["stacks"] == [
+        {"name": "alpha", "path": "/a"},
+        {"name": "beta", "path": "/b"},
+    ]
+
+
+def test_cli_stacks_remove_deletes_entry(
+    runner: CliRunner, temp_dir: pathlib.Path
+):
+    set_lang("en")
+    with _isolated_stack_home(temp_dir / "home"):
+        (temp_dir / "home").mkdir()
+        from compman import stack_registry
+
+        stack_registry.record("app", str(temp_dir))
+        res = runner.invoke(app, ["stacks", "remove", "app"])
+        assert stack_registry.entries() == {}
+    assert res.exit_code == 0
+    assert "Removed 'app' from the stack registry." in res.output
+
+
+def test_cli_stacks_remove_unknown_name_fails(
+    runner: CliRunner, temp_dir: pathlib.Path
+):
+    set_lang("en")
+    with _isolated_stack_home(temp_dir / "home"):
+        (temp_dir / "home").mkdir()
+        res = runner.invoke(app, ["stacks", "remove", "ghost"])
+    assert res.exit_code == 1
+    assert "No registered stack named 'ghost'." in res.output
+
+
+def _write_http_deploy_project(temp_dir: pathlib.Path) -> None:
+    (temp_dir / "compman.yml").write_text(
+        "compman:\n"
+        "  name: app\n"
+        "  deploy: https://example.test/app.zip\n"
+        "  compose:\n"
+        "    default:\n"
+        "      file: docker-compose.yml\n",
+        encoding="utf-8",
+    )
+
+
+def test_cli_deploy_records_the_deployed_stack(
+    runner: CliRunner, temp_dir: pathlib.Path
+):
+    source = temp_dir / "fetched"
+    source.mkdir()
+    (source / "new.txt").write_text("current", encoding="utf-8")
+    _write_http_deploy_project(temp_dir)
+    with _isolated_stack_home(temp_dir / "home"):
+        (temp_dir / "home").mkdir()
+        with patch("compman.deploy._fetch_http", return_value=source):
+            res = runner.invoke(app, ["deploy"])
+        from compman import stack_registry
+
+        assert res.exit_code == 0, res.output
+        assert stack_registry.entries() == {"app": str(temp_dir)}
+    assert "Deploy done." in res.output
+
+
+def test_cli_deploy_warns_and_continues_when_recording_fails(
+    runner: CliRunner, temp_dir: pathlib.Path
+):
+    source = temp_dir / "fetched"
+    source.mkdir()
+    (source / "new.txt").write_text("current", encoding="utf-8")
+    _write_http_deploy_project(temp_dir)
+    with _isolated_stack_home(temp_dir / "home"):
+        (temp_dir / "home").mkdir()
+        with (
+            patch("compman.deploy._fetch_http", return_value=source),
+            patch("compman.deploy.record_stack", side_effect=OSError("disk full")),
+        ):
+            res = runner.invoke(app, ["deploy"])
+    assert res.exit_code == 0, res.output
+    assert "Deploy done." in res.output
+    assert "disk full" in res.output
+
+
+def test_cli_deploy_without_config_records_nothing(
+    runner: CliRunner, temp_dir: pathlib.Path
+):
+    source = temp_dir / "fetched"
+    source.mkdir()
+    (source / "new.txt").write_text("current", encoding="utf-8")
+    with _isolated_stack_home(temp_dir / "home"):
+        (temp_dir / "home").mkdir()
+        with patch("compman.deploy._fetch_http", return_value=source):
+            res = runner.invoke(app, ["deploy", "--path", "https://example.test/app.zip"])
+        from compman import stack_registry
+
+        assert res.exit_code == 0, res.output
+        assert stack_registry.entries() == {}

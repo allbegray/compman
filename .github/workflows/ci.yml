@@ -81,6 +81,13 @@ jobs:
             sleep 2
           done
           test "$ready" -eq 1
+      - name: Run integration tests
+        env:
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
+          AWS_DEFAULT_REGION: ap-northeast-2
+          AWS_ENDPOINT_URL_S3: http://localhost:4566
+        run: uv run pytest -m integration -ra
       - name: Deploy and run stack
         env:
           AWS_ACCESS_KEY_ID: test

@@ -106,6 +106,30 @@ def _schedule_ops():
     return schedule
 
 
+def _stack_registry():
+    from compman import stack_registry
+
+    return stack_registry
+
+
+def _resolved_config_path(config_path: str | None) -> str | None:
+    """Resolve the config path an invocation should load.
+
+    An explicit -c/--config always wins. Otherwise, a root ``--stack NAME``
+    selection resolves to the registered directory's compman.yml so commands
+    work from any working directory; unknown names are a hard error.
+    """
+    if config_path is not None:
+        return config_path
+    registry = _stack_registry()
+    stack_name = registry.current_stack()
+    if stack_name is None:
+        return None
+    stack_dir = registry.resolve(stack_name)
+    if stack_dir is None:
+        raise CommandError(t("msg.stacks_not_found", name=stack_name))
+    return str(stack_dir / "compman.yml")
+
 def _configure_console_output() -> None:
     for stream in (sys.stdout, sys.stderr):
         reconfigure = getattr(stream, "reconfigure", None)
@@ -148,6 +172,11 @@ class HelpOnUnknownCommandGroup(TyperGroup):
         except CommandError as error:
             typer.echo(error.message, err=True)
             raise SystemExit(error.code)
+        except subprocess.TimeoutExpired as error:
+            seconds = error.timeout if error.timeout is not None else _env_timeout()
+            shown = int(seconds) if float(seconds).is_integer() else seconds
+            typer.echo(t("msg.timeout_expired", seconds=shown), err=True)
+            raise SystemExit(1)
         except (ConfigError, RuntimeError) as error:
             typer.echo(t("msg.command_failed", error=error), err=True)
             raise SystemExit(1)
@@ -174,13 +203,16 @@ app = typer.Typer(
 
 def _load(config_path: str | None = None):
     try:
-        cfg = load_config(config_path)
+        cfg = load_config(_resolved_config_path(config_path))
     except ConfigError as e:
         typer.echo(t("msg.config_not_found", err=e), err=True)
         typer.echo("", err=True)
         typer.echo(t("msg.start_guide"), err=True)
         typer.echo(f"  - compman init                              ({t('msg.init_desc')})", err=True)
         typer.echo(f"  - compman deploy --path <source-uri>  ({t('msg.deploy_desc')})", err=True)
+        raise typer.Exit(1)
+    except OSError as e:
+        typer.echo(t("msg.config_unreadable", detail=str(e)), err=True)
         raise typer.Exit(1)
     try:
         runtime = detect_runtime()
@@ -196,9 +228,12 @@ def root(
     ctx: typer.Context,
     lang: Annotated[str | None, typer.Option("--lang", "-l", help=t("opt.lang"))] = None,
     version: Annotated[bool, typer.Option("--version", "-v", callback=_version_callback, is_eager=True)] = False,
+    stack: Annotated[str | None, typer.Option("--stack", help=t("opt.stack"))] = None,
 ) -> None:
     if lang:
         set_lang(lang)
+    if stack:
+        _stack_registry().set_current_stack(stack)
     if ctx.invoked_subcommand is None:
         typer.echo(ctx.get_help())
 
@@ -229,6 +264,15 @@ def deploy_cmd(
     sha256: Annotated[str | None, typer.Option("--sha256", help=t("opt.path_sha256"))] = None,
 ) -> None:
     _deploy(build=build, tag=tag, s3_path=path, sha256=sha256)
+
+
+# ---- rollback ----
+@app.command("rollback", help=t("cmd.rollback"))
+def rollback_cmd() -> None:
+    from compman.deploy import restore_rollback
+
+    timestamp = restore_rollback(pathlib.Path.cwd())
+    typer.echo(t("msg.rollback_done", time=timestamp))
 
 
 def _existing_stack_image(cfg) -> tuple[str | None, list[str]]:
@@ -285,6 +329,11 @@ def _render_doctor(report: DoctorReport) -> None:
     for check in report.checks:
         marker = "!" if check.severity == "warning" else "OK" if check.ok else "X"
         typer.echo(f"{marker} {check.id}: {check.message}")
+        if not check.ok or check.severity == "warning":
+            if check.detail:
+                typer.echo(f"    {check.detail}")
+            if check.remediation:
+                typer.echo(f"    {check.remediation}")
 
 
 def _render_status(report: StatusReport) -> None:
@@ -313,7 +362,7 @@ def doctor_cmd(
     config: Annotated[str | None, typer.Option("--config", "-c", help=t("opt.config"))] = None,
     json_output: Annotated[bool, typer.Option("--json", help=t("opt.json"))] = False,
 ) -> None:
-    report = collect_doctor(config, profile)
+    report = collect_doctor(_resolved_config_path(config), profile)
     if json_output:
         typer.echo(json.dumps(report.to_dict(), ensure_ascii=False))
     else:
@@ -329,7 +378,7 @@ def status_cmd(
     config: Annotated[str | None, typer.Option("--config", "-c", help=t("opt.config"))] = None,
     json_output: Annotated[bool, typer.Option("--json", help=t("opt.json"))] = False,
 ) -> None:
-    report = collect_status(config, profile)
+    report = collect_status(_resolved_config_path(config), profile)
     if json_output:
         typer.echo(json.dumps(report.to_dict(), ensure_ascii=False))
     else:
@@ -385,6 +434,11 @@ def _run_upgrade_command(cmd: list[str]) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _managed_python() -> str:
+    """Interpreter version (major.minor) for uv's managed python."""
+    return f"{sys.version_info.major}.{sys.version_info.minor}"
+
+
 @app.command("upgrade", help=t("cmd.upgrade"))
 def upgrade_cmd(
     repo: Annotated[str, typer.Option("--repo", help=t("opt.repo"))] = "https://github.com/allbegray/compman.git",
@@ -402,7 +456,7 @@ def upgrade_cmd(
                 "--reinstall",
                 "--managed-python",
                 "--python",
-                "3.13",
+                _managed_python(),
             ]
         )
     except FileNotFoundError:
@@ -735,6 +789,52 @@ def schedule_remove(
 
 
 app.add_typer(schedule_app, name="schedule")
+
+
+# ---- stacks group ----
+stacks_app = typer.Typer(
+    cls=HelpOnUnknownCommandGroup,
+    help=t("cmd.stacks.help"),
+    no_args_is_help=True,
+    context_settings=_CONTEXT_SETTINGS,
+)
+
+
+@stacks_app.command("list", help=t("cmd.stacks_list.help"))
+def stacks_list(
+    json_output: Annotated[bool, typer.Option("--json", help=t("opt.json"))] = False,
+) -> None:
+    registered = _stack_registry().entries()
+    if json_output:
+        from compman.ops.common import utc_now_iso
+
+        payload = {
+            "schema_version": 1,
+            "generated_at": utc_now_iso(),
+            "stacks": [
+                {"name": name, "path": path} for name, path in registered.items()
+            ],
+        }
+        typer.echo(json.dumps(payload))
+        return
+    if not registered:
+        typer.echo(t("msg.no_registered_stacks"))
+        return
+    typer.echo(t("msg.stacks_header"))
+    for name, path in registered.items():
+        typer.echo(f"{name} -> {path}")
+
+
+@stacks_app.command("remove", help=t("cmd.stacks_remove.help"))
+def stacks_remove(
+    name: Annotated[str, typer.Argument()],
+) -> None:
+    if not _stack_registry().remove(name):
+        raise CommandError(t("msg.stacks_not_found", name=name))
+    typer.echo(t("msg.stacks_removed", name=name))
+
+
+app.add_typer(stacks_app, name="stacks")
 
 
 # ---- utils ----

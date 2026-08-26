@@ -3,7 +3,10 @@ from __future__ import annotations
 import ast
 import os
 import pathlib
+import string
 from unittest.mock import patch
+
+import pytest
 
 from compman import i18n
 from compman.i18n import get_lang, set_lang, t
@@ -38,6 +41,31 @@ def test_all_used_translation_keys_exist():
 
 def test_all_translation_keys_are_bilingual():
     assert all(set(entry) == {"en", "ko"} for entry in i18n.TRANSLATIONS.values())
+
+
+
+def _placeholders(text: str) -> set[str]:
+    return {
+        field_name
+        for _, field_name, _, _ in string.Formatter().parse(text)
+        if field_name
+    }
+
+
+def test_all_translation_placeholders_match_between_locales():
+    mismatched = {
+        key
+        for key, entry in i18n.TRANSLATIONS.items()
+        if _placeholders(entry["en"]) != _placeholders(entry["ko"])
+    }
+    assert mismatched == set()
+
+
+def test_placeholder_guard_detects_seeded_locale_mismatch():
+    corrupted = {"en": "Snapshot {name} saved to {path}", "ko": "{path} 스냅샷 저장됨"}
+    with patch.dict(i18n.TRANSLATIONS, {"msg.guard_probe": corrupted}):
+        with pytest.raises(AssertionError, match="msg.guard_probe"):
+            test_all_translation_placeholders_match_between_locales()
 
 
 def test_no_unused_translation_keys():

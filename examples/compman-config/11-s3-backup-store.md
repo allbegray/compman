@@ -17,8 +17,8 @@ compman:
       file: docker-compose.yml
 ```
 
-- `dirs.backup` accepts a local relative path (the default `backup`) or an
-  `s3://bucket/prefix` URI.
+- `dirs.backup` accepts a local relative path (the default `backup`), an
+  `s3://bucket/prefix` URI, or an `ssh://[user@]host[:port]/path` URI.
 - Each `volume backup` or `image backup` uploads its archive to a flat key:
   `<prefix>/<stack>.<kind>.<timestamp>.tar.gz`.
 - Restores list available timestamps from the bucket and download the selected

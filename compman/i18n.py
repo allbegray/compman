@@ -1047,6 +1047,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "en": "Corrupt schedule registry at {path}; moved to {backup}. Starting with an empty registry.",
         "ko": "손상된 예약 레지스트리를 {path}에서 발견하여 {backup}(으)로 옮겼습니다. 빈 레지스트리로 시작합니다.",
     },
+    "msg.stacks_registry_corrupt": {
+        "en": "Corrupt stack registry at {path}; moved to {backup}. Starting with an empty registry.",
+        "ko": "손상된 스택 레지스트리를 {path}에서 발견하여 {backup}(으)로 옮겼습니다. 빈 레지스트리로 시작합니다.",
+    },
     "msg.schedule.removed": {
         "en": "Scheduled backup '{name}' removed.",
         "ko": "예약 백업 '{name}'이(가) 제거되었습니다.",
@@ -1120,6 +1124,74 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "msg.schedule.already_gone": {
         "en": "Platform entry for '{name}' was already missing; removed from registry.",
         "ko": "'{name}'의 플랫폼 항목이 이미 없습니다. 레지스트리에서만 제거했습니다.",
+    },
+    "cmd.rollback": {
+        "en": "Restore the previous deployment snapshot.",
+        "ko": "이전 배포 스냅샷을 복원합니다.",
+    },
+    "msg.rollback_done": {
+        "en": "Rollback complete: restored the snapshot from {time}.",
+        "ko": "롤백 완료: {time} 시점의 스냅샷을 복원했습니다.",
+    },
+    "msg.no_rollback_snapshot": {
+        "en": "No rollback snapshot available. A snapshot is captured automatically on each successful deploy.",
+        "ko": "사용 가능한 롤백 스냅샷이 없습니다. 스냅샷은 deploy가 성공할 때마다 자동 저장됩니다.",
+    },
+    "opt.stack": {
+        "en": "Operate on a registered stack by name instead of the current directory.",
+        "ko": "현재 디렉터리 대신 등록된 스택 이름으로 작업합니다.",
+    },
+    "cmd.stacks.help": {
+        "en": "Manage the multi-stack directory registry.",
+        "ko": "멀티 스택 디렉터리 레지스트리를 관리합니다.",
+    },
+    "cmd.stacks_list.help": {
+        "en": "List stacks recorded in the multi-stack registry.",
+        "ko": "멀티 스택 레지스트리에 기록된 스택을 나열합니다.",
+    },
+    "cmd.stacks_remove.help": {
+        "en": "Remove a stack entry from the multi-stack registry.",
+        "ko": "멀티 스택 레지스트리에서 스택 항목을 제거합니다.",
+    },
+    "msg.stacks_header": {
+        "en": "Registered stacks:",
+        "ko": "등록된 스택:",
+    },
+    "msg.no_registered_stacks": {
+        "en": "No stacks registered yet; a successful 'compman deploy' records the current stack.",
+        "ko": "등록된 스택이 아직 없습니다. 'compman deploy' 성공 시 현재 스택이 기록됩니다.",
+    },
+    "msg.stacks_removed": {
+        "en": "Removed '{name}' from the stack registry.",
+        "ko": "'{name}'을(를) 스택 레지스트리에서 제거했습니다.",
+    },
+    "msg.stacks_not_found": {
+        "en": "No registered stack named '{name}'.",
+        "ko": "'{name}' 이름으로 등록된 스택이 없습니다.",
+    },
+    "msg.schedule_register_failed": {
+        "en": "Scheduler job registration failed ({scheduler}): {detail}",
+        "ko": "스케줄러 작업 등록에 실패했습니다 ({scheduler}): {detail}",
+    },
+    "msg.config_unreadable": {
+        "en": "Cannot read compman.yml: {detail}",
+        "ko": "compman.yml을 읽을 수 없습니다: {detail}",
+    },
+    "msg.timeout_expired": {
+        "en": "Operation timed out after {seconds}s (adjust with COMPMAN_TIMEOUT).",
+        "ko": "{seconds}초 후 작업 시간이 초과되었습니다 (COMPMAN_TIMEOUT으로 조정 가능).",
+    },
+    "msg.ssh_unavailable": {
+        "en": "ssh/scp is not available on PATH: {detail}",
+        "ko": "PATH에서 ssh/scp를 찾을 수 없습니다: {detail}",
+    },
+    "msg.ssh_command_failed": {
+        "en": "Remote operation failed on {target}: {detail}",
+        "ko": "{target}에서 원격 작업이 실패했습니다: {detail}",
+    },
+    "msg.rollback_created_hint": {
+        "en": "Previous tree kept as a rollback snapshot ({path}).",
+        "ko": "이전 트리가 롤백 스냅샷으로 보존되었습니다 ({path}).",
     },
 }
 

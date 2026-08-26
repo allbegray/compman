@@ -29,7 +29,7 @@ def register(app: typer.Typer, deploy_cb, dump_config_cb) -> None:
             choice = 0
         elif s3 is not None:
             choice = 1
-        elif seed_mode or archive or port != 18080:
+        elif seed_mode or archive:
             choice = 2
         else:
             # Interactive mode selection

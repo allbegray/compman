@@ -28,11 +28,80 @@ def test_select_backup_timestamp_single(temp_dir: pathlib.Path):
 
 def test_stack_paused_restores_after_failure(temp_dir: pathlib.Path):
     runtime = MagicMock()
+    runtime.run_compose.return_value = MagicMock(stdout="web\ndb\n")
     context = ComposeContext("app", (temp_dir / "docker-compose.yml",), {})
     with pytest.raises(RuntimeError, match="operation failed"):
         with common.stack_paused(runtime, context):
             raise RuntimeError("operation failed")
-    assert [call.args[0] for call in runtime.run_compose.call_args_list] == [["stop"], ["start"]]
+    calls = runtime.run_compose.call_args_list
+    assert [call.args[0] for call in calls] == [
+        ["ps", "--services", "--filter", "status=running"],
+        ["stop", "web", "db"],
+        ["start", "web", "db"],
+    ]
+    assert calls[0].kwargs["capture"] is True
+    assert calls[1].kwargs["capture"] is False
+    assert calls[2].kwargs["capture"] is False
+
+
+def test_stack_paused_empty_running_set_skips_stop_and_start(temp_dir: pathlib.Path):
+    runtime = MagicMock(return_value=MagicMock(stdout="  \n"))
+    context = ComposeContext("app", (temp_dir / "docker-compose.yml",), {})
+    ran = False
+    with common.stack_paused(runtime, context):
+        ran = True
+    assert ran
+    assert [call.args[0] for call in runtime.run_compose.call_args_list] == [
+        ["ps", "--services", "--filter", "status=running"]
+    ]
+
+
+def test_stack_paused_disabled_makes_no_compose_calls(temp_dir: pathlib.Path):
+    runtime = MagicMock()
+    context = ComposeContext("app", (temp_dir / "docker-compose.yml",), {})
+    ran = False
+    with common.stack_paused(runtime, context, enabled=False):
+        ran = True
+    assert ran
+    runtime.run_compose.assert_not_called()
+
+
+def test_stack_paused_stop_failure_still_restarts_captured_services(temp_dir: pathlib.Path):
+    runtime = MagicMock()
+    ok = MagicMock(stdout="web\ndb\n")
+    runtime.run_compose.side_effect = [ok, RuntimeError("stop boom"), ok]
+    context = ComposeContext("app", (temp_dir / "docker-compose.yml",), {})
+    with pytest.raises(RuntimeError, match="stop boom"):
+        with common.stack_paused(runtime, context):
+            pass
+    assert [call.args[0] for call in runtime.run_compose.call_args_list] == [
+        ["ps", "--services", "--filter", "status=running"],
+        ["stop", "web", "db"],
+        ["start", "web", "db"],
+    ]
+
+
+def test_stack_paused_restart_failure_propagates_when_body_succeeds(temp_dir: pathlib.Path):
+    runtime = MagicMock()
+    ok = MagicMock(stdout="web\n")
+    runtime.run_compose.side_effect = [ok, None, RuntimeError("restart boom")]
+    context = ComposeContext("app", (temp_dir / "docker-compose.yml",), {})
+    with pytest.raises(RuntimeError, match="restart boom"):
+        with common.stack_paused(runtime, context):
+            pass
+
+
+def test_stack_paused_restart_failure_logged_when_body_failed(
+    temp_dir: pathlib.Path, capsys: pytest.CaptureFixture[str]
+):
+    runtime = MagicMock()
+    ok = MagicMock(stdout="web\n")
+    runtime.run_compose.side_effect = [ok, None, RuntimeError("restart boom")]
+    context = ComposeContext("app", (temp_dir / "docker-compose.yml",), {})
+    with pytest.raises(RuntimeError, match="body failed"):
+        with common.stack_paused(runtime, context):
+            raise RuntimeError("body failed")
+    assert "restart boom" in capsys.readouterr().err
 
 
 def _make_local_backups(cfg: Config, kind: str, timestamps: list[str]) -> pathlib.Path:
@@ -260,3 +329,17 @@ def test_parse_compose_ps_skips_non_dict_entries():
 
     parsed = parse_compose_ps('{"Service":"a"}\n123\n')
     assert len(parsed) == 1 and parsed[0]["Service"] == "a"
+
+
+@pytest.mark.parametrize(
+    ("stdout", "expected"),
+    [
+        ("", []),
+        ("   \n\t\n", []),
+        ("web\ndb\n", ["web", "db"]),
+        ("  web  \nweb\n", ["web"]),
+        ("web\r\n db \n", ["web", "db"]),
+    ],
+)
+def test_parse_running_services_parses_plain_service_lines(stdout: str, expected: list[str]):
+    assert common.parse_running_services(stdout) == expected

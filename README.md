@@ -19,14 +19,14 @@ If every convenient option has been answered with "not allowed," `compman` is fo
 - Lists and monitors only the current project's containers with `ps` and `stats`
 - Deploys from an S3 prefix/archive or an HTTP/HTTPS `.tar.gz`/`.tgz`/`.zip` archive, with optional HTTPS header authentication and SHA-256 integrity pinning
 - Automatically creates `compman.yml` and `docker-compose.yml` when deploying into an empty directory
-- Creates and restores timestamped backups of volumes and container images
-- Stores backups in a local directory or an S3-compatible bucket via `dirs.backup` (`s3://bucket/prefix`)
+- Creates and restores timestamped backups of volumes and container images (gzip `.tar.gz` by default, optional Zstandard `.tar.zst` via `--zstd`)
+- Stores backups in a local directory, an S3-compatible bucket (`s3://bucket/prefix`), or a remote host over SSH/SCP (`ssh://[user@]host[:port]/path`) via `dirs.backup`
 - Korean and English help, plus shell completion
 - Supports Windows, Linux, and macOS
 
 ## Requirements
 
-- Python 3.12 or later
+- Python 3.12 or later (`--zstd` backups require Python 3.14+, which provides the stdlib `compression.zstd` module)
 - Docker Compose or Podman Compose
 - For S3 deployments and the S3 backup store: accessible S3-compatible storage and AWS credentials
 - For HTTP deployments: a public archive URL, or an authenticated HTTPS URL via the `deploy.auth` configuration (token supplied through an environment variable)
@@ -86,7 +86,7 @@ Update an installed CLI using uv's stored tool source with:
 compman upgrade
 ```
 
-This runs `uv tool upgrade compman --reinstall --managed-python --python 3.13`. To install
+This runs `uv tool upgrade compman --reinstall --managed-python --python <current major.minor>` (the Python version compman itself runs on). To install
 upgrades from a different Git repository, pass `--repo URL` (used only for the pip fallback
 when uv is unavailable):
 
@@ -344,38 +344,42 @@ services:
 ```text
 compman init [--scaffold | --s3 URI | --seed]
 compman deploy [--path SOURCE_URI] [--sha256 HEX] [--build] [--tag TAG]
-compman update [PROFILE] [-c|--config PATH]
-compman doctor [--profile PROFILE] [-c|--config PATH] [--json]
-compman status [--profile PROFILE] [-c|--config PATH] [--json]
-compman ps [PROFILE] [-a|--all] [--json] [-c|--config PATH]
-compman stats [PROFILE] [-f|--follow] [--json] [-c|--config PATH]
+compman update [PROFILE] [-c|--config PATH] [--stack NAME]
+compman doctor [--profile PROFILE] [-c|--config PATH] [--json] [--stack NAME]
+compman status [--profile PROFILE] [-c|--config PATH] [--json] [--stack NAME]
+compman ps [PROFILE] [-a|--all] [--json] [-c|--config PATH] [--stack NAME]
+compman stats [PROFILE] [-f|--follow] [--json] [-c|--config PATH] [--stack NAME]
 compman upgrade [--repo URL]
+compman rollback
 compman version
 compman lang [ko|en]
 compman completion [powershell|bash|zsh|fish] --install
 
-compman stack up [PROFILE] [-c|--config PATH]
-compman stack update [PROFILE] [-c|--config PATH]
-compman stack down [--profile PROFILE] [-c|--config PATH] --yes
+compman stack up [PROFILE] [-c|--config PATH] [--stack NAME]
+compman stack update [PROFILE] [-c|--config PATH] [--stack NAME]
+compman stack down [--profile PROFILE] [-c|--config PATH] --yes [--stack NAME]
 
-compman service start [SERVICE...] [--profile PROFILE] [-c|--config PATH]
-compman service stop [SERVICE...] [--profile PROFILE] [-c|--config PATH]
-compman service restart [SERVICE...] [--profile PROFILE] [-c|--config PATH]
-compman service status [--profile PROFILE] [-c|--config PATH]
-compman service log [CONTAINER] [-f] [-n 50] [--profile PROFILE] [-c|--config PATH]
-compman service connect [CONTAINER] [--profile PROFILE] [-c|--config PATH]
+compman service start [SERVICE...] [--profile PROFILE] [-c|--config PATH] [--stack NAME]
+compman service stop [SERVICE...] [--profile PROFILE] [-c|--config PATH] [--stack NAME]
+compman service restart [SERVICE...] [--profile PROFILE] [-c|--config PATH] [--stack NAME]
+compman service status [--profile PROFILE] [-c|--config PATH] [--stack NAME]
+compman service log [CONTAINER] [-f] [-n 50] [--profile PROFILE] [-c|--config PATH] [--stack NAME]
+compman service connect [CONTAINER] [--profile PROFILE] [-c|--config PATH] [--stack NAME]
 
-compman volume backup [-z LEVEL] [--no-stop] [--profile PROFILE] [-c|--config PATH]
-compman volume restore [TIMESTAMP] [--no-stop] [--replace] [--profile PROFILE] [-c|--config PATH]
-compman volume pull [--profile PROFILE] [-c|--config PATH]
-compman volume push [--replace] [--profile PROFILE] [-c|--config PATH]
+compman volume backup [-z LEVEL] [--zstd] [--no-stop] [--profile PROFILE] [-c|--config PATH] [--stack NAME]
+compman volume restore [TIMESTAMP] [--no-stop] [--replace] [--profile PROFILE] [-c|--config PATH] [--stack NAME]
+compman volume pull [--profile PROFILE] [-c|--config PATH] [--stack NAME]
+compman volume push [--replace] [--profile PROFILE] [-c|--config PATH] [--stack NAME]
 
-compman image backup [-z LEVEL] [--source-image] [--profile PROFILE] [-c|--config PATH]
-compman image restore [TIMESTAMP] [--profile PROFILE] [-c|--config PATH]
+compman image backup [-z LEVEL] [--zstd] [--source-image] [--profile PROFILE] [-c|--config PATH] [--stack NAME]
+compman image restore [TIMESTAMP] [--profile PROFILE] [-c|--config PATH] [--stack NAME]
 
 compman schedule add [--every N | --daily HH:MM | --weekly DAY HH:MM] [--no-stop] [-z LEVEL] [--profile PROFILE] [--name TEXT] [--scheduler systemd|cron] [-c|--config PATH]
 compman schedule list [--json]
 compman schedule remove NAME
+
+compman stacks list [--json]
+compman stacks remove NAME
 
 compman clear [--yes]
 ```
@@ -394,7 +398,7 @@ View all options for a command with `compman <command> --help`.
 - `volume backup/restore`: By default, brings the stack down during the operation and restores it afterward. Use `--no-stop` only when you understand the consistency risk.
 - `volume restore/push --replace`: Deletes files at the destination that are not in the source (byte-for-byte replace) instead of merging. The destination must be a validated absolute container path; this is destructive, so use it deliberately.
 - `image backup`: By default, commits and saves the state of the running container. Use `--source-image` to save the original image.
-- `volume backup` and `image backup`: gzip level defaults to 6. Use `-z 1` for faster backups or `-z 9` for smaller archives.
+- `volume backup` and `image backup`: gzip level defaults to 6. Use `-z 1` for faster backups or `-z 9` for smaller archives (`-z` applies to gzip only). Add `--zstd` to write a Zstandard `.tar.zst` archive instead; this requires Python 3.14+, and restoring a `.tar.zst` backup does too.
 - `clear`: Runs `image prune -af` for the selected runtime, so it can delete unused images outside the current project. Requires `--yes` confirmation (or an interactive `y` answer).
 
 ## Diagnostics and status
@@ -424,6 +428,8 @@ Backup files are stored in `dirs.backup`.
 <stack>.image.<YYYYMMDD_HHMMSS>[_<microseconds>].tar.gz
 ```
 
+Backups are gzip `.tar.gz` by default. Restores resolve the stored suffix transparently, so `.tar.gz` and `.tar.zst` archives list and restore through the same `volume restore` / `image restore` commands.
+
 Optional retention: set `limits.max_backups` to keep only the newest N archives per stack and kind. After each successful backup, older archives are pruned from the store (local files or S3 objects), and every removal is echoed; a failed deletion warns but never fails the backup.
 
 ```yaml
@@ -434,11 +440,13 @@ compman:
 
 When restoring without a timestamp, choose an available backup interactively. Volume restore and `volume push` merge data into the target; they do not delete files that exist only at the target. Image restore loads the image into the runtime but does not automatically change the Compose `image` tag.
 
-### S3 backup store
+### Remote backup stores (S3 or SSH)
 
-`dirs.backup` accepts either a local relative path or an S3 URI. With an S3
-store, archives live in the bucket; compman stages them locally only while a
-backup or restore runs and deletes the staged copy after a successful upload.
+`dirs.backup` accepts either a local relative path or a remote URI. With an
+S3 store, archives live in the bucket; compman stages them locally only while
+a backup or restore runs and deletes the staged copy after a successful upload.
+An `ssh://[user@]host[:port]/path` store behaves the same way, using `scp` and
+`ssh` with pre-provisioned keys (BatchMode; no passwords are stored or prompted).
 
 ```yaml
 compman:
@@ -450,9 +458,22 @@ compman:
       file: docker-compose.yml
 ```
 
+An SSH store keeps the same archive naming on the remote path:
+
+```yaml
+compman:
+  name: my-stack
+  dirs:
+    backup: ssh://backup@nas.example:2222/srv/backups
+  compose:
+    default:
+      file: docker-compose.yml
+```
+
 - Every `volume backup` and `image backup` uploads its archive to
-  `<prefix>/<archive-filename>` with `Content-Type: application/gzip`, then
-  verifies the stored object size against the staged file.
+  `<prefix>/<archive-filename>` with `Content-Type: application/gzip`
+  (`application/zstd` for `.tar.zst` archives), then verifies the stored
+  object size against the staged file.
 - Restores list available timestamps from the bucket and download the selected
   archive automatically; there is no manual sync step.
 - A failed upload exits non-zero, keeps the staged archive, and names its path;
@@ -473,14 +494,14 @@ compman schedule add --daily 04:30 --no-stop      # every day at 04:30 local tim
 compman schedule add --every 30m                  # every 30 minutes
 compman schedule add --weekly sun 03:00 -z 9     # Sundays at 03:00, gzip level 9
 compman schedule list [--json]
-compman schedule remove daily-04-30               # name shown by `schedule list`
+compman schedule remove my-stack.volume           # default job name: <project>.volume
 ```
 
-Exactly one cadence option is required: `--every Nm|Nh`, `--daily HH:MM`, or `--weekly <day> HH:MM` (day names `sun`..`sat`, case-insensitive; all times are local). Pass-through flags mirror `volume backup`: `--no-stop`, `-z LEVEL`, and `--profile`. The job runs `[compman, -c <config>, volume backup, ...]` directly — no wrapper scripts — and appends output to `schedule.log` next to the schedule registry (`~/.config/compman/schedule.log`, or `%APPDATA%\compman\schedule.log` on Windows). On Linux with systemd timers the output goes to journald instead (`journalctl --user -u compman-<name>.service`).
+Exactly one cadence option is required: `--every Nm|Nh`, `--daily HH:MM`, or `--weekly <day> HH:MM` (day names `sun`..`sat`, case-insensitive; all times are local). Pass-through flags mirror `volume backup`: `--no-stop`, `-z LEVEL`, and `--profile`. The job runs `[compman, -c <config>, volume backup, ...]` directly — no wrapper scripts — and appends output to `schedule.log` next to the schedule registry (`%APPDATA%\compman\schedule.log` when the `APPDATA` environment variable is set — always the case on Windows — otherwise `~/.config/compman/schedule.log`). On Linux with systemd timers the output goes to journald instead (`journalctl --user -u compman-<name>.service`).
 
 The scheduler mechanism is picked automatically: launchd on macOS, schtasks on Windows, and on Linux a systemd user timer when `systemctl --user show-environment` succeeds, otherwise crontab. Force the Linux mechanism with `--scheduler systemd|cron`. Cron cannot express every interval: `--every` values must divide 60 minutes (or be whole hours), otherwise registration fails and suggests `--scheduler systemd`.
 
-The registry at `~/.config/compman/schedules.json` (`%APPDATA%\compman\schedules.json` on Windows) is the source of truth. `schedule list` probes each platform artifact and marks drifted entries `[missing]`; `schedule remove` still deletes the registry entry when the platform artifact is already gone.
+The registry file `schedules.json` lives in that same directory (`%APPDATA%\compman` when `APPDATA` is set, otherwise `~/.config/compman`) and is the source of truth. `schedule list` probes each platform artifact and marks drifted entries `[missing]`; `schedule remove` still deletes the registry entry when the platform artifact is already gone.
 
 Platform limitations to know before relying on this:
 

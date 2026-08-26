@@ -42,7 +42,7 @@
               "required": ["url"],
               "properties": {
                 "url": {"type": "string"},
-                "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                "sha256": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$", "description": "Lower- or mixed-case hex SHA-256 digest; compman lowercases it before comparing."},
                 "auth": {
                   "type": "object",
                   "required": ["header", "value_env"],
@@ -74,12 +74,9 @@
             }
           }
         },
-        "backup": {
-          "type": "object"
-        },
         "compose": {
           "type": "object",
-          "required": ["default"],
+          "description": "Named Compose profiles. At least one named profile (e.g. 'default') is required; an optional 'base' key may be listed alongside profiles as a shared compose file.",
           "additionalProperties": {
             "oneOf": [
               {"type": "string"},

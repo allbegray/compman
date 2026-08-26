@@ -3,13 +3,17 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-from collections.abc import Callable
+import sys
+import uuid
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
 import typer
 
+from compman.errors import CommandError
 from compman.i18n import t
 from compman.scheduling.cadence import Cadence, CadenceKind
 
@@ -45,8 +49,15 @@ class JobRecord:
         return cls(**data)
 
 
+def registry_dir() -> Path:
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        return Path(appdata) / "compman"
+    return Path.home() / ".config" / "compman"
+
+
 def registry_path() -> Path:
-    return Path.home() / ".config" / "compman" / "schedules.json"
+    return registry_dir() / "schedules.json"
 
 
 def _empty_registry() -> dict[str, Any]:
@@ -87,10 +98,61 @@ def save_registry(registry: dict[str, Any]) -> None:
             for name, value in registry.get("jobs", {}).items()
         },
     }
-    tmp = path.with_name(path.name + ".tmp")
+    tmp = unique_tmp_path(path)
     try:
         tmp.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
         os.replace(tmp, path)
     except OSError:
         tmp.unlink(missing_ok=True)
         raise
+
+
+def failure_detail(result: subprocess.CompletedProcess[str]) -> str:
+    """Concise one-line rc/stderr summary for a failed scheduler command."""
+    stderr = " ".join((result.stderr or "").split())
+    if stderr:
+        return f"exit {result.returncode}: {stderr}"
+    return f"exit {result.returncode}"
+
+
+def require_success(result: subprocess.CompletedProcess[str], scheduler: str) -> None:
+    """Raise CommandError when a scheduler registration subprocess failed."""
+    if result.returncode == 0:
+        return
+    raise CommandError(
+        t(
+            "msg.schedule_register_failed",
+            scheduler=scheduler,
+            detail=failure_detail(result),
+        )
+    )
+
+
+def unique_tmp_path(target: Path) -> Path:
+    """Collision-free staging name so concurrent writers never share a temp file."""
+    return target.with_name(f"{target.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+
+
+@contextmanager
+def registry_lock() -> Iterator[None]:
+    """Advisory lock serializing load->mutate->save cycles on the schedule registry."""
+    path = registry_path()
+    lock_path = path.with_name(path.name + ".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+", encoding="utf-8") as handle:
+        if sys.platform == "win32":
+            import msvcrt
+
+            msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+            try:
+                yield
+            finally:
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)

@@ -116,6 +116,17 @@ def _parse_secrets(raw: object, field_name: str) -> dict[str, SecretRef]:
     return secrets
 
 
+def _parse_limit(raw_limits: dict[str, object], key: str) -> int | None:
+    value = raw_limits.get(key)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ConfigError(f"'limits.{key}' must be an integer.")
+    if value <= 0:
+        raise ConfigError(f"'limits.{key}' must be greater than 0.")
+    return value
+
+
 def load_config(config_path: str | None = None) -> Config:
     path = (Path(config_path) if config_path else Path.cwd() / "compman.yml").resolve()
     if not path.is_file():
@@ -179,6 +190,11 @@ def load_config(config_path: str | None = None) -> Config:
             raise ConfigError(
                 f"Invalid value for 'compose.{key}': expected string or object."
             )
+    if not profiles:
+        raise ConfigError(
+            "'compose' must define at least one named profile "
+            "(e.g. 'compose:\n  default:\n    file: docker-compose.yml')."
+        )
 
     raw_deploy = root.get("deploy")
     deploy_url: str | None = None
@@ -229,18 +245,8 @@ def load_config(config_path: str | None = None) -> Config:
     raw_limits = root.get("limits", {})
     if not isinstance(raw_limits, dict):
         raise ConfigError("'limits' must be a mapping.")
-    max_archive_mb = raw_limits.get("max_archive_mb")
-    if max_archive_mb is not None:
-        if not isinstance(max_archive_mb, int):
-            raise ConfigError("'limits.max_archive_mb' must be an integer.")
-        if max_archive_mb <= 0:
-            raise ConfigError("'limits.max_archive_mb' must be greater than 0.")
-    max_backups = raw_limits.get("max_backups")
-    if max_backups is not None:
-        if not isinstance(max_backups, int):
-            raise ConfigError("'limits.max_backups' must be an integer.")
-        if max_backups <= 0:
-            raise ConfigError("'limits.max_backups' must be greater than 0.")
+    max_archive_mb = _parse_limit(raw_limits, "max_archive_mb")
+    max_backups = _parse_limit(raw_limits, "max_backups")
 
     raw_backup = str(raw_dirs.get("backup", "backup"))
     # Branch before _managed_path: an s3:// URI would otherwise fail the
@@ -275,9 +281,12 @@ def load_config(config_path: str | None = None) -> Config:
     return config
 
 
+YAML_SCHEMA_HEADER = "# yaml-language-server: $schema=https://allbegray.github.io/compman/compman.schema.json"
+
+
 def dump_default_config(name: str) -> str:
     sanitized = sanitize_project_name(name)
-    return f"""# yaml-language-server: $schema=https://allbegray.github.io/compman/compman.schema.json
+    return f"""{YAML_SCHEMA_HEADER}
 compman:
   name: {sanitized}
   compose:
@@ -290,7 +299,7 @@ compman:
   #   url: s3://bucket/app.tar.gz
   #   sha256: 64-hex-lowercase-digest-of-the-archive
   # dirs:
-  #   backup: backup                  # or an S3 URI: s3://bucket/backups
+  #   backup: backup                  # or a remote URI: s3://bucket/backups, ssh://[user@]host[:port]/path
   #   volume: volume
   # limits:
   #   max_backups: 10                # keep newest 10 archives per stack and kind

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import pathlib
+import re
 import sys
 import tarfile
 from unittest.mock import MagicMock, patch
 
 import pytest
 from botocore.exceptions import ClientError
+from compression import zstd as pyzstd
 from test_backup_store import FakeS3, _patch_stage, _stage
 
 from compman.backup_store import S3BackupStore, local_root
@@ -103,8 +105,10 @@ def test_image_restore_invalid_ts(dummy_runtime, temp_dir: pathlib.Path):
 
 def test_image_restore_missing(dummy_runtime, temp_dir: pathlib.Path):
     cfg = Config(name="my_stack", profiles={"default": Profile(file="docker-compose.yml")})
-    local_root(cfg.backup_store).mkdir(parents=True, exist_ok=True)
-    with pytest.raises(CommandError):
+    store_root = local_root(cfg.backup_store)
+    store_root.mkdir(parents=True, exist_ok=True)
+    fallback = str(store_root / "my_stack.image.20260731_1200.tar.gz")
+    with pytest.raises(CommandError, match=re.escape(fallback)):
         image.restore(dummy_runtime, cfg, timestamp="20260731_1200")
 
 
@@ -179,7 +183,10 @@ def test_image_restore_remote_fetches_from_store(dummy_runtime, temp_dir: pathli
             self.downloads.append((bucket, key, destination))
             pathlib.Path(destination).write_bytes(payload)
 
-    fake = DownloadFake(pages=[{"Contents": [{"Key": "backups/my_stack.image.20260731_1200.tar.gz"}]}])
+    fake = DownloadFake(
+        pages=[{"Contents": [{"Key": "backups/my_stack.image.20260731_1200.tar.gz"}]}],
+        remote_size=1,
+    )
     dummy_runtime.load_image = MagicMock()
     with patch("compman.backup_store.create_client", return_value=fake), _patch_stage(temp_dir):
         image.restore(dummy_runtime, cfg, timestamp="20260731_1200")
@@ -199,3 +206,42 @@ def test_select_backup_timestamp_remote_lists_from_store(dummy_runtime, temp_dir
     ):
         ts = common.select_backup_timestamp(cfg, "volume")
     assert ts == "20260731_1200"
+
+
+def test_image_backup_default_gzip_names_tarball_gz(dummy_runtime, temp_dir: pathlib.Path):
+    cfg = Config(name="my_stack", profiles={"default": Profile(file="docker-compose.yml")})
+    backup_root = local_root(cfg.backup_store)
+    image.backup(dummy_runtime, cfg)
+    gz = list(backup_root.glob("*.tar.gz"))
+    assert len(gz) == 1
+    assert gz[0].name.startswith("my_stack.image.")
+    assert list(backup_root.glob("*.tar.zst")) == []
+
+
+def test_image_backup_zstd_writes_tar_zst_archive(dummy_runtime, temp_dir: pathlib.Path):
+    cfg = Config(name="my_stack", profiles={"default": Profile(file="docker-compose.yml")})
+    backup_root = local_root(cfg.backup_store)
+    image.backup(dummy_runtime, cfg, zstd_format=True)
+    zst = list(backup_root.glob("*.tar.zst"))
+    assert len(zst) == 1
+    assert zst[0].name.startswith("my_stack.image.")
+    assert list(backup_root.glob("*.tar.gz")) == []
+
+
+def test_image_restore_resolves_zstd_suffixed_archive(dummy_runtime, temp_dir: pathlib.Path):
+    cfg = Config(name="my_stack", profiles={"default": Profile(file="docker-compose.yml")})
+    backup_dir = local_root(cfg.backup_store)
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = "20260826_1200"
+    archive = backup_dir / f"my_stack.image.{timestamp}.tar.zst"
+    inner = temp_dir / "img.tar"
+    inner.touch()
+    with pyzstd.open(archive, "wb") as zout:
+        with tarfile.open(fileobj=zout, mode="w") as tar:
+            tar.add(inner, arcname=inner.name)
+
+    dummy_runtime.load_image = MagicMock()
+    image.restore(dummy_runtime, cfg, timestamp=timestamp)
+
+    loaded = dummy_runtime.load_image.call_args.args[0]
+    assert loaded.name == "img.tar"

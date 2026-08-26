@@ -19,14 +19,14 @@
 - `ps`와 `stats`로 현재 프로젝트의 컨테이너만 조회하고 모니터링합니다
 - S3 프리픽스/아카이브 또는 HTTP/HTTPS `.tar.gz`/`.tgz`/`.zip` 아카이브에서 배포하며, 선택적 HTTPS 헤더 인증과 SHA-256 무결성 고정을 지원합니다
 - 비어 있는 디렉터리에 배포할 때 `compman.yml`과 `docker-compose.yml`을 자동 생성합니다
-- 볼륨과 컨테이너 이미지의 타임스탬프 백업을 만들고 복구합니다
-- `dirs.backup`(`s3://bucket/prefix`)을 통해 백업을 로컬 디렉터리 또는 S3 호환 버킷에 저장합니다
+- 볼륨과 컨테이너 이미지의 타임스탬프 백업을 만들고 복구합니다(기본은 gzip `.tar.gz`, `--zstd`로 Zstandard `.tar.zst` 선택)
+- `dirs.backup`(`s3://bucket/prefix` 또는 `ssh://[user@]host[:port]/path`)을 통해 백업을 로컬 디렉터리, S3 호환 버킷, 또는 SSH/SCP 원격 호스트에 저장합니다
 - 한국어/영어 도움말과 셸 완성을 제공합니다
 - Windows, Linux, macOS를 지원합니다
 
 ## 요구 사항
 
-- Python 3.12 이상
+- Python 3.12 이상(`--zstd` 백업은 stdlib `compression.zstd` 모듈을 제공하는 Python 3.14 이상 필요)
 - Docker Compose 또는 Podman Compose
 - S3 배포와 S3 백업 저장소: 접근 가능한 S3 호환 스토리지와 AWS 자격 증명
 - HTTP 배포: 공개 아카이브 URL, 또는 `deploy.auth` 설정으로 인증하는 HTTPS URL(토큰은 환경 변수로 제공)
@@ -81,7 +81,7 @@ uv tool install .
 compman upgrade
 ```
 
-이 명령은 `uv tool upgrade compman --reinstall --managed-python --python 3.13`을 실행합니다. 다른 Git 저장소에서 업그레이드를 받으려면 `--repo URL`을 전달합니다(uv를 사용할 수 없을 때의 pip 폴백에만 사용됩니다):
+이 명령은 `uv tool upgrade compman --reinstall --managed-python --python <현재 major.minor>`(compman이 실행 중인 파이썬 버전)을 실행합니다. 다른 Git 저장소에서 업그레이드를 받으려면 `--repo URL`을 전달합니다(uv를 사용할 수 없을 때의 pip 폴백에만 사용됩니다):
 
 ```bash
 compman upgrade --repo https://github.com/your-fork/compman.git
@@ -312,38 +312,42 @@ services:
 ```text
 compman init [--scaffold | --s3 URI | --seed]
 compman deploy [--path SOURCE_URI] [--sha256 HEX] [--build] [--tag TAG]
-compman update [PROFILE] [-c|--config PATH]
-compman doctor [--profile PROFILE] [-c|--config PATH] [--json]
-compman status [--profile PROFILE] [-c|--config PATH] [--json]
-compman ps [PROFILE] [-a|--all] [--json] [-c|--config PATH]
-compman stats [PROFILE] [-f|--follow] [--json] [-c|--config PATH]
+compman update [PROFILE] [-c|--config PATH] [--stack NAME]
+compman doctor [--profile PROFILE] [-c|--config PATH] [--json] [--stack NAME]
+compman status [--profile PROFILE] [-c|--config PATH] [--json] [--stack NAME]
+compman ps [PROFILE] [-a|--all] [--json] [-c|--config PATH] [--stack NAME]
+compman stats [PROFILE] [-f|--follow] [--json] [-c|--config PATH] [--stack NAME]
 compman upgrade [--repo URL]
+compman rollback
 compman version
 compman lang [ko|en]
 compman completion [powershell|bash|zsh|fish] --install
 
-compman stack up [PROFILE] [-c|--config PATH]
-compman stack update [PROFILE] [-c|--config PATH]
-compman stack down [--profile PROFILE] [-c|--config PATH] --yes
+compman stack up [PROFILE] [-c|--config PATH] [--stack NAME]
+compman stack update [PROFILE] [-c|--config PATH] [--stack NAME]
+compman stack down [--profile PROFILE] [-c|--config PATH] --yes [--stack NAME]
 
-compman service start [SERVICE...] [--profile PROFILE] [-c|--config PATH]
-compman service stop [SERVICE...] [--profile PROFILE] [-c|--config PATH]
-compman service restart [SERVICE...] [--profile PROFILE] [-c|--config PATH]
-compman service status [--profile PROFILE] [-c|--config PATH]
-compman service log [CONTAINER] [-f] [-n 50] [--profile PROFILE] [-c|--config PATH]
-compman service connect [CONTAINER] [--profile PROFILE] [-c|--config PATH]
+compman service start [SERVICE...] [--profile PROFILE] [-c|--config PATH] [--stack NAME]
+compman service stop [SERVICE...] [--profile PROFILE] [-c|--config PATH] [--stack NAME]
+compman service restart [SERVICE...] [--profile PROFILE] [-c|--config PATH] [--stack NAME]
+compman service status [--profile PROFILE] [-c|--config PATH] [--stack NAME]
+compman service log [CONTAINER] [-f] [-n 50] [--profile PROFILE] [-c|--config PATH] [--stack NAME]
+compman service connect [CONTAINER] [--profile PROFILE] [-c|--config PATH] [--stack NAME]
 
-compman volume backup [-z LEVEL] [--no-stop] [--profile PROFILE] [-c|--config PATH]
-compman volume restore [TIMESTAMP] [--no-stop] [--replace] [--profile PROFILE] [-c|--config PATH]
-compman volume pull [--profile PROFILE] [-c|--config PATH]
-compman volume push [--replace] [--profile PROFILE] [-c|--config PATH]
+compman volume backup [-z LEVEL] [--zstd] [--no-stop] [--profile PROFILE] [-c|--config PATH] [--stack NAME]
+compman volume restore [TIMESTAMP] [--no-stop] [--replace] [--profile PROFILE] [-c|--config PATH] [--stack NAME]
+compman volume pull [--profile PROFILE] [-c|--config PATH] [--stack NAME]
+compman volume push [--replace] [--profile PROFILE] [-c|--config PATH] [--stack NAME]
 
-compman image backup [-z LEVEL] [--source-image] [--profile PROFILE] [-c|--config PATH]
-compman image restore [TIMESTAMP] [--profile PROFILE] [-c|--config PATH]
+compman image backup [-z LEVEL] [--zstd] [--source-image] [--profile PROFILE] [-c|--config PATH] [--stack NAME]
+compman image restore [TIMESTAMP] [--profile PROFILE] [-c|--config PATH] [--stack NAME]
 
 compman schedule add [--every N | --daily HH:MM | --weekly DAY HH:MM] [--no-stop] [-z LEVEL] [--profile PROFILE] [--name TEXT] [--scheduler systemd|cron] [-c|--config PATH]
 compman schedule list [--json]
 compman schedule remove NAME
+
+compman stacks list [--json]
+compman stacks remove NAME
 
 compman clear [--yes]
 ```
@@ -361,7 +365,7 @@ compman clear [--yes]
 - `volume backup/restore`: 기본적으로 작업 동안 스택을 내리고 끝난 뒤 되살립니다. 일관성 위험을 이해할 때만 `--no-stop`을 쓰세요.
 - `volume restore/push --replace`: 병합하는 대신 대상에 없는 소스 기준으로 대상의 파일을 삭제합니다(바이트 단위 교체). 대상은 검증된 절대 컨테이너 경로여야 하며, 파괴적이므로 신중하게 쓰세요.
 - `image backup`: 기본적으로 실행 중인 컨테이너 상태를 commit해 저장합니다. 원본 이미지를 저장하려면 `--source-image`를 쓰세요.
-- `volume backup`과 `image backup`: gzip 레벨 기본값은 6입니다. `-z 1`은 더 빠른 백업, `-z 9`는 더 작은 아카이브입니다.
+- `volume backup`과 `image backup`: gzip 레벨 기본값은 6입니다. `-z 1`은 더 빠른 백업, `-z 9`는 더 작은 아카이브입니다(`-z`는 gzip에만 적용). `--zstd`를 추가하면 대신 Zstandard `.tar.zst` 아카이브를 작성합니다. Python 3.14 이상이 필요하고, `.tar.zst` 백업 복구에도 마찬가지입니다.
 - `clear`: 선택한 런타임에 `image prune -af`를 실행하므로 현재 프로젝트 밖의 미사용 이미지도 삭제할 수 있습니다. `--yes` 확인(또는 대화형 `y` 응답)이 필요합니다.
 
 ## 진단 및 상태
@@ -391,6 +395,8 @@ compman status -c /path/to/compman.yml
 <stack>.image.<YYYYMMDD_HHMMSS>[_<microseconds>].tar.gz
 ```
 
+백업은 기본적으로 gzip `.tar.gz`입니다. 복구는 저장된 확장자를 투명하게 해석하므로 `.tar.gz`와 `.tar.zst` 아카이브 모두 같은 `volume restore` / `image restore` 명령으로 목록 조회와 복구가 됩니다.
+
 선택적 보존 정책: `limits.max_backups`를 설정하면 스택과 종류별로 최신 N개 아카이브만 유지합니다. 성공한 백업마다 저장소(로컬 파일 또는 S3 객체)에서 오래된 아카이브를 정리하고 매 삭제를 출력합니다. 삭제 실패는 경고할 뿐 백업을 실패시키지 않습니다.
 
 ```yaml
@@ -401,9 +407,9 @@ compman:
 
 타임스탬프 없이 복구하면 사용 가능한 백업을 대화형으로 고릅니다. 볼륨 복구와 `volume push`는 대상에 데이터를 병합하며, 대상에만 있는 파일은 삭제하지 않습니다. 이미지 복구는 이미지를 런타임에 로드할 뿐 Compose `image` 태그를 자동으로 바꾸지 않습니다.
 
-### S3 백업 저장소
+### 원격 백업 저장소 (S3 또는 SSH)
 
-`dirs.backup`은 로컬 상대 경로 또는 S3 URI를 받습니다. S3 저장소를 쓰면 아카이브는 버킷에 살고, compman은 백업이나 복구가 실행되는 동안에만 로컬에 스테이징하고 업로드가 성공하면 스테이징 사본을 삭제합니다.
+`dirs.backup`은 로컬 상대 경로 또는 원격 URI를 받습니다. S3 저장소를 쓰면 아카이브는 버킷에 살고, compman은 백업이나 복구가 실행되는 동안에만 로컬에 스테이징하고 업로드가 성공하면 스테이징 사본을 삭제합니다. `ssh://[user@]host[:port]/path` 저장소도 같은 방식으로 동작하며, 사전 배포된 키로 `scp`와 `ssh`를 사용합니다(BatchMode; 비밀번호를 저장하거나 묻지 않습니다).
 
 ```yaml
 compman:
@@ -415,7 +421,19 @@ compman:
       file: docker-compose.yml
 ```
 
-- 모든 `volume backup`과 `image backup`은 아카이브를 `Content-Type: application/gzip`으로 `<prefix>/<archive-filename>`에 업로드한 뒤, 저장된 객체 크기를 스테이징 파일과 대조합니다.
+SSH 저장소도 같은 아카이브 명명 규칙을 원격 경로에 사용합니다:
+
+```yaml
+compman:
+  name: my-stack
+  dirs:
+    backup: ssh://backup@nas.example:2222/srv/backups
+  compose:
+    default:
+      file: docker-compose.yml
+```
+
+- 모든 `volume backup`과 `image backup`은 아카이브를 `Content-Type: application/gzip`(`.tar.zst` 아카이브는 `application/zstd`)으로 `<prefix>/<archive-filename>`에 업로드한 뒤, 저장된 객체 크기를 스테이징 파일과 대조합니다.
 - 복구는 버킷에서 사용 가능한 타임스탬프를 나열하고 선택한 아카이브를 자동으로 내려받습니다. 수동 sync 단계는 없습니다.
 - 업로드 실패는 non-zero로 종료하고 스테이징 아카이브를 남기며 그 경로를 알려줍니다. 성공한 업로드는 스테이징 사본을 제거합니다.
 - 저장소는 `AWS_ENDPOINT_URL_S3` / `AWS_ENDPOINT_URL`을 통해 어떤 S3 호환 엔드포인트와도 동작합니다([S3 호환 스토리지](#s3-호환-스토리지) 참고).
@@ -432,14 +450,14 @@ compman schedule add --daily 04:30 --no-stop      # every day at 04:30 local tim
 compman schedule add --every 30m                  # every 30 minutes
 compman schedule add --weekly sun 03:00 -z 9     # Sundays at 03:00, gzip level 9
 compman schedule list [--json]
-compman schedule remove daily-04-30               # name shown by `schedule list`
+compman schedule remove my-stack.volume           # default job name: <project>.volume
 ```
 
-캐던스 옵션은 정확히 하나가 필요합니다: `--every Nm|Nh`, `--daily HH:MM`, 또는 `--weekly <day> HH:MM`(요일 이름은 `sun`..`sat`, 대소문자 무관; 모든 시각은 로컬). pass-through 플래그는 `volume backup`을 따릅니다: `--no-stop`, `-z LEVEL`, `--profile`. 작업은 래퍼 스크립트 없이 `[compman, -c <config>, volume backup, ...]`를 직접 실행하고, 출력을 스케줄 레지스트리 옆의 `schedule.log`에 append합니다(`~/.config/compman/schedule.log`, Windows는 `%APPDATA%\compman\schedule.log`). Linux systemd timer에서는 출력이 journald로 갑니다(`journalctl --user -u compman-<name>.service`).
+캐던스 옵션은 정확히 하나가 필요합니다: `--every Nm|Nh`, `--daily HH:MM`, 또는 `--weekly <day> HH:MM`(요일 이름은 `sun`..`sat`, 대소문자 무관; 모든 시각은 로컬). pass-through 플래그는 `volume backup`을 따릅니다: `--no-stop`, `-z LEVEL`, `--profile`. 작업은 래퍼 스크립트 없이 `[compman, -c <config>, volume backup, ...]`를 직접 실행하고, 출력을 스케줄 레지스트리 옆의 `schedule.log`에 append합니다(`APPDATA` 환경 변수가 설정되어 있으면 — Windows에서는 항상 설정됨 — `%APPDATA%\compman\schedule.log`, 없으면 `~/.config/compman/schedule.log`). Linux systemd timer에서는 출력이 journald로 갑니다(`journalctl --user -u compman-<name>.service`).
 
 스케줄러 메커니즘은 자동으로 고릅니다: macOS는 launchd, Windows는 schtasks, Linux는 `systemctl --user show-environment`가 성공하면 systemd user timer, 아니면 crontab입니다. Linux 메커니즘은 `--scheduler systemd|cron`으로 강제할 수 있습니다. cron은 모든 간격을 표현할 수 없습니다: `--every` 값은 60분을 나눠떨어지거나 정수 시간이어야 하며, 그렇지 않으면 등록이 실패하고 `--scheduler systemd`를 제안합니다.
 
-`~/.config/compman/schedules.json`(Windows는 `%APPDATA%\compman\schedules.json`) 레지스트리가 source of truth입니다. `schedule list`는 각 플랫폼 아티팩트를 probe하고 drift된 항목에 `[missing]`을 표시합니다. `schedule remove`는 플랫폼 아티팩트가 이미 사라졌어도 레지스트리 항목을 삭제합니다.
+같은 디렉터리의 `schedules.json` 레지스트리 파일(`APPDATA`가 설정되어 있으면 `%APPDATA%\compman`, 없으면 `~/.config/compman`)이 source of truth입니다. `schedule list`는 각 플랫폼 아티팩트를 probe하고 drift된 항목에 `[missing]`을 표시합니다. `schedule remove`는 플랫폼 아티팩트가 이미 사라졌어도 레지스트리 항목을 삭제합니다.
 
 이 기능에 의존하기 전에 알아야 할 플랫폼 제약:
 

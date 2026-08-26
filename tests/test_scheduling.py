@@ -1,16 +1,20 @@
 from __future__ import annotations
 
 import json
+import os
 import pathlib
-import shlex
 import sys
+import types
 import xml.etree.ElementTree as ET
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import FrozenInstanceError
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
+from compman.errors import CommandError
 from compman.scheduling import (
     Cadence,
     CrontabAdapter,
@@ -27,6 +31,8 @@ from compman.scheduling import (
     load_registry,
     parse_cadence,
     pick_scheduler,
+    registry_dir,
+    registry_lock,
     registry_path,
     resolve_executable,
     save_registry,
@@ -36,7 +42,9 @@ from compman.scheduling import (
 from compman.scheduling.cadence import parse_time_value
 from compman.scheduling.crontab import begin_marker, end_marker, without_block
 from compman.scheduling.launchd import label_for, plist_path
-from compman.scheduling.systemd import unit_dir, unit_names
+from compman.scheduling.registry import failure_detail, require_success
+from compman.scheduling.schtasks import cmd_quote
+from compman.scheduling.systemd import systemd_quote, unit_dir, unit_names
 
 
 class FakeProc:
@@ -104,6 +112,17 @@ def plist_entries(text: str) -> dict[str, Any]:
             entries[key.text or ""] = value.text or ""
         index += 2
     return entries
+
+
+@contextmanager
+def isolated_home(tmp_path: pathlib.Path) -> Iterator[None]:
+    """Pin Path.home and clear APPDATA so registry paths resolve under tmp_path."""
+    env = {key: value for key, value in os.environ.items() if key != "APPDATA"}
+    with (
+        patch.dict(os.environ, env, clear=True),
+        patch.object(pathlib.Path, "home", return_value=tmp_path),
+    ):
+        yield
 
 
 # ---------------------------------------------------------------------------
@@ -290,8 +309,22 @@ def test_schtasks_cadence_args(cadence: Cadence, expected: list[str]) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_registry_path_posix_uses_home_config_dir() -> None:
-    with patch.object(pathlib.Path, "home", return_value=pathlib.Path("/home/u")):
+def test_registry_dir_uses_appdata_when_set(tmp_path: pathlib.Path) -> None:
+    with patch.dict(os.environ, {"APPDATA": str(tmp_path)}):
+        assert registry_dir() == tmp_path / "compman"
+        assert registry_path() == tmp_path / "compman" / "schedules.json"
+
+
+@pytest.mark.parametrize("appdata", [None, ""])
+def test_registry_dir_falls_back_to_home_config_without_usable_appdata(
+    appdata: str | None,
+) -> None:
+    env = {} if appdata is None else {"APPDATA": appdata}
+    with (
+        patch.dict(os.environ, env, clear=True),
+        patch.object(pathlib.Path, "home", return_value=pathlib.Path("/home/u")),
+    ):
+        assert registry_dir() == pathlib.Path("/home/u/.config/compman")
         assert registry_path() == pathlib.Path("/home/u/.config/compman/schedules.json")
 
 
@@ -302,7 +335,7 @@ def test_load_registry_returns_empty_when_file_missing(tmp_path: pathlib.Path) -
 
 def test_registry_roundtrip_preserves_records(tmp_path: pathlib.Path) -> None:
     record = make_record()
-    with patch.object(pathlib.Path, "home", return_value=tmp_path):
+    with isolated_home(tmp_path):
         save_registry({"version": 1, "jobs": {record.name: record}})
         loaded = load_registry()
     assert loaded["version"] == 1
@@ -311,7 +344,7 @@ def test_registry_roundtrip_preserves_records(tmp_path: pathlib.Path) -> None:
 
 
 def test_save_registry_defaults_version_and_keeps_plain_dict_jobs(tmp_path: pathlib.Path) -> None:
-    with patch.object(pathlib.Path, "home", return_value=tmp_path):
+    with isolated_home(tmp_path):
         save_registry({"jobs": {"a": {"kind": "daily"}}})
         stored = json.loads(registry_path().read_text(encoding="utf-8"))
     assert stored["version"] == 1
@@ -319,7 +352,7 @@ def test_save_registry_defaults_version_and_keeps_plain_dict_jobs(tmp_path: path
 
 
 def test_load_registry_self_heals_corrupt_json(tmp_path: pathlib.Path, capsys: Any) -> None:
-    with patch.object(pathlib.Path, "home", return_value=tmp_path):
+    with isolated_home(tmp_path):
         path = tmp_path / ".config" / "compman" / "schedules.json"
         path.parent.mkdir(parents=True)
         path.write_text("{not json", encoding="utf-8")
@@ -334,7 +367,7 @@ def test_load_registry_self_heals_corrupt_json(tmp_path: pathlib.Path, capsys: A
 def test_load_registry_self_heals_malformed_shapes(
     tmp_path: pathlib.Path, payload: str
 ) -> None:
-    with patch.object(pathlib.Path, "home", return_value=tmp_path):
+    with isolated_home(tmp_path):
         path = tmp_path / ".config" / "compman" / "schedules.json"
         path.parent.mkdir(parents=True)
         path.write_text(payload, encoding="utf-8")
@@ -343,7 +376,7 @@ def test_load_registry_self_heals_malformed_shapes(
 
 
 def test_load_registry_defaults_non_integer_version(tmp_path: pathlib.Path) -> None:
-    with patch.object(pathlib.Path, "home", return_value=tmp_path):
+    with isolated_home(tmp_path):
         path = tmp_path / ".config" / "compman" / "schedules.json"
         path.parent.mkdir(parents=True)
         path.write_text('{"version": "two", "jobs": {"a": {}}}', encoding="utf-8")
@@ -352,7 +385,7 @@ def test_load_registry_defaults_non_integer_version(tmp_path: pathlib.Path) -> N
 
 
 def test_load_registry_preserves_integer_version(tmp_path: pathlib.Path) -> None:
-    with patch.object(pathlib.Path, "home", return_value=tmp_path):
+    with isolated_home(tmp_path):
         path = tmp_path / ".config" / "compman" / "schedules.json"
         path.parent.mkdir(parents=True)
         path.write_text('{"version": 7, "jobs": {}}', encoding="utf-8")
@@ -360,14 +393,79 @@ def test_load_registry_preserves_integer_version(tmp_path: pathlib.Path) -> None
 
 
 def test_save_registry_removes_tmp_file_when_replace_fails(tmp_path: pathlib.Path) -> None:
-    with patch.object(pathlib.Path, "home", return_value=tmp_path):
+    with isolated_home(tmp_path):
         target = registry_path()
         target.parent.mkdir(parents=True, exist_ok=True)
-        tmp_file = target.with_name(target.name + ".tmp")
         with patch("compman.scheduling.registry.os.replace", side_effect=OSError("disk full")):
             with pytest.raises(OSError, match="disk full"):
                 save_registry({"version": 1, "jobs": {}})
-    assert not tmp_file.exists()
+    assert not list(target.parent.glob("*.tmp"))
+
+
+def test_save_registry_stages_each_write_under_a_unique_tmp_name(
+    tmp_path: pathlib.Path,
+) -> None:
+    staged: list[pathlib.Path] = []
+    with (
+        isolated_home(tmp_path),
+        patch(
+            "compman.scheduling.registry.os.replace",
+            side_effect=lambda src, dst: staged.append(pathlib.Path(src)),
+        ),
+    ):
+        save_registry({"version": 1, "jobs": {}})
+        save_registry({"version": 1, "jobs": {}})
+    names = [path.name for path in staged]
+    assert len(set(names)) == 2
+    assert all(name.startswith("schedules.json.") for name in names)
+    assert all(name.endswith(".tmp") for name in names)
+    assert all(str(os.getpid()) in name for name in names)
+
+
+@pytest.mark.skipif(sys.platform == 'win32', reason='flock advisory lock is POSIX-only')
+def test_registry_lock_creates_lock_file_and_blocks_second_holder(
+    tmp_path: pathlib.Path,
+) -> None:
+    import fcntl
+
+    lock_file = tmp_path / ".config" / "compman" / "schedules.json.lock"
+    with isolated_home(tmp_path):
+        with registry_lock():
+            assert lock_file.is_file()
+            with pytest.raises(OSError):
+                with lock_file.open("a+", encoding="utf-8") as other:
+                    fcntl.flock(other.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def test_registry_lock_windows_branch_uses_msvcrt_locking(tmp_path: pathlib.Path) -> None:
+    locking = MagicMock()
+    fake_msvcrt = types.SimpleNamespace(LK_LOCK=1, LK_UNLCK=2, locking=locking)
+    with (
+        isolated_home(tmp_path),
+        patch.object(sys, "platform", "win32"),
+        patch.dict(sys.modules, {"msvcrt": fake_msvcrt}),
+    ):
+        with registry_lock():
+            pass
+    modes = [call.args[1] for call in locking.call_args_list]
+    assert modes == [fake_msvcrt.LK_LOCK, fake_msvcrt.LK_UNLCK]
+
+
+def test_failure_detail_collapses_stderr_onto_one_line() -> None:
+    assert failure_detail(FakeProc(returncode=3, stderr="boom\nnow\n")) == "exit 3: boom now"
+
+
+def test_failure_detail_reports_rc_when_stderr_empty() -> None:
+    assert failure_detail(FakeProc(returncode=7)) == "exit 7"
+
+
+def test_require_success_accepts_successful_process() -> None:
+    require_success(FakeProc(), "cron")
+
+
+def test_require_success_raises_registration_failed_with_detail() -> None:
+    with pytest.raises(CommandError, match=r"failed \(cron\): exit 1: denied"):
+        require_success(FakeProc(returncode=1, stderr="denied"), "cron")
 
 
 def test_job_record_dict_roundtrip_and_cadence_view() -> None:
@@ -526,6 +624,15 @@ def test_launchd_install_writes_plist_and_bootstraps(tmp_path: pathlib.Path) -> 
 
 
 @pytest.mark.skipif(sys.platform == 'win32', reason='launchd is macOS-only')
+def test_launchd_install_raises_when_bootstrap_fails(tmp_path: pathlib.Path) -> None:
+    runner = RecordingRunner([FakeProc(returncode=5, stderr="Bootstrap failed")])
+    with patch.object(pathlib.Path, "home", return_value=tmp_path):
+        with pytest.raises(CommandError, match=r"failed \(launchd\): exit 5"):
+            LaunchdAdapter().install(make_record(), runner)
+    assert len(runner.calls) == 1
+
+
+@pytest.mark.skipif(sys.platform == 'win32', reason='launchd is macOS-only')
 def test_launchd_remove_boots_out_then_unlinks(tmp_path: pathlib.Path) -> None:
     runner = RecordingRunner()
     with patch.object(pathlib.Path, "home", return_value=tmp_path):
@@ -551,13 +658,28 @@ def test_launchd_remove_tolerates_missing_plist(tmp_path: pathlib.Path) -> None:
     ]
 
 
-def test_launchd_exists_reflects_plist_file(tmp_path: pathlib.Path) -> None:
-    adapter = LaunchdAdapter()
+@pytest.mark.skipif(sys.platform == 'win32', reason='os.getuid is POSIX-only')
+@pytest.mark.parametrize(("returncode", "expected"), [(0, True), (1, False), (113, False)])
+def test_launchd_exists_probes_launchctl_for_label(
+    returncode: int, expected: bool
+) -> None:
+    runner = RecordingRunner([FakeProc(returncode=returncode)])
+    assert LaunchdAdapter().exists("app.volume", runner) is expected
+    uid = os.getuid()
+    assert runner.argv_lists() == [
+        ["launchctl", "print", f"gui/{uid}/com.compman.volume.app.volume"]
+    ]
+
+
+@pytest.mark.skipif(sys.platform == 'win32', reason='launchd is macOS-only')
+def test_launchd_exists_counts_unloaded_plist_as_missing(tmp_path: pathlib.Path) -> None:
     with patch.object(pathlib.Path, "home", return_value=tmp_path):
-        assert adapter.exists("app.volume") is False
         plist_path("app.volume").parent.mkdir(parents=True)
-        plist_path("app.volume").write_text("x", encoding="utf-8")
-        assert adapter.exists("app.volume") is True
+        plist_path("app.volume").touch()
+        loaded = LaunchdAdapter().exists(
+            "app.volume", RecordingRunner([FakeProc(returncode=1)])
+        )
+    assert loaded is False
 
 
 def test_label_for_uses_compman_volume_prefix() -> None:
@@ -573,7 +695,7 @@ def test_build_systemd_units_daily_uses_oncalendar() -> None:
     service, timer = build_systemd_units(make_record())
     assert "Type=oneshot" in service
     assert "WorkingDirectory=/work/app" in service
-    assert f"ExecStart={shlex.join(make_record().args)}" in service
+    assert "ExecStart=/opt/compman -c /work/app/compman.yml volume backup --no-stop" in service
     assert "OnCalendar=*-*-* 04:30:00" in timer
     assert "Persistent=true" in timer
     assert "WantedBy=timers.target" in timer
@@ -594,6 +716,29 @@ def test_build_systemd_units_interval_uses_boot_and_active_sec(minutes: int, spa
     assert "OnBootSec=5min" in timer
     assert f"OnUnitActiveSec={span}" in timer
     assert "OnCalendar" not in timer
+
+
+@pytest.mark.parametrize(
+    ("argument", "expected"),
+    [
+        ("/opt/compman", "/opt/compman"),
+        ("--no-stop", "--no-stop"),
+        ("my file.txt", '"my file.txt"'),
+        ("back\\slash", '"back\\\\slash"'),
+        ('say "hi"', '"say \\"hi\\""'),
+        ("a$b", '"a$b"'),
+        ("", '""'),
+    ],
+)
+def test_systemd_quote_wraps_arguments_with_specials(argument: str, expected: str) -> None:
+    assert systemd_quote(argument) == expected
+
+
+def test_build_systemd_units_quotes_execstart_arguments_with_spaces() -> None:
+    record = make_record(args=["/opt/comp man", "--profile", "my profile"])
+    service, _timer = build_systemd_units(record)
+    exec_line = next(line for line in service.splitlines() if line.startswith("ExecStart="))
+    assert exec_line == 'ExecStart="/opt/comp man" --profile "my profile"'
 
 
 def test_systemd_install_writes_units_and_enables_timer(tmp_path: pathlib.Path) -> None:
@@ -628,13 +773,31 @@ def test_systemd_remove_disables_unlinks_and_reloads(tmp_path: pathlib.Path) -> 
     ]
 
 
-def test_systemd_exists_reflects_timer_unit(tmp_path: pathlib.Path) -> None:
-    adapter = SystemdAdapter()
+def test_systemd_install_raises_when_daemon_reload_fails(tmp_path: pathlib.Path) -> None:
+    runner = RecordingRunner([FakeProc(returncode=1, stderr="reload failed")])
     with patch.object(pathlib.Path, "home", return_value=tmp_path):
-        assert adapter.exists("app.volume") is False
-        unit_dir().mkdir(parents=True)
-        unit_dir().joinpath(unit_names("app.volume")[1]).write_text("x", encoding="utf-8")
-        assert adapter.exists("app.volume") is True
+        with pytest.raises(CommandError, match=r"failed \(systemd\): exit 1"):
+            SystemdAdapter().install(make_record(), runner)
+    assert len(runner.calls) == 1
+
+
+def test_systemd_install_raises_when_enable_fails(tmp_path: pathlib.Path) -> None:
+    runner = RecordingRunner(
+        [FakeProc(returncode=0), FakeProc(returncode=4, stderr="no such unit")]
+    )
+    with patch.object(pathlib.Path, "home", return_value=tmp_path):
+        with pytest.raises(CommandError, match=r"failed \(systemd\): exit 4"):
+            SystemdAdapter().install(make_record(), runner)
+    assert len(runner.calls) == 2
+
+
+@pytest.mark.parametrize(("returncode", "expected"), [(0, True), (1, False)])
+def test_systemd_exists_probes_is_enabled(returncode: int, expected: bool) -> None:
+    runner = RecordingRunner([FakeProc(returncode=returncode)])
+    assert SystemdAdapter().exists("app.volume", runner) is expected
+    assert runner.argv_lists() == [
+        ["systemctl", "--user", "is-enabled", "compman-app.volume.timer"]
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -698,6 +861,20 @@ def test_crontab_install_propagates_non_divisible_interval_error() -> None:
     assert len(runner.calls) == 1
 
 
+def test_crontab_install_raises_when_crontab_write_fails() -> None:
+    runner = RecordingRunner(
+        [FakeProc(returncode=0), FakeProc(returncode=111, stderr="no space left")]
+    )
+    with pytest.raises(CommandError, match=r"failed \(cron\): exit 111: no space left"):
+        CrontabAdapter().install(make_record(), runner)
+
+
+def test_crontab_remove_tolerates_failed_write() -> None:
+    runner = RecordingRunner([FakeProc(returncode=0), FakeProc(returncode=111)])
+    CrontabAdapter().remove("app.volume", runner)
+    assert len(runner.calls) == 2
+
+
 def test_crontab_remove_strips_block_and_keeps_other_lines() -> None:
     other = "0 1 * * * keepme\n"
     record = make_record()
@@ -754,6 +931,34 @@ def test_crontab_status_maps_return_codes(
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.parametrize(
+    ("argument", "expected"),
+    [
+        ("volume", "volume"),
+        ("C:\\tools\\compman.exe", "C:\\tools\\compman.exe"),
+        ("my stack", '"my stack"'),
+        ("a&b", '"a&b"'),
+        ("a(b)", '"a(b)"'),
+        ("50%off", '"50%off"'),
+        ("", '""'),
+    ],
+)
+def test_cmd_quote_wraps_arguments_with_cmd_metacharacters(argument: str, expected: str) -> None:
+    assert cmd_quote(argument) == expected
+
+
+def test_tr_payload_quotes_every_argument_with_specials() -> None:
+    record = make_record(
+        args=["C:\\opt\\comp man.exe", "--config", "my config.yml"],
+        log_path="C:\\log\\schedule.log",
+    )
+    payload = build_schtasks_command(record)[-1]
+    assert payload == (
+        'cmd.exe /c ""C:\\opt\\comp man.exe" --config "my config.yml"'
+        ' >> "C:\\log\\schedule.log" 2>&1"'
+    )
+
+
 def test_build_schtasks_command_daily_payload() -> None:
     record = make_record()
     argv = build_schtasks_command(record)
@@ -796,6 +1001,12 @@ def test_schtasks_install_runs_create_with_built_command() -> None:
     assert runner.argv_lists() == [build_schtasks_command(record)]
     _args, kwargs = runner.calls[0]
     assert kwargs == {"capture_output": True, "text": True, "check": False}
+
+
+def test_schtasks_install_raises_when_create_fails() -> None:
+    runner = RecordingRunner([FakeProc(returncode=2, stderr="access denied")])
+    with pytest.raises(CommandError, match=r"failed \(schtasks\): exit 2: access denied"):
+        SchtasksAdapter().install(make_record(), runner)
 
 
 def test_schtasks_remove_runs_forced_delete() -> None:

@@ -299,13 +299,21 @@ def test_probe_failure_and_compose_context_error_paths(temp_dir):
 def test_stack_paused_restart_failure_paths(temp_dir, capsys):
     context = ComposeContext("app", (temp_dir / "compose.yml",), {})
     runtime = MagicMock()
-    runtime.run_compose.side_effect = [MagicMock(), RuntimeError("restart failed")]
+    runtime.run_compose.side_effect = [
+        MagicMock(stdout="web"),
+        None,
+        RuntimeError("restart failed"),
+    ]
     with pytest.raises(RuntimeError, match="restart failed"):
         with common.stack_paused(runtime, context):
             pass
 
     runtime.reset_mock()
-    runtime.run_compose.side_effect = [MagicMock(), RuntimeError("restart failed")]
+    runtime.run_compose.side_effect = [
+        MagicMock(stdout="web"),
+        None,
+        RuntimeError("restart failed"),
+    ]
     with pytest.raises(ValueError, match="operation failed"):
         with common.stack_paused(runtime, context):
             raise ValueError("operation failed")

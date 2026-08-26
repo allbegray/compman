@@ -3,6 +3,61 @@
 Major user-visible changes to compman are recorded here, with the newest release
 first.
 
+## [1.10.0] - 2026-08-26
+
+### Added
+
+- Multi-stack registry: a successful deploy records the stack directory, so
+  `compman --stack NAME <command>` works from any directory and
+  `compman stacks list [--json]` / `compman stacks remove NAME` manage entries.
+- `compman rollback`: every successful deploy keeps the previous managed tree
+  and `compman.yml` as an automatic snapshot; rollback restores that snapshot
+  transactionally (including the post-swap scaffold-failure case).
+- SSH backup stores: `dirs.backup: ssh://[user@]host[:port]/path` stores
+  volume/image backups on a remote host via ssh/scp — no new dependencies,
+  keys assumed pre-provisioned.
+- `doctor` human output now prints each failing/warning check's detail and
+  remediation guidance (previously only visible through `--json`).
+
+### Changed
+
+- Scheduled backup installs are verified: crontab/launchd/systemd/schtasks
+  installation failures now abort registration with a clear error instead of
+  recording a job that never fires; `schedule list` probes live state on every
+  platform.
+- Schedule registry writes use an advisory lock and unique temp files;
+  concurrent `schedule add`/`remove` can no longer corrupt `schedules.json`.
+- Backups stop only the services that are running and restart exactly those;
+  a failed stop no longer leaves the stack partially down, and services the
+  operator stopped deliberately stay down.
+- HTTP deploy socket timeouts follow `COMPMAN_TIMEOUT`; boto3 clients use
+  explicit connect/read timeouts with standard retries.
+- `compman upgrade` reinstalls under the running interpreter version instead
+  of pinning Python 3.13.
+- Windows keeps schedules under `%APPDATA%\compman` when APPDATA is set.
+- `init` routes modes on explicit flags only: `init -p PORT` opens the
+  interactive menu instead of silently generating the seed project.
+- Scaffolded `compman.yml` carries the yaml-language-server schema header, and
+  the update fallback preserves the original file as `.bak`.
+
+### Fixed
+
+- `image backup --zstd` wrote zstd data under a `.tar.gz` name and could never
+  be restored; archive naming and restore resolution now follow `--zstd`
+  end to end.
+- A `compose:` mapping without any named profile fails with a clear config
+  error instead of a `StopIteration` traceback.
+- An unreadable `compman.yml` now exits with a concise message on every
+  command, matching what `status` already showed.
+- `limits` values reject YAML booleans (`max_backups: true`) instead of
+  silently changing retention.
+- Deploy auth headers are dropped on https→http redirect downgrades even when
+  the redirect stays on the same host.
+- systemd timer `ExecStart` and schtasks `/TR` payloads quote arguments safely
+  for spaces and special characters.
+- `install.sh` pins uv and verifies SHA256 checksums before installing;
+  `install.ps1` no longer changes the execution policy as a side effect.
+
 ## [1.9.0] - 2026-08-26
 
 ### Added

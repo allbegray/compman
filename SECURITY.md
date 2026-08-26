@@ -43,12 +43,23 @@ credential flows:
   invoking user. Authorization is whatever the runtime's own configuration
   grants that user — `compman` does not add or bypass any permission layer.
 
-- **Public HTTP deployments**: HTTPS with standard TLS/redirect behavior only;
-  no authentication options are offered for HTTP archive downloads.
+- **Authenticated HTTP deploys** (`deploy.auth`): an HTTPS archive fetch can
+  send a single credential header, declared in `compman.yml` as
+  `deploy: { url, auth: { header, value_env } }`. The header value is read
+  from the `value_env` environment variable at fetch time; it is never stored,
+  echoed, or logged — only the variable name appears in error messages. The
+  loader rejects an authenticated source whose URL is not `https://`, and the
+  value is rejected if it contains CR/LF. During redirects the header is
+  dropped whenever the redirect leaves the original host (host comparison is
+  case-insensitive and port-agnostic; an unparsable target counts as
+  cross-host) or downgrades `https` to `http`, so the token never travels to
+  another host or over plaintext. A `--path` deploy whose URL differs from the
+  configured `deploy` URL runs unauthenticated.
 
-There is no Basic, JWT, or API-key authentication in `compman` itself. The
-`${secrets:NAME}` mechanism below is for *injecting* secret values into
-containers, not for authenticating to compman.
+There is no Basic, JWT, or API-key scheme handling in `compman` itself; the
+`deploy.auth` mechanism above only forwards one caller-supplied header on the
+configured HTTPS fetches. The `${secrets:NAME}` mechanism below is for
+*injecting* secret values into containers, not for authenticating to compman.
 
 ## Secret Management
 

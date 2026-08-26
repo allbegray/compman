@@ -3,7 +3,7 @@ from __future__ import annotations
 import subprocess
 
 from compman.scheduling.cadence import cron_expr
-from compman.scheduling.registry import JobRecord, Runner
+from compman.scheduling.registry import JobRecord, Runner, require_success
 
 
 def begin_marker(name: str) -> str:
@@ -62,7 +62,7 @@ class CrontabAdapter:
     def install(self, record: JobRecord, runner: Runner = subprocess.run) -> None:
         current = self._read(runner)
         updated = without_block(current, record.name) + build_crontab_block(record)
-        self._write(updated, runner)
+        require_success(self._write(updated, runner), "cron")
 
     def remove(self, name: str, runner: Runner = subprocess.run) -> None:
         current = self._read(runner)
@@ -80,5 +80,11 @@ class CrontabAdapter:
         return listed.stdout if listed.returncode == 0 else ""
 
     @staticmethod
-    def _write(content: str, runner: Runner) -> None:
-        runner(["crontab", "-"], input=content, capture_output=True, text=True, check=False)
+    def _write(content: str, runner: Runner) -> subprocess.CompletedProcess[str]:
+        return runner(
+            ["crontab", "-"],
+            input=content,
+            capture_output=True,
+            text=True,
+            check=False,
+        )

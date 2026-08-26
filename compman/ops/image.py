@@ -9,7 +9,6 @@ from compman.backup_store import (
     LocalBackupStore,
     archive_location,
     find_archive,
-    list_archives,
     new_backup_paths,
     put_archive,
     staged_archive,
@@ -18,7 +17,7 @@ from compman.config import Config
 from compman.docker import ContainerRuntime, resolve_compose_context
 from compman.errors import CommandError
 from compman.i18n import t
-from compman.ops.common import prune_archives, select_backup_timestamp, validate_timestamp
+from compman.ops.common import echo_available_backups, prune_archives, select_backup_timestamp, validate_timestamp
 
 
 def backup(
@@ -94,7 +93,7 @@ def restore(
     backup_name = f"{config.name}.image.{timestamp}"
     archive_name = find_archive(store, config.name, "image", timestamp)
     if archive_name is None:
-        _list_backups(config)
+        echo_available_backups(config, "image")
         raise CommandError(
             t("msg.backup_not_found", tarball=archive_location(store, f"{backup_name}.tar.gz"))
         )
@@ -112,9 +111,3 @@ def restore(
         finally:
             shutil.rmtree(restore_dir, ignore_errors=True)
     typer.echo(t("msg.restore_done", kind="Image") + " " + t("msg.image_restore_hint"))
-
-
-def _list_backups(config: Config) -> None:
-    typer.echo(t("msg.available_backups", kind="image"))
-    for ts in list_archives(config.backup_store, config.name, "image"):
-        typer.echo(f"  {ts}")

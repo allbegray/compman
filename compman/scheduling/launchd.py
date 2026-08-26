@@ -5,7 +5,7 @@ import subprocess
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from compman.scheduling.cadence import parse_time_value, require_minutes, require_weekday
+from compman.scheduling.cadence import launchd_start_spec
 from compman.scheduling.registry import JobRecord, Runner, require_success
 
 LABEL_PREFIX = "com.compman.volume."
@@ -51,20 +51,15 @@ def build_plist_xml(record: JobRecord) -> str:
     environment.append(_string(record.path_env))
     entry("EnvironmentVariables", environment)
 
-    cadence = record.cadence()
-    if cadence.kind == "interval":
-        entry("StartInterval", _integer(require_minutes(cadence) * 60))
+    spec = launchd_start_spec(record.cadence())
+    if isinstance(spec, int):
+        entry("StartInterval", _integer(spec))
     else:
-        hour, minute = parse_time_value(cadence.time)
         calendar = ET.Element("dict")
-        for calendar_key, calendar_value in (("Hour", hour), ("Minute", minute)):
+        for calendar_key, calendar_value in spec.items():
             key_element = ET.SubElement(calendar, "key")
             key_element.text = calendar_key
             calendar.append(_integer(calendar_value))
-        if cadence.kind == "weekly":
-            weekday_element = ET.SubElement(calendar, "key")
-            weekday_element.text = "Weekday"
-            calendar.append(_integer(require_weekday(cadence)))
         entry("StartCalendarInterval", calendar)
 
     entry("WorkingDirectory", _string(record.workdir))

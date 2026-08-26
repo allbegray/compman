@@ -909,3 +909,94 @@ def test_resolve_compose_context_profile_secrets_override_common(
         "DB_PASS": cfg.profiles["dev"].secrets["DB_PASS"],
     }
     mock_resolve.assert_called_once_with(merged)
+
+
+# ---- folded from the retired coverage-sweep files ----
+
+
+def test_check_cmd_treats_unlaunchable_commands_as_absent():
+    with patch("subprocess.run", side_effect=[FileNotFoundError, subprocess.TimeoutExpired(["x"], 1)]):
+        assert _check_cmd(["x"]) == (False, "")
+        assert _check_cmd(["x"]) == (False, "")
+
+
+def test_run_raises_runtime_error_on_nonzero_exit():
+    with patch("subprocess.run", return_value=MagicMock(returncode=1, stderr="bad", stdout="out")):
+        with pytest.raises(RuntimeError, match="Command failed"):
+            _run(["bad"])
+
+
+def test_detect_runtime_env_override_docker_skips_podman_candidates():
+    with patch.dict("os.environ", {"CONTAINER_RUNTIME": "docker"}), patch(
+        "compman.docker._check_cmd", side_effect=[(False, ""), (True, "ok")]
+    ):
+        assert detect_runtime().compose == ["docker-compose"]
+
+
+def test_get_container_id_omits_project_filter_when_project_is_none():
+    runtime = ContainerRuntime("docker", ["docker"], ["docker", "compose"])
+    with patch.object(runtime, "run_cli", return_value=MagicMock(stdout="cid\n")) as run_cli:
+        assert runtime.get_container_id("web") == "cid"
+
+    command = run_cli.call_args.args[0]
+    assert "com.docker.compose.project" not in " ".join(command)
+
+
+def test_resolve_compose_context_rejects_unknown_profile():
+    with pytest.raises(ConfigError, match="Unknown profile"):
+        resolve_compose_context(Config(name="app", profiles={}), "dev")
+
+
+def test_container_runtime_passthru_helpers_delegate_to_module_passthru():
+    runtime = ContainerRuntime("docker", ["docker"], ["docker", "compose"])
+
+    with patch("compman.docker._passthru", return_value=0) as passthru:
+        assert runtime.passthru_compose(["ps"]) == 0
+        assert runtime.passthru_cli(["ps"]) == 0
+
+    assert passthru.call_count == 2
+    assert passthru.call_args_list[0].args[0] == ["docker", "compose", "ps"]
+    assert passthru.call_args_list[1].args[0] == ["docker", "ps"]
+
+
+def test_container_runtime_convenience_methods_wire_expected_run_cli_argv(tmp_path):
+    runtime = ContainerRuntime(name="docker", cli=["docker"], compose=["docker", "compose"])
+    dest = tmp_path / "payload.tar"
+
+    with patch.object(runtime, "run_cli") as run_cli:
+        runtime.inspect_container("c")
+        runtime.copy_from_container("c", "/src", dest)
+        runtime.copy_to_container("/src", "c", "/dst")
+        runtime.inspect_value("c", "{{.Name}}")
+        runtime.commit_container("c", "tag")
+        runtime.save_image("img", dest)
+        runtime.remove_image("img")
+        runtime.load_image(dest)
+
+    argvs = [call_args.args[0] for call_args in run_cli.call_args_list]
+    assert argvs == [
+        ["inspect", "c"],
+        ["cp", "c:/src", str(dest)],
+        ["cp", "/src", "c:/dst"],
+        ["inspect", "--format", "{{.Name}}", "c"],
+        ["commit", "c", "tag"],
+        ["save", "-o", str(dest), "img"],
+        ["rmi", "img"],
+        ["load", "-i", str(dest)],
+    ]
+
+
+def test_run_without_capture_omits_capture_kwargs():
+    with patch("subprocess.run", return_value=MagicMock(returncode=0)) as run_mock:
+        _run(["x"], capture=False, check=False)
+
+    kwargs = run_mock.call_args.kwargs
+    assert "capture_output" not in kwargs
+    assert "encoding" not in kwargs
+
+
+def test_die_message_omits_empty_stream_sections():
+    with pytest.raises(RuntimeError) as excinfo:
+        _die(["x"], subprocess.CompletedProcess([], 3, "", ""))
+
+    assert str(excinfo.value) == "Command failed: x (exit=3)"

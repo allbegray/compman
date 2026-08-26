@@ -251,3 +251,43 @@ def test_image_restore_resolves_zstd_suffixed_archive(dummy_runtime, temp_dir: p
 
     loaded = dummy_runtime.load_image.call_args.args[0]
     assert loaded.name == "img.tar"
+
+
+def test_image_backup_skips_blank_container_ids(dummy_runtime, temp_dir: pathlib.Path):
+    cfg = Config(name="my_stack", profiles={"default": Profile(file="docker-compose.yml")})
+    dummy_runtime.run_compose = MagicMock(return_value=MagicMock(stdout="cid1\n \nX"))
+    dummy_runtime.run_cli = MagicMock(return_value=MagicMock(stdout="/name\n"))
+
+    with patch("tarfile.open"):
+        image.backup(dummy_runtime, cfg, source_mode=True)
+
+    inspect_calls = [c.args[0][-1] for c in dummy_runtime.run_cli.call_args_list if c.args[0][0] == "inspect"]
+    assert "X" in inspect_calls
+
+
+def test_image_restore_lists_available_backups_before_missing_archive_error(
+    dummy_runtime, temp_dir: pathlib.Path, capsys
+):
+    cfg = Config(name="my_stack", profiles={"default": Profile(file="docker-compose.yml")})
+    local_root(cfg.backup_store).mkdir(parents=True, exist_ok=True)
+    (local_root(cfg.backup_store) / "my_stack.image.19990101_0000.tar.gz").write_bytes(b"placeholder")
+
+    with patch("compman.ops.image.select_backup_timestamp", return_value="20000101_0000"):
+        with pytest.raises(CommandError, match="20000101_0000"):
+            image.restore(dummy_runtime, cfg)
+
+    assert "19990101_0000" in capsys.readouterr().out
+
+
+def test_image_backup_removes_partial_archive_when_save_fails(dummy_runtime, temp_dir: pathlib.Path):
+    cfg = Config(name="my_stack", profiles={"default": Profile(file="docker-compose.yml")})
+    dummy_runtime.run_compose = MagicMock(return_value=MagicMock(stdout="cid"))
+    dummy_runtime.commit_container = MagicMock()
+    dummy_runtime.save_image = MagicMock(side_effect=RuntimeError("save failed"))
+    dummy_runtime.remove_image = MagicMock()
+
+    with pytest.raises(RuntimeError, match="save failed"):
+        image.backup(dummy_runtime, cfg)
+
+    assert list(local_root(cfg.backup_store).glob("*.tar.gz")) == []
+    dummy_runtime.remove_image.assert_called_once()

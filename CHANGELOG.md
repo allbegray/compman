@@ -3,6 +3,18 @@
 Major user-visible changes to compman are recorded here, with the newest release
 first.
 
+## [1.10.1] - 2026-08-26
+
+### Changed
+
+- Internal quality release with no user-visible behavior changes: unified the
+  CLI error boundary on a single `CommandError` idiom, shared option
+  annotations and one sub-group factory across the command tree, consolidated
+  five duplicated helpers (diagnostics/schedule/container/launchd/backup
+  listing) into their canonical seams, overhauled the test double to be
+  failure-injectable with loud missing overrides, and retired the two
+  coverage-sweep test files by folding behavioral cases into feature files.
+
 ## [1.10.0] - 2026-08-26
 
 ### Added

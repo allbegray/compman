@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 import platform
-from datetime import datetime, timezone
 from typing import Any, Protocol
 
 import typer
@@ -120,7 +119,7 @@ def add_schedule(
         args=args,
         log_path=str(registry_dir() / "schedule.log"),
         path_env=os.environ.get("PATH", "/usr/bin:/bin"),
-        created=datetime.now(timezone.utc).isoformat(),
+        created=utc_now_iso(),
     )
 
     if platform_name == "cron":

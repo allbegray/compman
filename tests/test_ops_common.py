@@ -297,12 +297,17 @@ def test_get_key_posix():
             with patch("os.read", return_value=b"7"):
                 assert common.get_key() == "7"
 
+            with patch("os.read", return_value=b"x"):
+                assert common.get_key() == "other"
+
 
 def test_get_key_win32():
     fake_msvcrt = MagicMock()
     with patch("sys.platform", "win32"), patch.dict("sys.modules", {"msvcrt": fake_msvcrt}):
         fake_msvcrt.getch.side_effect = [b"\r"]
         assert common.get_key() == "enter"
+        fake_msvcrt.getch.side_effect = [b"\x00", b"H"]
+        assert common.get_key() == "up"
 
         fake_msvcrt.getch.side_effect = [b"\xe0", b"H"]
         assert common.get_key() == "up"
@@ -322,6 +327,9 @@ def test_get_key_win32():
 
         fake_msvcrt.getch.side_effect = [b"4"]
         assert common.get_key() == "4"
+
+        fake_msvcrt.getch.side_effect = [b"x"]
+        assert common.get_key() == "other"
 
 
 def test_parse_compose_ps_skips_non_dict_entries():
@@ -343,3 +351,10 @@ def test_parse_compose_ps_skips_non_dict_entries():
 )
 def test_parse_running_services_parses_plain_service_lines(stdout: str, expected: list[str]):
     assert common.parse_running_services(stdout) == expected
+
+
+def test_prompt_select_interactive_ignores_unmapped_keys_until_enter():
+    with patch("sys.stdin.isatty", return_value=True), patch(
+        "compman.ops.common.get_key", side_effect=["other", "enter"]
+    ):
+        assert common.prompt_select("x", ["a"]) == 0

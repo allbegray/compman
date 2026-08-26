@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from typing import Any
 
 import typer
 
@@ -86,25 +85,7 @@ def stats(
             compose_files=context.files,
             env=context.env,
         )
-        entries: list[Any] = []
-        text = result.stdout.strip()
-        if text.startswith("["):
-            try:
-                loaded = json.loads(text)
-                entries = loaded if isinstance(loaded, list) else []
-            except json.JSONDecodeError:
-                entries = []
-        else:
-            for line in text.splitlines():
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    entry = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if isinstance(entry, dict):
-                    entries.append(entry)
+        entries = parse_compose_ps(result.stdout)
         typer.echo(
             json.dumps(
                 {

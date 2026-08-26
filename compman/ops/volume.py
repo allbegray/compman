@@ -13,7 +13,6 @@ from compman.backup_store import (
     LocalBackupStore,
     archive_location,
     find_archive,
-    list_archives,
     new_backup_paths,
     put_archive,
     staged_archive,
@@ -24,6 +23,7 @@ from compman.errors import CommandError
 from compman.i18n import t
 from compman.ops.common import (
     collect_mounts,
+    echo_available_backups,
     prune_archives,
     require_stack,
     resolve_volume_targets,
@@ -86,7 +86,7 @@ def restore(
     backup_name = f"{config.name}.volume.{timestamp}"
     archive_name = find_archive(store, config.name, "volume", timestamp)
     if archive_name is None:
-        _list_backups(config, "volume")
+        echo_available_backups(config, "volume")
         raise CommandError(
             t("msg.backup_not_found", tarball=archive_location(store, f"{config.name}.volume.{timestamp}.tar.gz"))
         )
@@ -256,12 +256,6 @@ def _load_mapping(path: Path) -> list[dict[str, str]]:
     if any(not isinstance(item, dict) or not required.issubset(item) for item in result):
         raise CommandError(f"Invalid volume map in {path}: missing required fields")
     return [{key: str(item[key]) for key in required} for item in result]
-
-
-def _list_backups(config: Config, kind: str) -> None:
-    typer.echo(t("msg.available_backups", kind=kind))
-    for ts in list_archives(config.backup_store, config.name, kind):
-        typer.echo(f"  {ts}")
 
 
 def _validate_replace_dest(dest: str) -> None:

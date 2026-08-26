@@ -38,3 +38,9 @@ def test_generate_seed_existing(temp_dir: pathlib.Path):
     # Existing files without --force now fail with the command error contract
     with pytest.raises(CommandError, match="already exists"):
         seed.generate_seed(output="my_project", archive=False, port=18080, force=False)
+
+
+@pytest.mark.parametrize("port", [0, 65536])
+def test_generate_seed_rejects_out_of_range_ports(temp_dir: pathlib.Path, port: int):
+    with pytest.raises(CommandError, match="port"):
+        seed.generate_seed(output="seeded", archive=False, port=port, force=True)

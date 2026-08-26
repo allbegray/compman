@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import json
 import os
 import pathlib
@@ -7,6 +8,7 @@ import re
 import subprocess
 import sys
 from contextlib import contextmanager
+from importlib.metadata import PackageNotFoundError
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -107,6 +109,22 @@ def test_cli_global_lang_flag(runner: CliRunner):
     assert res.exit_code == 0
 
 
+def test_preparse_lang_flag_resolves_language_before_help_render():
+    from compman import cli as cli_module
+    from compman.i18n import get_lang
+
+    with patch("sys.argv", ["compman", "--lang", "ko"]):
+        importlib.reload(cli_module)
+        assert get_lang() == "ko"
+    with patch("sys.argv", ["compman", "--lang=ko"]):
+        importlib.reload(cli_module)
+        assert get_lang() == "ko"
+    with patch("sys.argv", ["compman", "-l= en"]):
+        # malformed "-l= en" is ignored; language keeps its previous value
+        importlib.reload(cli_module)
+        assert get_lang() == "ko"
+
+
 def test_cli_init(runner: CliRunner, temp_dir: pathlib.Path):
     res_sk = runner.invoke(app, ["init", "--scaffold"])
     assert res_sk.exit_code == 0
@@ -144,6 +162,13 @@ def test_cli_clear(runner: CliRunner, dummy_runtime):
         res = runner.invoke(app, ["clear", "--yes"])
         assert res.exit_code == 0
         assert dummy_runtime.commands_run[-1] == ["image", "prune", "-af"]
+
+
+def test_cli_init_unknown_menu_choice_exits_without_action(runner: CliRunner, temp_dir: pathlib.Path):
+    with patch("compman.ops.common.prompt_select", return_value=3):
+        res = runner.invoke(app, ["init"])
+    assert res.exit_code == 0
+    assert not (temp_dir / "compman.yml").exists()
 
 
 def test_cli_clear_requires_confirmation(runner: CliRunner, dummy_runtime):
@@ -354,6 +379,18 @@ def test_readme_lists_schedule_commands():
 def test_cli_load_error(runner: CliRunner, temp_dir: pathlib.Path):
     res = runner.invoke(app, ["stack", "up"])
     assert res.exit_code != 0
+
+
+def test_cli_load_raises_silent_command_error_when_runtime_detection_fails(temp_dir: pathlib.Path):
+    from compman import cli as cli_module
+
+    write_config(temp_dir / "compman.yml")
+    with patch("compman.cli.detect_runtime", side_effect=RuntimeError("missing")):
+        with pytest.raises(CommandError) as excinfo:
+            cli_module._load()
+
+    assert excinfo.value.code == 1
+    assert excinfo.value.message == ""
 
 
 def test_cli_runtime_error_is_formatted(runner: CliRunner, temp_dir: pathlib.Path):
@@ -570,6 +607,44 @@ def test_cli_completion_install_zsh(runner: CliRunner, temp_dir: pathlib.Path):
     with patch("pathlib.Path.home", return_value=temp_dir):
         res = runner.invoke(app, ["completion", "zsh", "--install"])
         assert res.exit_code == 0
+
+
+def test_cli_completion_install_powershell_replaces_legacy_marker(runner: CliRunner, temp_dir: pathlib.Path):
+    profile = temp_dir / "profile.ps1"
+    profile.write_text("# compman shell completion\nold _COMPMAN_COMPLETE\n", encoding="utf-8")
+
+    with patch("subprocess.check_output", return_value=str(profile)):
+        res = runner.invoke(app, ["completion", "powershell", "--install"])
+
+    assert res.exit_code == 0
+    content = profile.read_text(encoding="utf-8")
+    assert "Register-ArgumentCompleter -Native -CommandName compman" in content
+    assert "old _COMPMAN_COMPLETE" not in content
+
+
+def test_cli_completion_install_powershell_is_idempotent(runner: CliRunner, temp_dir: pathlib.Path):
+    profile = temp_dir / "profile.ps1"
+    original = "Register-ArgumentCompleter -Native -CommandName compman\n"
+    profile.write_text(original, encoding="utf-8")
+
+    with patch("subprocess.check_output", return_value=str(profile)):
+        res = runner.invoke(app, ["completion", "powershell", "--install"])
+
+    assert res.exit_code == 0
+    assert "already has auto-completion registered." in res.output
+    assert profile.read_text(encoding="utf-8") == original
+
+
+def test_cli_completion_install_posix_skips_already_registered_rc(runner: CliRunner, temp_dir: pathlib.Path):
+    bashrc = temp_dir / ".bashrc"
+    bashrc.write_text("_COMPMAN_COMPLETE=1\n", encoding="utf-8")
+
+    with patch("pathlib.Path.home", return_value=temp_dir):
+        res = runner.invoke(app, ["completion", "bash", "--install"])
+
+    assert res.exit_code == 0
+    assert "already has auto-completion registered." in res.output
+    assert bashrc.read_text(encoding="utf-8") == "_COMPMAN_COMPLETE=1\n"
 
 
 def test_cli_completion_install_fish(runner: CliRunner, temp_dir: pathlib.Path):
@@ -1354,3 +1429,74 @@ def test_cli_deploy_without_config_records_nothing(
 
         assert res.exit_code == 0, res.output
         assert stack_registry.entries() == {}
+
+
+# ---- folded from the retired coverage-sweep files ----
+
+
+def test_find_uv_prefers_path_then_local_install_then_bare_uv():
+    from compman import cli as cli_module
+
+    with patch("shutil.which", return_value="C:/tools/uv.exe"):
+        assert cli_module._find_uv() == "C:/tools/uv.exe"
+    with patch("shutil.which", return_value=None), patch("pathlib.Path.is_file", return_value=True):
+        assert cli_module._find_uv().endswith("uv.exe")
+    with patch("shutil.which", return_value=None), patch("pathlib.Path.is_file", return_value=False):
+        assert cli_module._find_uv() == "uv"
+
+
+def test_version_and_version_flag_report_dev_without_package_metadata(runner: CliRunner):
+    with patch("compman.cli._pkg_version", side_effect=PackageNotFoundError):
+        assert runner.invoke(app, ["--version"]).output.strip() == "compman dev"
+        assert runner.invoke(app, ["version"]).output.strip() == "compman dev"
+
+
+def test_group_main_converts_command_error_to_exit_code(capsys: pytest.CaptureFixture[str]):
+    from typer.core import TyperGroup
+
+    from compman.cli import HelpOnUnknownCommandGroup
+
+    group = HelpOnUnknownCommandGroup(name="test")
+    with patch.object(TyperGroup, "main", side_effect=CommandError("boom", code=7)):
+        with pytest.raises(SystemExit) as exc:
+            group.main()
+
+    assert exc.value.code == 7
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "boom\n"
+    assert "Traceback" not in captured.err
+
+
+def test_completion_unknown_shell_raises_command_error():
+    from compman.completion import completion_cmd
+
+    with pytest.raises(CommandError, match="Unsupported shell"):
+        completion_cmd("unknown")
+
+
+def test_cli_root_option_only_invocation_prints_help(runner: CliRunner):
+    res = runner.invoke(app, ["--stack", "anywhere"])
+
+    assert res.exit_code == 0
+    assert "Usage" in res.output
+
+
+def test_cli_lazy_wrappers_delegate_to_command_modules():
+    from compman import cli as cli_module
+
+    doctor_report = MagicMock()
+    status_report = MagicMock()
+    with patch("compman.diagnostics.collect_doctor", return_value=doctor_report):
+        assert cli_module.collect_doctor("compman.yml", "dev") is doctor_report
+    with patch("compman.diagnostics.collect_status", return_value=status_report):
+        assert cli_module.collect_status("compman.yml", "dev") is status_report
+
+
+def test_cli_module_runs_app_when_executed_as_main():
+    import runpy
+
+    root = pathlib.Path(__file__).parents[1]
+    with patch("sys.argv", ["compman", "version"]):
+        with pytest.raises(SystemExit):
+            runpy.run_path(str(root / "compman" / "cli.py"), run_name="__main__")

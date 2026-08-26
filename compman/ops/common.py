@@ -247,6 +247,13 @@ def select_backup_timestamp(config: Config, kind: str) -> str:
     return selected
 
 
+def echo_available_backups(config: Config, kind: str) -> None:
+    """List available ``kind`` backup timestamps for ``config``."""
+    typer.echo(t("msg.available_backups", kind=kind))
+    for ts in list_archives(config.backup_store, config.name, kind):
+        typer.echo(f"  {ts}")
+
+
 @contextmanager
 def stack_paused(runtime: ContainerRuntime, context: ComposeContext, enabled: bool = True):
     stopped_services: list[str] = []

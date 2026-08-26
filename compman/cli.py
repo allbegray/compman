@@ -140,6 +140,8 @@ def _configure_console_output() -> None:
 _configure_console_output()
 
 _CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
+ConfigOpt = Annotated[str | None, typer.Option("--config", "-c", help=t("opt.config"))]
+ProfileOpt = Annotated[str | None, typer.Option("--profile", help=t("opt.profile"))]
 
 
 def _version_callback(value: bool) -> None:
@@ -152,25 +154,21 @@ def _version_callback(value: bool) -> None:
         raise typer.Exit()
 
 
-def _lang_callback(value: str | None) -> None:
-    if value:
-        set_lang(value)
-
-
 class HelpOnUnknownCommandGroup(TyperGroup):
     def resolve_command(self, ctx, args):
         if args and self.get_command(ctx, args[0]) is None:
             command = args[0]
             typer.echo(t("msg.unknown_command", command=command), err=True)
             typer.echo(ctx.get_help())
-            raise typer.Exit(2)
+            raise CommandError("", code=2)
         return super().resolve_command(ctx, args)
 
     def main(self, *args, **kwargs):
         try:
             return super().main(*args, **kwargs)
         except CommandError as error:
-            typer.echo(error.message, err=True)
+            if error.message:
+                typer.echo(error.message, err=True)
             raise SystemExit(error.code)
         except subprocess.TimeoutExpired as error:
             seconds = error.timeout if error.timeout is not None else _env_timeout()
@@ -180,6 +178,16 @@ class HelpOnUnknownCommandGroup(TyperGroup):
         except (ConfigError, RuntimeError) as error:
             typer.echo(t("msg.command_failed", error=error), err=True)
             raise SystemExit(1)
+
+
+def _make_group(help_text: str) -> typer.Typer:
+    """Build a sub-app group sharing the unknown-command class and help options."""
+    return typer.Typer(
+        cls=HelpOnUnknownCommandGroup,
+        help=help_text,
+        no_args_is_help=True,
+        context_settings=_CONTEXT_SETTINGS,
+    )
 
 
 # ---- pre-parse --lang for help text resolution ----
@@ -210,15 +218,15 @@ def _load(config_path: str | None = None):
         typer.echo(t("msg.start_guide"), err=True)
         typer.echo(f"  - compman init                              ({t('msg.init_desc')})", err=True)
         typer.echo(f"  - compman deploy --path <source-uri>  ({t('msg.deploy_desc')})", err=True)
-        raise typer.Exit(1)
+        raise CommandError("", code=1) from e
     except OSError as e:
         typer.echo(t("msg.config_unreadable", detail=str(e)), err=True)
-        raise typer.Exit(1)
+        raise CommandError("", code=1) from e
     try:
         runtime = detect_runtime()
     except RuntimeError as e:
         typer.echo(t("msg.runtime_error", error=e), err=True)
-        raise typer.Exit(1)
+        raise CommandError("", code=1) from e
     return {"config": cfg, "runtime": runtime}
 
 
@@ -310,7 +318,7 @@ def _existing_stack_image(cfg) -> tuple[str | None, list[str]]:
 @app.command("update", help=t("cmd.update"))
 def update_cmd(
     profile: Annotated[str | None, typer.Argument()] = None,
-    config: Annotated[str | None, typer.Option("--config", "-c", help=t("opt.config"))] = None,
+    config: ConfigOpt = None,
 ) -> None:
     ctx = _load(config)
     cfg = ctx["config"]
@@ -358,8 +366,8 @@ def _render_status(report: StatusReport) -> None:
 # ---- doctor ----
 @app.command("doctor", help=t("cmd.doctor"))
 def doctor_cmd(
-    profile: Annotated[str | None, typer.Option("--profile", help=t("opt.profile"))] = None,
-    config: Annotated[str | None, typer.Option("--config", "-c", help=t("opt.config"))] = None,
+    profile: ProfileOpt = None,
+    config: ConfigOpt = None,
     json_output: Annotated[bool, typer.Option("--json", help=t("opt.json"))] = False,
 ) -> None:
     report = collect_doctor(_resolved_config_path(config), profile)
@@ -368,14 +376,14 @@ def doctor_cmd(
     else:
         _render_doctor(report)
     if not report.ok:
-        raise typer.Exit(1)
+        raise CommandError("", code=1)
 
 
 # ---- status ----
 @app.command("status", help=t("cmd.status"))
 def status_cmd(
-    profile: Annotated[str | None, typer.Option("--profile", help=t("opt.profile"))] = None,
-    config: Annotated[str | None, typer.Option("--config", "-c", help=t("opt.config"))] = None,
+    profile: ProfileOpt = None,
+    config: ConfigOpt = None,
     json_output: Annotated[bool, typer.Option("--json", help=t("opt.json"))] = False,
 ) -> None:
     report = collect_status(_resolved_config_path(config), profile)
@@ -384,7 +392,7 @@ def status_cmd(
     else:
         _render_status(report)
     if not report.ok:
-        raise typer.Exit(1)
+        raise CommandError("", code=1)
 
 
 # ---- project containers ----
@@ -395,9 +403,7 @@ def ps_cmd(
         bool, typer.Option("--all", "-a", help=t("opt.all"))
     ] = False,
     json_output: Annotated[bool, typer.Option("--json", help=t("opt.json"))] = False,
-    config: Annotated[
-        str | None, typer.Option("--config", "-c", help=t("opt.config"))
-    ] = None,
+    config: ConfigOpt = None,
 ) -> None:
     ctx = _load(config)
     _container_ops().ps(ctx["runtime"], ctx["config"], profile, all_containers, json_output)
@@ -410,9 +416,7 @@ def stats_cmd(
         bool, typer.Option("--follow", "-f", help=t("opt.follow"))
     ] = False,
     json_output: Annotated[bool, typer.Option("--json", help=t("opt.json"))] = False,
-    config: Annotated[
-        str | None, typer.Option("--config", "-c", help=t("opt.config"))
-    ] = None,
+    config: ConfigOpt = None,
 ) -> None:
     ctx = _load(config)
     _container_ops().stats(ctx["runtime"], ctx["config"], profile, follow, json_output)
@@ -468,7 +472,7 @@ def upgrade_cmd(
         typer.echo(t("msg.upgrade_success"))
         return
     typer.echo(t("msg.upgrade_error", error=result.stderr or result.stdout), err=True)
-    raise SystemExit(1)
+    raise CommandError("", code=1)
 
 
 
@@ -485,7 +489,7 @@ def lang_cmd(
             typer.echo(t("msg.lang_set", language=language.lower()))
         else:
             typer.echo(t("msg.lang_unsupported", language=language), err=True)
-            raise SystemExit(1)
+            raise CommandError("", code=1)
 
     curr = get_lang()
     env_val = os.environ.get("COMPMAN_LANG", "<not set>")
@@ -511,18 +515,13 @@ def version_cmd() -> None:
 
 
 # ---- stack group ----
-stack_app = typer.Typer(
-    cls=HelpOnUnknownCommandGroup,
-    help=t("cmd.stack"),
-    no_args_is_help=True,
-    context_settings=_CONTEXT_SETTINGS,
-)
+stack_app = _make_group(t("cmd.stack"))
 
 
 @stack_app.command("up", help=t("cmd.stack.up"))
 def stack_up(
     profile: Annotated[str | None, typer.Argument()] = None,
-    config: Annotated[str | None, typer.Option("--config", "-c", help=t("opt.config"))] = None,
+    config: ConfigOpt = None,
     wait: Annotated[bool, typer.Option("--wait", help=t("opt.wait"))] = False,
 ) -> None:
     ctx = _load(config)
@@ -531,8 +530,8 @@ def stack_up(
 
 @stack_app.command("down", help=t("cmd.stack.down"))
 def stack_down(
-    profile: Annotated[str | None, typer.Option("--profile", help=t("opt.profile"))] = None,
-    config: Annotated[str | None, typer.Option("--config", "-c", help=t("opt.config"))] = None,
+    profile: ProfileOpt = None,
+    config: ConfigOpt = None,
     yes: Annotated[bool, typer.Option("--yes", help=t("opt.confirm_stack_removal"))] = False,
 ) -> None:
     if not yes:
@@ -544,7 +543,7 @@ def stack_down(
 @stack_app.command("update", help=t("cmd.stack.update"))
 def stack_update(
     profile: Annotated[str | None, typer.Argument()] = None,
-    config: Annotated[str | None, typer.Option("--config", "-c", help=t("opt.config"))] = None,
+    config: ConfigOpt = None,
     wait: Annotated[bool, typer.Option("--wait", help=t("opt.wait"))] = False,
 ) -> None:
     ctx = _load(config)
@@ -555,19 +554,14 @@ app.add_typer(stack_app, name="stack")
 
 
 # ---- service group ----
-service_app = typer.Typer(
-    cls=HelpOnUnknownCommandGroup,
-    help=t("cmd.service"),
-    no_args_is_help=True,
-    context_settings=_CONTEXT_SETTINGS,
-)
+service_app = _make_group(t("cmd.service"))
 
 
 @service_app.command("start", help=t("cmd.service.start"))
 def service_start(
     services: Annotated[list[str], typer.Argument()] = [],
-    profile: Annotated[str | None, typer.Option("--profile", help=t("opt.profile"))] = None,
-    config: Annotated[str | None, typer.Option("--config", "-c", help=t("opt.config"))] = None,
+    profile: ProfileOpt = None,
+    config: ConfigOpt = None,
 ) -> None:
     ctx = _load(config)
     _service_ops().start(ctx["runtime"], ctx["config"], tuple(services), profile)
@@ -576,8 +570,8 @@ def service_start(
 @service_app.command("stop", help=t("cmd.service.stop"))
 def service_stop(
     services: Annotated[list[str], typer.Argument()] = [],
-    profile: Annotated[str | None, typer.Option("--profile", help=t("opt.profile"))] = None,
-    config: Annotated[str | None, typer.Option("--config", "-c", help=t("opt.config"))] = None,
+    profile: ProfileOpt = None,
+    config: ConfigOpt = None,
 ) -> None:
     ctx = _load(config)
     _service_ops().stop(ctx["runtime"], ctx["config"], tuple(services), profile)
@@ -586,8 +580,8 @@ def service_stop(
 @service_app.command("restart", help=t("cmd.service.restart"))
 def service_restart(
     services: Annotated[list[str], typer.Argument()] = [],
-    profile: Annotated[str | None, typer.Option("--profile", help=t("opt.profile"))] = None,
-    config: Annotated[str | None, typer.Option("--config", "-c", help=t("opt.config"))] = None,
+    profile: ProfileOpt = None,
+    config: ConfigOpt = None,
 ) -> None:
     ctx = _load(config)
     _service_ops().restart(ctx["runtime"], ctx["config"], tuple(services), profile)
@@ -595,8 +589,8 @@ def service_restart(
 
 @service_app.command("status", help=t("cmd.service.status"))
 def service_status(
-    profile: Annotated[str | None, typer.Option("--profile", help=t("opt.profile"))] = None,
-    config: Annotated[str | None, typer.Option("--config", "-c", help=t("opt.config"))] = None,
+    profile: ProfileOpt = None,
+    config: ConfigOpt = None,
 ) -> None:
     ctx = _load(config)
     _service_ops().status(ctx["runtime"], ctx["config"], profile)
@@ -607,8 +601,8 @@ def service_log(
     name: Annotated[str | None, typer.Argument()] = None,
     follow: Annotated[bool, typer.Option("-f", "--follow", help=t("opt.follow"))] = False,
     tail: Annotated[int, typer.Option("-n", "--tail", help=t("opt.tail"))] = 50,
-    profile: Annotated[str | None, typer.Option("--profile", help=t("opt.profile"))] = None,
-    config: Annotated[str | None, typer.Option("--config", "-c", help=t("opt.config"))] = None,
+    profile: ProfileOpt = None,
+    config: ConfigOpt = None,
 ) -> None:
     ctx = _load(config)
     _service_ops().log(ctx["runtime"], ctx["config"], name, follow=follow, tail=tail, profile=profile)
@@ -617,8 +611,8 @@ def service_log(
 @service_app.command("connect", help=t("cmd.service.connect"))
 def service_connect(
     name: Annotated[str | None, typer.Argument()] = None,
-    profile: Annotated[str | None, typer.Option("--profile", help=t("opt.profile"))] = None,
-    config: Annotated[str | None, typer.Option("--config", "-c", help=t("opt.config"))] = None,
+    profile: ProfileOpt = None,
+    config: ConfigOpt = None,
 ) -> None:
     ctx = _load(config)
     _service_ops().connect(ctx["runtime"], ctx["config"], name, profile)
@@ -628,19 +622,14 @@ app.add_typer(service_app, name="service")
 
 
 # ---- volume group ----
-volume_app = typer.Typer(
-    cls=HelpOnUnknownCommandGroup,
-    help=t("cmd.volume"),
-    no_args_is_help=True,
-    context_settings=_CONTEXT_SETTINGS,
-)
+volume_app = _make_group(t("cmd.volume"))
 
 
 @volume_app.command("backup", help=t("cmd.volume.backup"))
 def volume_backup(
     no_stop: Annotated[bool, typer.Option("--no-stop", help=t("opt.no_stop"))] = False,
-    profile: Annotated[str | None, typer.Option("--profile", help=t("opt.profile"))] = None,
-    config: Annotated[str | None, typer.Option("--config", "-c", help=t("opt.config"))] = None,
+    profile: ProfileOpt = None,
+    config: ConfigOpt = None,
     level: Annotated[int, typer.Option("-z", "--level", min=1, max=9, help=t("opt.compression_level"))] = 6,
     zstd_format: Annotated[bool, typer.Option("--zstd", help=t("opt.zstd"))] = False,
 ) -> None:
@@ -660,8 +649,8 @@ def volume_restore(
     timestamp: Annotated[str | None, typer.Argument(help=t("opt.restore_timestamp"))] = None,
     no_stop: Annotated[bool, typer.Option("--no-stop", help=t("opt.no_stop"))] = False,
     replace: Annotated[bool, typer.Option("--replace", help=t("opt.replace"))] = False,
-    profile: Annotated[str | None, typer.Option("--profile", help=t("opt.profile"))] = None,
-    config: Annotated[str | None, typer.Option("--config", "-c", help=t("opt.config"))] = None,
+    profile: ProfileOpt = None,
+    config: ConfigOpt = None,
 ) -> None:
     ctx = _load(config)
     _volume_ops().restore(
@@ -671,8 +660,8 @@ def volume_restore(
 
 @volume_app.command("pull", help=t("cmd.volume.pull"))
 def volume_pull(
-    profile: Annotated[str | None, typer.Option("--profile", help=t("opt.profile"))] = None,
-    config: Annotated[str | None, typer.Option("--config", "-c", help=t("opt.config"))] = None,
+    profile: ProfileOpt = None,
+    config: ConfigOpt = None,
 ) -> None:
     ctx = _load(config)
     _volume_ops().pull(ctx["runtime"], ctx["config"], profile)
@@ -681,8 +670,8 @@ def volume_pull(
 @volume_app.command("push", help=t("cmd.volume.push"))
 def volume_push(
     replace: Annotated[bool, typer.Option("--replace", help=t("opt.replace"))] = False,
-    profile: Annotated[str | None, typer.Option("--profile", help=t("opt.profile"))] = None,
-    config: Annotated[str | None, typer.Option("--config", "-c", help=t("opt.config"))] = None,
+    profile: ProfileOpt = None,
+    config: ConfigOpt = None,
 ) -> None:
     ctx = _load(config)
     _volume_ops().push(ctx["runtime"], ctx["config"], profile, replace=replace)
@@ -692,19 +681,14 @@ app.add_typer(volume_app, name="volume")
 
 
 # ---- image group ----
-image_app = typer.Typer(
-    cls=HelpOnUnknownCommandGroup,
-    help=t("cmd.image"),
-    no_args_is_help=True,
-    context_settings=_CONTEXT_SETTINGS,
-)
+image_app = _make_group(t("cmd.image"))
 
 
 @image_app.command("backup", help=t("cmd.image.backup"))
 def image_backup(
     source_image: Annotated[bool, typer.Option("--source-image", help=t("opt.source_image"))] = False,
-    profile: Annotated[str | None, typer.Option("--profile", help=t("opt.profile"))] = None,
-    config: Annotated[str | None, typer.Option("--config", "-c", help=t("opt.config"))] = None,
+    profile: ProfileOpt = None,
+    config: ConfigOpt = None,
     level: Annotated[int, typer.Option("-z", "--level", min=1, max=9, help=t("opt.compression_level"))] = 6,
     zstd_format: Annotated[bool, typer.Option("--zstd", help=t("opt.zstd"))] = False,
 ) -> None:
@@ -722,8 +706,8 @@ def image_backup(
 @image_app.command("restore", help=t("cmd.image.restore"))
 def image_restore(
     timestamp: Annotated[str | None, typer.Argument(help=t("opt.restore_timestamp"))] = None,
-    profile: Annotated[str | None, typer.Option("--profile", help=t("opt.profile"))] = None,
-    config: Annotated[str | None, typer.Option("--config", "-c", help=t("opt.config"))] = None,
+    profile: ProfileOpt = None,
+    config: ConfigOpt = None,
 ) -> None:
     ctx = _load(config)
     _image_ops().restore(ctx["runtime"], ctx["config"], timestamp, profile)
@@ -738,12 +722,7 @@ class SchedulerChoice(str, Enum):
     cron = "cron"
 
 
-schedule_app = typer.Typer(
-    cls=HelpOnUnknownCommandGroup,
-    help=t("cmd.schedule.help"),
-    no_args_is_help=True,
-    context_settings=_CONTEXT_SETTINGS,
-)
+schedule_app = _make_group(t("cmd.schedule.help"))
 
 
 @schedule_app.command("add", help=t("cmd.schedule.add.help"))
@@ -753,12 +732,12 @@ def schedule_add(
     weekly: Annotated[str | None, typer.Option("--weekly", help=t("opt.weekly"))] = None,
     no_stop: Annotated[bool, typer.Option("--no-stop", help=t("opt.no_stop"))] = False,
     level: Annotated[int, typer.Option("-z", "--level", min=1, max=9, help=t("opt.compression_level"))] = 6,
-    profile: Annotated[str | None, typer.Option("--profile", help=t("opt.profile"))] = None,
+    profile: ProfileOpt = None,
     name: Annotated[str | None, typer.Option("--name", help=t("opt.job_name"))] = None,
     scheduler: Annotated[
         SchedulerChoice | None, typer.Option("--scheduler", help=t("opt.scheduler"))
     ] = None,
-    config: Annotated[str | None, typer.Option("--config", "-c", help=t("opt.config"))] = None,
+    config: ConfigOpt = None,
 ) -> None:
     ctx = _load(config)
     _schedule_ops().add_schedule(
@@ -792,12 +771,7 @@ app.add_typer(schedule_app, name="schedule")
 
 
 # ---- stacks group ----
-stacks_app = typer.Typer(
-    cls=HelpOnUnknownCommandGroup,
-    help=t("cmd.stacks.help"),
-    no_args_is_help=True,
-    context_settings=_CONTEXT_SETTINGS,
-)
+stacks_app = _make_group(t("cmd.stacks.help"))
 
 
 @stacks_app.command("list", help=t("cmd.stacks_list.help"))

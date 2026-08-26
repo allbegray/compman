@@ -474,3 +474,125 @@ def test_restore_auto_starts_downed_stack_then_stops_again(
     assert sequence[0] == "listed:1"
     assert "compose:up" in sequence and "compose:stop" in sequence
     assert sequence.index("compose:up") < sequence.index("compose:stop")
+
+
+# ---- folded from the retired coverage-sweep files ----
+
+
+@pytest.mark.parametrize(
+    ("result", "expected"),
+    [
+        (MagicMock(returncode=1, stdout=""), None),
+        (MagicMock(returncode=0, stdout="[]"), None),
+        (
+            MagicMock(returncode=0, stdout=json.dumps([{"Mounts": [{"Name": "other", "Destination": "/x"}]}])),
+            None,
+        ),
+        (
+            MagicMock(returncode=0, stdout=json.dumps([{"Mounts": [{"Name": "v", "Destination": "/d"}]}])),
+            {"container": "c", "volume": "v", "destination": "/d"},
+        ),
+    ],
+)
+def test_inspect_mount_maps_container_mounts_or_returns_none(dummy_runtime, result, expected):
+    with patch.object(dummy_runtime, "run_cli", return_value=result):
+        assert volume._inspect_mount(dummy_runtime, "c", "v") == expected
+
+
+def test_volume_restore_without_volume_map_in_archive_raises_command_error(
+    dummy_runtime, temp_dir: pathlib.Path
+):
+    cfg = Config(name="my_stack", profiles={"default": Profile(file="docker-compose.yml")})
+    backup_dir = local_root(cfg.backup_store)
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    empty = temp_dir / "empty"
+    empty.mkdir()
+    backup_file = backup_dir / "my_stack.volume.20260731_1200.tar.gz"
+    with tarfile.open(backup_file, "w:gz") as tar:
+        tar.add(empty, arcname=".")
+
+    with pytest.raises(CommandError, match="volume-map.json"):
+        volume.restore(dummy_runtime, cfg, "20260731_1200")
+
+
+def test_volume_push_skips_missing_source_directory_with_warning(
+    dummy_runtime, temp_dir: pathlib.Path, capsys
+):
+    cfg = Config(name="my_stack", profiles={"default": Profile(file="docker-compose.yml")})
+    cfg.volume_dir.mkdir(parents=True, exist_ok=True)
+    (cfg.volume_dir / "volume-map.json").write_text(
+        json.dumps([{"container": "container1", "volume": "ghost", "destination": "/data"}]),
+        encoding="utf-8",
+    )
+
+    volume.push(dummy_runtime, cfg)
+
+    assert "not found, skipping container1." in capsys.readouterr().out
+    assert dummy_runtime.commands_run == []
+
+
+def test_volume_push_without_running_stack_raises_command_error(dummy_runtime, temp_dir: pathlib.Path):
+    cfg = Config(name="my_stack", profiles={"default": Profile(file="docker-compose.yml")})
+    cfg.volume_dir.mkdir(parents=True, exist_ok=True)
+    (cfg.volume_dir / "volume-map.json").write_text("{}", encoding="utf-8")
+    dummy_runtime.stack_exists = MagicMock(return_value=False)
+
+    with pytest.raises(CommandError):
+        volume.push(dummy_runtime, cfg)
+
+
+def test_volume_backup_disambiguates_same_second_timestamp(dummy_runtime, temp_dir: pathlib.Path):
+    cfg = Config(name="my_stack", profiles={"default": Profile(file="docker-compose.yml")})
+    fixed = MagicMock()
+    fixed.strftime.side_effect = ["20260731_120000", "20260731_120000_123456"]
+    existing = local_root(cfg.backup_store) / "my_stack.volume.20260731_120000.tar.gz"
+    existing.parent.mkdir(parents=True)
+    existing.touch()
+
+    with patch("compman.backup_store.datetime") as dt, patch(
+        "compman.ops.volume._inspect_mount", return_value=None
+    ):
+        dt.now.return_value = fixed
+        volume.backup(dummy_runtime, cfg, no_stop=True)
+
+    names = [p.name for p in local_root(cfg.backup_store).glob("*.tar.gz")]
+    assert "my_stack.volume.20260731_120000_123456.tar.gz" in names
+
+
+@pytest.mark.parametrize("content", ["42", '[{"container": "c"}]'])
+def test_volume_mapping_rejects_invalid_shapes(temp_dir: pathlib.Path, content: str):
+    path = temp_dir / "volume-map.json"
+    path.write_text(content, encoding="utf-8")
+
+    with pytest.raises(CommandError, match="Invalid volume map"):
+        volume._load_mapping(path)
+
+
+def test_volume_restore_auto_selects_timestamp_via_prompt(dummy_runtime, temp_dir: pathlib.Path):
+    cfg = Config(name="my_stack", profiles={"default": Profile(file="docker-compose.yml")})
+    backup_dir = local_root(cfg.backup_store)
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    map_file = temp_dir / "volume-map.json"
+    map_file.write_text(json.dumps([{"container": "container1", "volume": "vol1", "destination": "/data"}]), encoding="utf-8")
+    (temp_dir / "vol1").mkdir()
+    (temp_dir / "vol1" / "keep.txt").write_text("data", encoding="utf-8")
+    with tarfile.open(backup_dir / "my_stack.volume.20260731_1200.tar.gz", "w:gz") as tar:
+        tar.add(map_file, arcname="volume-map.json")
+        tar.add(temp_dir / "vol1", arcname="vol1")
+
+    with patch("compman.ops.common.prompt_select", return_value=0):
+        volume.restore(dummy_runtime, cfg, timestamp=None, no_stop=True)
+    assert any(call[0] == "cp" and call[-1] == "container1:/data" for call in dummy_runtime.commands_run)
+
+
+def test_volume_pull_replaces_existing_volume_directory(dummy_runtime, temp_dir: pathlib.Path):
+    cfg = Config(name="my_stack", profiles={"default": Profile(file="docker-compose.yml")})
+    cfg.volume_dir.mkdir(parents=True, exist_ok=True)
+    (cfg.volume_dir / "stale.txt").write_text("old", encoding="utf-8")
+
+    with patch("compman.ops.volume._inspect_mount", return_value=None):
+        volume.pull(dummy_runtime, cfg)
+
+    assert not (cfg.volume_dir / "stale.txt").exists()
+    assert (cfg.volume_dir / "volume-map.json").exists()
+

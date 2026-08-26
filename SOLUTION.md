@@ -31,16 +31,28 @@ mistakes below. Companion files: `AGENTS.md` (operating rules for agents) and
 
 ## 2. Test traps
 
-- **`DummyRuntime` is success-biased.** Its `run_cli`/`run_compose` always return
-  `returncode=0` with fixed stdout, so real runtime semantics are invisible to unit
-  tests: `docker exec` fails on a *stopped* container, and `compose ps -q` returns
-  *container IDs*, not names. Two real bugs (below) passed 100% branch coverage and
-  were only caught by a real-Docker E2E. Any new runtime interaction needs a live
-  Docker check, not just mock assertions.
-- **100% line/branch coverage is not correctness.** Coverage-sweep tests
-  (`test_missing_coverage.py`, `test_coverage_completion.py`) kept dead code alive
-  (`volume._fix_permissions` was production-unused for a long time). Coverage means
-  executed, not useful.
+- **`DummyRuntime` is a scripted double, not just a success stub.** Every public
+  `ContainerRuntime` method is overridden explicitly; the `dummy_runtime`
+  fixture fails the test if a future base method is added without an override,
+  so tests can never silently fall through to real subprocess code. By default
+  calls still succeed deterministically, but failures are scriptable per
+  channel and consumed FIFO: `dummy_runtime.queue(run_cli=(1, "", "boom"))`,
+  `queue(compose=[(0, "cid", ""), (1, "", "err")])`,
+  `queue(passthru_cli=7)`, `queue(passthru_compose=2)`. Results are real
+  `subprocess.CompletedProcess` objects (`.returncode`/`.stdout`/`.stderr` —
+  there is no `.return_code` alias). Recording is unchanged: docker/compose
+  argv lands in `commands_run`, every compose invocation in `compose_runs`,
+  so keep asserting `dummy_runtime.compose_runs[*]["args"]`. Failure semantics
+  matter: two real bugs (a stopped-container `docker exec` swallowed by
+  success-biased mocks, and `compose ps -q` returning container IDs instead of
+  names) passed 100% branch coverage before scripted failures existed — any new
+  runtime interaction still needs a live-Docker check plus a queued-failure test.
+- **100% line/branch coverage is not correctness.** Coverage means executed,
+  not useful; the retired sweep files (`test_missing_coverage.py`,
+  `test_coverage_completion.py`) once kept production-dead code alive
+  (`volume._fix_permissions`). Behavioral cases live in feature files under
+  behavior-describing names; do not reintroduce grab-bag "remaining branches"
+  tests.
 - **CLI invocations leak the language `ContextVar`.** `runner.invoke(app, ["lang", "ko"])`
   calls `set_lang("ko")` and pollutes later tests. Fix: autouse fixture in
   `conftest.py` resets `i18n._CURRENT_LANG` after every test.
@@ -53,6 +65,11 @@ mistakes below. Companion files: `AGENTS.md` (operating rules for agents) and
 - **Static command lists drift.** The PowerShell completion snippet and the README
   Commands block are cross-validated against the live typer tree
   (`tests/test_cli.py`).
+- **Expected CLI failures raise `CommandError("", code=N)` at the boundary.**
+  `HelpOnUnknownCommandGroup.main` converts them to bare exits — stderr echoes
+  happen where the error is detected, never via tracebacks. `_load` config/
+  runtime failures, deploy onboarding hints, and doctor/status short-circuits
+  all follow this idiom; direct unit assertions pin `excinfo.value.code`.
 
 ## 3. Code pattern traps
 

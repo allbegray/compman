@@ -3,19 +3,15 @@ from __future__ import annotations
 import os
 import subprocess
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
 from compman.backup_store import archive_location, local_root
 from compman.config import Config, ConfigError, load_config
 from compman.docker import ContainerRuntime, detect_runtime, resolve_compose_context
+from compman.ops.common import utc_now_iso
 
 StatusErrorCode = Literal["stack-missing", "runtime-error", "config-error", "compose-error"]
-
-
-def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 @dataclass(frozen=True)
@@ -82,7 +78,7 @@ class StatusReport:
     services: tuple[ServiceStatus, ...]
     error: str | None = None
     error_code: StatusErrorCode | None = None
-    generated_at: str = field(default_factory=_utc_now_iso)
+    generated_at: str = field(default_factory=utc_now_iso)
     config_path: str | None = None
 
     def to_dict(self) -> dict[str, object]:

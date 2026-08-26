@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 from urllib.request import Request
 
 import pytest
+import typer
 import yaml
 from botocore.exceptions import (
     ClientError,
@@ -62,9 +63,19 @@ class _FakeResponse:
         return None
 
 
-def test_deploy_no_s3_path(temp_dir: pathlib.Path):
-    with pytest.raises(SystemExit):
+def test_deploy_empty_directory_prints_onboarding_hints_and_exits_one(
+    temp_dir: pathlib.Path, capsys
+):
+    with pytest.raises(CommandError) as excinfo:
         deploy.deploy(s3_path=None)
+
+    assert excinfo.value.code == 1
+    err = capsys.readouterr().err
+    assert t("msg.empty_dir_deploy") in err
+    assert t("msg.empty_dir_start") in err
+    assert "compman deploy --path s3://<your-bucket>/path/to/app.tar.gz" in err
+    assert t("msg.config_hint") in err
+    assert "     compman init" in err
 
 
 @pytest.mark.parametrize("name", ["app.tar.gz", "app.tgz", "app.zip", "APP.ZIP"])
@@ -237,16 +248,31 @@ def test_deploy_rejects_s3_source_without_bucket(temp_dir: pathlib.Path):
         deploy.deploy(s3_path="s3:///app.zip")
 
 
-def test_deploy_empty_dir_help_exit(temp_dir: pathlib.Path):
-    with pytest.raises(SystemExit):
-        deploy.deploy(s3_path=None)
-
-
-def test_deploy_config_without_path_exits(temp_dir: pathlib.Path, capsys):
+def test_deploy_config_without_path_prints_hint_and_exits_one(temp_dir: pathlib.Path, capsys):
     write_config(temp_dir / "compman.yml")
-    with pytest.raises(SystemExit):
+    with pytest.raises(CommandError) as excinfo:
         deploy.deploy(s3_path=None)
+    assert excinfo.value.code == 1
     assert "not configured" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "yaml_text",
+    [
+        "compman:\n  name: app\n  compose:\n    - docker-compose.yml\n",
+        "compman:\n  name: app\n  deploy:\n    sha256: abc\n",
+    ],
+)
+def test_deploy_unparsable_config_names_the_error_and_exits_one(
+    yaml_text: str, temp_dir: pathlib.Path, capsys
+):
+    (temp_dir / "compman.yml").write_text(yaml_text, encoding="utf-8")
+
+    with pytest.raises(typer.Exit) as excinfo:
+        deploy.deploy(s3_path=None)
+
+    assert excinfo.value.exit_code == 1
+    assert "could not be parsed" in capsys.readouterr().err
 
 
 def test_deploy_existing_config_s3(dummy_runtime, temp_dir: pathlib.Path):
@@ -375,6 +401,16 @@ def test_deploy_prefix_download(dummy_runtime, temp_dir: pathlib.Path):
     with patch("boto3.client", return_value=mock_s3), patch("compman.deploy.detect_runtime", return_value=dummy_runtime):
         deploy.deploy(s3_path="s3://my-bucket/my-prefix")
         assert (temp_dir / "project" / "file1.txt").exists()
+
+
+def test_download_recursive_tolerates_pages_without_contents(temp_dir: pathlib.Path):
+    mock_s3 = MagicMock()
+    mock_s3.get_paginator.return_value.paginate.return_value = [{}, {"Contents": []}]
+
+    target = temp_dir / "dst"
+    deploy._download_recursive(mock_s3, "bucket", "", target)
+
+    assert list(target.iterdir()) == []
 
 
 def test_deploy_rejects_source_over_archive_limit(temp_dir: pathlib.Path):
@@ -554,40 +590,40 @@ def test_update_compman_deploy_fallback_insert(temp_dir: pathlib.Path):
     assert "s3://new3/path" in compman_yml.read_text(encoding="utf-8")
 
 
-def test_handle_s3_errors():
-    with pytest.raises(SystemExit):
-        deploy._handle_s3_error(NoCredentialsError(), "s3://b/k")
+def test_handle_s3_errors_exit_with_command_error_code_one():
+    errors = [
+        NoCredentialsError(),
+        PartialCredentialsError(provider="env", cred_var="AWS_SECRET_ACCESS_KEY"),
+        ClientError({"Error": {"Code": "403"}}, "GetObject"),
+        ClientError({"Error": {"Code": "404"}}, "GetObject"),
+        ClientError({"Error": {"Code": "500"}}, "GetObject"),
+        EndpointConnectionError(endpoint_url="http://localhost"),
+        RuntimeError("generic error"),
+    ]
+    for error in errors:
+        with pytest.raises(CommandError) as excinfo:
+            deploy._handle_s3_error(error, "s3://b/k")
+        assert excinfo.value.code == 1
 
-    with pytest.raises(SystemExit):
-        deploy._handle_s3_error(PartialCredentialsError(provider="env", cred_var="AWS_SECRET_ACCESS_KEY"), "s3://b/k")
 
-    with pytest.raises(SystemExit):
-        deploy._handle_s3_error(ClientError({"Error": {"Code": "403"}}, "GetObject"), "s3://b/k")
+def test_deploy_routes_client_creation_failure_through_s3_error_handler(temp_dir: pathlib.Path):
+    with patch("boto3.client", side_effect=NoCredentialsError()):
+        with pytest.raises(CommandError) as excinfo:
+            deploy.deploy(s3_path="s3://bucket/key")
 
-    with pytest.raises(SystemExit):
-        deploy._handle_s3_error(ClientError({"Error": {"Code": "404"}}, "GetObject"), "s3://b/k")
-
-    with pytest.raises(SystemExit):
-        deploy._handle_s3_error(ClientError({"Error": {"Code": "500"}}, "GetObject"), "s3://b/k")
-
-    with pytest.raises(SystemExit):
-        deploy._handle_s3_error(EndpointConnectionError(endpoint_url="http://localhost"), "s3://b/k")
-
-    with pytest.raises(SystemExit):
-        deploy._handle_s3_error(RuntimeError("generic error"), "s3://b/k")
+    assert excinfo.value.code == 1
+    assert not (temp_dir / "project").exists()
 
 
 def test_handle_s3_error_output_routes_through_s3_error_hint(capsys):
     path = "s3://b/k"
     error = ClientError({"Error": {"Code": "403"}}, "GetObject")
-
-    with pytest.raises(SystemExit):
+    with pytest.raises(CommandError):
         deploy._handle_s3_error(error, path)
 
     assert capsys.readouterr().err == t("msg.s3_failed", path=path) + "\n" + t("msg.s3_403", path=path) + "\n"
-
     generic = RuntimeError("generic error")
-    with pytest.raises(SystemExit):
+    with pytest.raises(CommandError):
         deploy._handle_s3_error(generic, path)
 
     assert capsys.readouterr().err == t("msg.s3_failed", path=path) + "\n" + t("msg.download_error", error=generic) + "\n"
@@ -1332,6 +1368,177 @@ def test_swap_old_dest_restores_previous_tree_on_failure(temp_dir: pathlib.Path)
     assert not (target / "a-new").exists()
 
 
+@pytest.mark.parametrize("new_kind", ["file", "directory"])
+def test_swap_rolls_back_new_entries_when_a_later_move_fails(temp_dir: pathlib.Path, new_kind: str):
+    root = temp_dir / "target"
+    src = temp_dir / "source"
+    root.mkdir()
+    src.mkdir()
+    (root / "old.txt").write_text("old", encoding="utf-8")
+    first = src / "a-new"
+    if new_kind == "directory":
+        first.mkdir()
+        (first / "data.txt").write_text("new", encoding="utf-8")
+    else:
+        first.write_text("new", encoding="utf-8")
+    (src / "b-new").write_text("new", encoding="utf-8")
+    (src / "z-fail").write_text("fail", encoding="utf-8")
+
+    real_move = shutil.move
+
+    def move_then_fail(source, destination):
+        if pathlib.Path(source).name == "z-fail":
+            raise OSError("swap failed")
+        return real_move(source, destination)
+
+    with patch("compman.deploy.shutil.move", side_effect=move_then_fail):
+        with pytest.raises(OSError, match="swap failed"):
+            deploy._swap(src, root)
+
+    assert (root / "old.txt").read_text(encoding="utf-8") == "old"
+    assert not (root / "a-new").exists()
+
+
+def test_swap_preserves_repository_markers(temp_dir: pathlib.Path):
+    root = temp_dir / "target"
+    src = temp_dir / "source"
+    root.mkdir()
+    src.mkdir()
+    (root / ".git").mkdir()
+    (root / ".gitkeep").touch()
+    (src / ".gitkeep").touch()
+    (src / "app.txt").write_text("new", encoding="utf-8")
+
+    deploy._swap(src, root)
+
+    assert (root / ".git").is_dir()
+    assert (root / ".gitkeep").is_file()
+    assert (root / "app.txt").is_file()
+
+
+def test_swap_rollback_tolerates_new_entry_already_missing(temp_dir: pathlib.Path):
+    root = temp_dir / "target"
+    src = temp_dir / "source"
+    root.mkdir()
+    src.mkdir()
+    (src / "a-disappears").write_text("new", encoding="utf-8")
+    (src / "z-fail").write_text("fail", encoding="utf-8")
+
+    def disappear_then_fail(source, destination):
+        source_path = pathlib.Path(source)
+        if source_path.name == "a-disappears":
+            source_path.unlink()
+            return str(destination)
+        raise OSError("swap failed")
+
+    with patch("compman.deploy.shutil.move", side_effect=disappear_then_fail):
+        with pytest.raises(OSError, match="swap failed"):
+            deploy._swap(src, root)
+
+    assert not (root / "a-disappears").exists()
+
+
+def test_swap_rollback_tolerates_new_entry_vanishing_midway(temp_dir: pathlib.Path):
+    src = temp_dir / "source"
+    src.mkdir()
+    new_item = src / "a-new"
+    new_item.write_text("new", encoding="utf-8")
+    trigger = src / "b-trigger"
+    trigger.write_text("trigger", encoding="utf-8")
+
+    dst = temp_dir / "target"
+    dst.mkdir()
+
+    real_move = shutil.move
+    real_iterdir = pathlib.Path.iterdir
+
+    def move_and_vanish(source, destination):
+        if pathlib.Path(source) == trigger:
+            (dst / new_item.name).unlink()
+            raise OSError("simulated move failure")
+        return real_move(source, destination)
+
+    def ordered_source(path):
+        if path == src:
+            return iter((new_item, trigger))
+        return real_iterdir(path)
+
+    with patch.object(type(src), "iterdir", autospec=True, side_effect=ordered_source), patch(
+        "compman.deploy.shutil.move", side_effect=move_and_vanish
+    ):
+        with pytest.raises(OSError, match="simulated move failure"):
+            deploy._swap(src, dst)
+
+    assert not (dst / new_item.name).exists()
+
+
+@pytest.mark.parametrize("new_item_is_dir", [False, True])
+def test_swap_rolls_back_partially_moved_source_entries(temp_dir: pathlib.Path, new_item_is_dir: bool):
+    src = temp_dir / "source"
+    src.mkdir()
+    new_item = src / "a-new"
+    if new_item_is_dir:
+        new_item.mkdir()
+    else:
+        new_item.write_text("new", encoding="utf-8")
+    trigger = src / "b-trigger"
+    trigger.write_text("trigger", encoding="utf-8")
+
+    dst = temp_dir / "target"
+    dst.mkdir()
+    old_item = dst / "old"
+    old_item.write_text("old", encoding="utf-8")
+
+    real_move = shutil.move
+    real_iterdir = pathlib.Path.iterdir
+
+    def fail_on_trigger(source, destination):
+        if pathlib.Path(source) == trigger:
+            raise OSError("simulated move failure")
+        return real_move(source, destination)
+
+    def ordered_source(path):
+        if path == src:
+            return iter((new_item, trigger))
+        return real_iterdir(path)
+
+    with patch.object(type(src), "iterdir", autospec=True, side_effect=ordered_source), patch(
+        "compman.deploy.shutil.move", side_effect=fail_on_trigger
+    ):
+        with pytest.raises(OSError, match="simulated move failure"):
+            deploy._swap(src, dst)
+
+    assert old_item.read_text(encoding="utf-8") == "old"
+    assert not (dst / new_item.name).exists()
+
+
+def test_swap_rollback_cleanup_is_platform_independent(temp_dir: pathlib.Path):
+    root = temp_dir / "target"
+    src = temp_dir / "source"
+    root.mkdir()
+    src.mkdir()
+    (src / "a-directory").mkdir()
+    (src / "b-disappears").touch()
+    (src / "z-fail").touch()
+
+    def controlled_move(source, destination):
+        name = pathlib.Path(source).name
+        if name == "a-directory":
+            pathlib.Path(destination).mkdir()
+            return str(destination)
+        if name == "b-disappears":
+            pathlib.Path(source).unlink()
+            return str(destination)
+        raise OSError("swap failed")
+
+    with patch("compman.deploy.shutil.move", side_effect=controlled_move):
+        with pytest.raises(OSError, match="swap failed"):
+            deploy._swap(src, root)
+
+    assert not (root / "a-directory").exists()
+    assert not (root / "b-disappears").exists()
+
+
 def test_restore_rollback_swaps_and_restores_config(temp_dir: pathlib.Path):
     snap = temp_dir / ".compman" / "rollback"
     (snap / "tree").mkdir(parents=True)
@@ -1598,3 +1805,52 @@ def test_update_deploy_mapping_line_edit_preserves_comments(temp_dir: pathlib.Pa
     parsed = yaml.safe_load(new_content)
     assert parsed["compman"]["deploy"] == "s3://new/app.tar.gz"
     assert "compman.yml.bak" not in [p.name for p in temp_dir.iterdir()]
+
+
+def test_update_deploy_tolerates_unparsable_yaml_by_inserting_after_compman(
+    temp_dir: pathlib.Path,
+):
+    compman_yml = temp_dir / "compman.yml"
+    compman_yml.write_text("compman:\n  name: app\n", encoding="utf-8")
+
+    with patch(
+        "yaml.safe_load",
+        side_effect=[ValueError("bad"), {"compman": {"name": "app", "deploy": "s3://new"}}],
+    ):
+        deploy._update_compman_deploy(compman_yml, "s3://new")
+
+    assert yaml.safe_load(compman_yml.read_text(encoding="utf-8"))["compman"]["deploy"] == "s3://new"
+
+
+def test_update_deploy_skips_write_when_revalidation_loses_the_entry(temp_dir: pathlib.Path):
+    compman_yml = temp_dir / "compman.yml"
+    original = "compman:\n  name: app\n"
+    compman_yml.write_text(original, encoding="utf-8")
+
+    with patch("yaml.safe_load", side_effect=[ValueError("bad"), {"compman": {"name": "app"}}]):
+        deploy._update_compman_deploy(compman_yml, "s3://new")
+
+    assert compman_yml.read_text(encoding="utf-8") == original
+    assert not list(temp_dir.glob("*.bak"))
+
+
+def test_update_deploy_appends_entry_when_only_comments_follow_compman(temp_dir: pathlib.Path):
+    compman_yml = temp_dir / "compman.yml"
+    compman_yml.write_text("compman:\n  # nothing configurable yet\n", encoding="utf-8")
+
+    deploy._update_compman_deploy(compman_yml, "s3://new")
+
+    content = compman_yml.read_text(encoding="utf-8")
+    assert "# nothing configurable yet" in content
+    assert yaml.safe_load(content)["compman"]["deploy"] == "s3://new"
+
+
+def test_update_deploy_stops_line_scan_at_dedented_sibling_key(temp_dir: pathlib.Path):
+    compman_yml = temp_dir / "compman.yml"
+    compman_yml.write_text("compman:\n  name: app\nother: value\n", encoding="utf-8")
+
+    deploy._update_compman_deploy(compman_yml, "s3://new")
+
+    parsed = yaml.safe_load(compman_yml.read_text(encoding="utf-8"))
+    assert parsed["compman"]["deploy"] == "s3://new"
+    assert parsed["other"] == "value"

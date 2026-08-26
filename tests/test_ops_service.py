@@ -111,3 +111,34 @@ def test_service_start_stop_restart_no_resolution(dummy_runtime, temp_dir: pathl
         ["stop", "web"],
         ["restart", "web"],
     ]
+
+
+def test_service_connect_without_containers_raises_command_error(dummy_runtime, temp_dir: pathlib.Path):
+    cfg = Config(name="my_stack", profiles={"default": Profile(file="docker-compose.yml")})
+    dummy_runtime.list_containers = MagicMock(return_value=[])
+
+    with pytest.raises(CommandError):
+        service.connect(dummy_runtime, cfg, service=None)
+
+
+def test_service_connect_with_multiple_containers_lists_them_without_connecting(
+    dummy_runtime, temp_dir: pathlib.Path, capsys
+):
+    cfg = Config(name="my_stack", profiles={"default": Profile(file="docker-compose.yml")})
+    dummy_runtime.list_containers = MagicMock(return_value=["a", "b"])
+
+    service.connect(dummy_runtime, cfg, service=None)
+
+    out = capsys.readouterr().out
+    assert "Specify a container name:" in out
+    assert "  a" in out and "  b" in out
+    assert dummy_runtime.commands_run == []
+
+
+def test_service_connect_scaled_service_raises_ambiguous_error(dummy_runtime, temp_dir: pathlib.Path):
+    cfg = Config(name="my_stack", profiles={"default": Profile(file="docker-compose.yml")})
+    dummy_runtime.compose_stdout = "web-1\nweb-2\n"
+
+    with pytest.raises(CommandError, match="Service web has 2 running instances"):
+        service.connect(dummy_runtime, cfg, "web")
+    assert dummy_runtime.compose_runs[-1]["args"] == ["ps", "-q", "web"]

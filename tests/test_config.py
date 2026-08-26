@@ -746,3 +746,19 @@ def test_load_config_rejects_managed_paths_outside_project(
 
     with pytest.raises(ConfigError, match=field):
         load_config(str(config_file))
+
+
+def test_load_config_rejects_empty_document(temp_dir: pathlib.Path):
+    config_file = temp_dir / "compman.yml"
+    config_file.write_text("", encoding="utf-8")
+
+    with pytest.raises(ConfigError, match="not a YAML mapping"):
+        load_config(str(config_file))
+
+
+def test_load_config_rejects_non_string_folder(temp_dir: pathlib.Path):
+    config_file = temp_dir / "compman.yml"
+    config_file.write_text("compman:\n  folder: 123\n", encoding="utf-8")
+
+    with pytest.raises(ConfigError, match="folder"):
+        load_config(str(config_file))

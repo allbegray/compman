@@ -69,13 +69,12 @@ def deploy(
             typer.echo("     compman deploy --path s3://<your-bucket>/path/to/app.tar.gz", err=True)
             typer.echo(t("msg.config_hint"), err=True)
             typer.echo("     compman init", err=True)
-            raise SystemExit(1)
-
+            raise CommandError("", code=1) from None
     if not s3_path:
         typer.echo(t("msg.deploy_path_not_configured"), err=True)
         typer.echo(t("msg.deploy_path_hint1"), err=True)
         typer.echo(t("msg.deploy_path_hint2"), err=True)
-        raise SystemExit(1)
+        raise CommandError("", code=1)
 
     project_subfolder = config.dirs.get("project", "project") if config else "project"
 
@@ -169,8 +168,6 @@ def deploy(
                 # Registry bookkeeping is best-effort: warn and keep the
                 # successful deploy result intact.
                 typer.echo(t("msg.command_failed", error=e), err=True)
-    except SystemExit:
-        raise
     except CommandError:
         raise
     except Exception as e:
@@ -337,4 +334,4 @@ def _handle_s3_error(e: Exception, s3_path: str) -> None:
     typer.echo(t("msg.s3_failed", path=s3_path), err=True)
     hint = s3_error_hint(e, s3_path)
     typer.echo(hint if hint is not None else t("msg.download_error", error=e), err=True)
-    raise SystemExit(1)
+    raise CommandError("", code=1) from e

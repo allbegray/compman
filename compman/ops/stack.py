@@ -35,6 +35,27 @@ def down(runtime: ContainerRuntime, config: Config, profile: str | None = None) 
     )
 
 
+def logs(
+    runtime: ContainerRuntime,
+    config: Config,
+    services: tuple[str, ...] = (),
+    follow: bool = False,
+    tail: int | None = None,
+    profile: str | None = None,
+) -> None:
+    """Print or follow aggregated compose logs for the stack's services."""
+    context = resolve_compose_context(config, profile)
+    args = ["logs"]
+    if tail is not None:
+        args += ["--tail", str(tail)]
+    if follow:
+        args.append("-f")
+    args += list(services)
+    runtime.passthru_compose(
+        args, project=context.project, compose_files=context.files, env=context.env
+    )
+
+
 def update(
     runtime: ContainerRuntime,
     config: Config,

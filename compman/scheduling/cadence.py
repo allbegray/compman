@@ -4,9 +4,12 @@ import re
 from dataclasses import dataclass
 from typing import Literal
 
-CadenceKind = Literal["interval", "daily", "weekly"]
+from compman.errors import CommandError
+from compman.i18n import t
 
-EXACTLY_ONE_ERROR = "Specify exactly one of --every, --daily, or --weekly."
+CadenceKind = Literal["interval", "daily", "weekly", "monthly"]
+
+EXACTLY_ONE_ERROR = "Specify exactly one of --every, --daily, --weekly, or --monthly."
 
 _EVERY_PATTERN = re.compile(r"^(\d+)(m|h)$")
 _TIME_PATTERN = re.compile(r"^(\d{1,2}):(\d{1,2})$")
@@ -21,6 +24,7 @@ class Cadence:
     minutes: int | None = None
     time: str | None = None
     weekday: int | None = None
+    day: int | None = None
 
 
 def parse_time_value(time: str | None) -> tuple[int, int]:
@@ -48,8 +52,19 @@ def require_weekday(cadence: Cadence) -> int:
     return cadence.weekday
 
 
-def parse_cadence(every: str | None, daily: str | None, weekly: str | None) -> Cadence:
-    given = [value for value in (every, daily, weekly) if value is not None]
+def require_day(cadence: Cadence) -> int:
+    if cadence.day is None:
+        raise ValueError("Monthly cadence requires a day of month (1-31).")
+    return cadence.day
+
+
+def parse_cadence(
+    every: str | None,
+    daily: str | None,
+    weekly: str | None,
+    monthly: str | None = None,
+) -> Cadence:
+    given = [value for value in (every, daily, weekly, monthly) if value is not None]
     if len(given) != 1:
         raise ValueError(EXACTLY_ONE_ERROR)
     if every is not None:
@@ -57,14 +72,16 @@ def parse_cadence(every: str | None, daily: str | None, weekly: str | None) -> C
     if daily is not None:
         parse_time_value(daily)
         return Cadence(kind="daily", time=daily)
-    assert weekly is not None
-    parts = weekly.split()
-    if len(parts) != 2 or parts[0].lower() not in _WEEKDAY_INDEX:
-        raise ValueError(
-            f"Invalid --weekly value '{weekly}': expected '<day> HH:MM' with day sun..sat."
-        )
-    parse_time_value(parts[1])
-    return Cadence(kind="weekly", time=parts[1], weekday=_WEEKDAY_INDEX[parts[0].lower()])
+    if weekly is not None:
+        parts = weekly.split()
+        if len(parts) != 2 or parts[0].lower() not in _WEEKDAY_INDEX:
+            raise ValueError(
+                f"Invalid --weekly value '{weekly}': expected '<day> HH:MM' with day sun..sat."
+            )
+        parse_time_value(parts[1])
+        return Cadence(kind="weekly", time=parts[1], weekday=_WEEKDAY_INDEX[parts[0].lower()])
+    assert monthly is not None
+    return _parse_monthly(monthly)
 
 
 def _parse_every(value: str) -> Cadence:
@@ -73,6 +90,19 @@ def _parse_every(value: str) -> Cadence:
         raise ValueError(f"Invalid --every value '{value}': expected <N>m or <N>h with N >= 1.")
     count, unit = int(match.group(1)), match.group(2)
     return Cadence(kind="interval", minutes=count if unit == "m" else count * 60)
+
+
+def _parse_monthly(value: str) -> Cadence:
+    parts = value.split()
+    if len(parts) != 2:
+        raise ValueError(
+            f"Invalid --monthly value '{value}': expected '<day> HH:MM' with day 1-31."
+        )
+    day_text, time_text = parts
+    if not day_text.isdigit() or not 1 <= int(day_text) <= 31:
+        raise CommandError(t("msg.invalid_month_day", value=day_text))
+    parse_time_value(time_text)
+    return Cadence(kind="monthly", day=int(day_text), time=time_text)
 
 
 def cron_expr(cadence: Cadence) -> str:
@@ -89,6 +119,8 @@ def cron_expr(cadence: Cadence) -> str:
     hour, minute = parse_time_value(cadence.time)
     if cadence.kind == "daily":
         return f"{minute} {hour} * * *"
+    if cadence.kind == "monthly":
+        return f"{minute} {hour} {require_day(cadence)} * *"
     return f"{minute} {hour} * * {require_weekday(cadence)}"
 
 
@@ -96,6 +128,8 @@ def launchd_start_spec(cadence: Cadence) -> int | dict[str, int]:
     if cadence.kind == "interval":
         return require_minutes(cadence) * 60
     hour, minute = parse_time_value(cadence.time)
+    if cadence.kind == "monthly":
+        return {"Day": require_day(cadence), "Hour": hour, "Minute": minute}
     spec: dict[str, int] = {"Hour": hour, "Minute": minute}
     if cadence.kind == "weekly":
         spec["Weekday"] = require_weekday(cadence)
@@ -107,7 +141,8 @@ def systemd_oncalendar(cadence: Cadence) -> str:
         raise ValueError("Interval cadences use OnBootSec/OnUnitActiveSec timers, not OnCalendar.")
     hour, minute = parse_time_value(cadence.time)
     prefix = "" if cadence.weekday is None else f"{WEEKDAY_NAMES[cadence.weekday]} "
-    return f"{prefix}*-*-* {hour:02d}:{minute:02d}:00"
+    day_spec = "*" if cadence.day is None else f"{cadence.day:02d}"
+    return f"{prefix}*-*-{day_spec} {hour:02d}:{minute:02d}:00"
 
 
 def schtasks_cadence_args(cadence: Cadence) -> list[str]:
@@ -120,5 +155,7 @@ def schtasks_cadence_args(cadence: Cadence) -> list[str]:
     start_time = f"{hour:02d}:{minute:02d}"
     if cadence.kind == "daily":
         return ["/SC", "DAILY", "/ST", start_time]
+    if cadence.kind == "monthly":
+        return ["/SC", "MONTHLY", "/D", str(require_day(cadence)), "/ST", start_time]
     weekday_name = WEEKDAY_NAMES[require_weekday(cadence)].upper()
     return ["/SC", "WEEKLY", "/D", weekday_name, "/ST", start_time]

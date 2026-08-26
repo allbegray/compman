@@ -314,6 +314,8 @@ def test_cli_schedule_commands(runner: CliRunner, dummy_runtime, temp_dir: pathl
         patch("compman.ops.schedule.add_schedule") as add_schedule,
         patch("compman.ops.schedule.list_schedules") as list_schedules,
         patch("compman.ops.schedule.remove_schedule") as remove_schedule,
+        patch("compman.ops.schedule.show_status") as show_status,
+        patch("compman.ops.schedule.run_tracked_job") as run_tracked_job,
     ):
         res_add = runner.invoke(
             app,
@@ -338,6 +340,7 @@ def test_cli_schedule_commands(runner: CliRunner, dummy_runtime, temp_dir: pathl
         assert call.kwargs["daily"] == "04:30"
         assert call.kwargs["every"] is None
         assert call.kwargs["weekly"] is None
+        assert call.kwargs["monthly"] is None
         assert call.kwargs["no_stop"] is True
         assert call.kwargs["level"] == 9
         assert call.kwargs["profile"] == "dev"
@@ -359,12 +362,31 @@ def test_cli_schedule_commands(runner: CliRunner, dummy_runtime, temp_dir: pathl
         assert res_remove.exit_code == 0
         remove_schedule.assert_called_once_with("nightly")
 
+        res_monthly = runner.invoke(app, ["schedule", "add", "--monthly", "15", "03:00"])
+        assert res_monthly.exit_code == 0
+        assert add_schedule.call_args.kwargs["monthly"] == "15 03:00"
 
-def test_cli_schedule_help_lists_three_subcommands(runner: CliRunner):
+        res_status = runner.invoke(app, ["schedule", "status", "nightly"])
+        assert res_status.exit_code == 0
+        show_status.assert_called_once_with("nightly")
+
+        res_exec = runner.invoke(
+            app,
+            ["schedule", "_exec", "nightly", "volume", "backup", "-c", "cfg.yml", "--no-stop"],
+        )
+        assert res_exec.exit_code == 0
+        run_tracked_job.assert_called_once_with(
+            "nightly",
+            ["volume", "backup", "-c", "cfg.yml", "--no-stop"],
+        )
+
+
+def test_cli_schedule_help_lists_four_visible_subcommands(runner: CliRunner):
     res = runner.invoke(app, ["schedule", "--help"])
     assert res.exit_code == 0
-    for subcommand in ("add", "list", "remove"):
+    for subcommand in ("add", "list", "remove", "status"):
         assert subcommand in res.output
+    assert "_exec" not in res.output
 
 
 def test_readme_lists_schedule_commands():
@@ -373,6 +395,7 @@ def test_readme_lists_schedule_commands():
     section = readme.split("## Commands", 1)[1].split("View all options", 1)[0]
     assert "compman schedule add" in section
     assert "compman schedule list" in section
+    assert "compman schedule status NAME" in section
     assert "compman schedule remove NAME" in section
 
 
@@ -515,7 +538,9 @@ def test_completion_snippet_matches_registered_command_tree(runner: CliRunner):
             if f"$words[1] -eq '{group.name}'" in line:
                 snippet_group = set(re.findall(r"'([^']+)'", lines[i + 1]))
                 actual_group = {
-                    c.name or c.callback.__name__ for c in group.typer_instance.registered_commands
+                    c.name or c.callback.__name__
+                    for c in group.typer_instance.registered_commands
+                    if not c.hidden
                 }
                 assert snippet_group == actual_group, f"group {group.name}"
                 break
@@ -1500,3 +1525,98 @@ def test_cli_module_runs_app_when_executed_as_main():
     with patch("sys.argv", ["compman", "version"]):
         with pytest.raises(SystemExit):
             runpy.run_path(str(root / "compman" / "cli.py"), run_name="__main__")
+
+
+# ---- v1.11.0: stack logs, history journal ----
+
+
+def test_cli_stack_logs_passes_through_compose_logs(
+    runner: CliRunner, dummy_runtime, temp_dir: pathlib.Path
+):
+    write_config(temp_dir / "compman.yml")
+    (temp_dir / "docker-compose.yml").touch()
+    with patch("compman.cli.detect_runtime", return_value=dummy_runtime):
+        res = runner.invoke(app, ["stack", "logs", "web", "-f", "--tail", "50"])
+    assert res.exit_code == 0, res.output
+    log_calls = [c["args"] for c in dummy_runtime.compose_runs if c["args"][:1] == ["logs"]]
+    assert log_calls == [["logs", "--tail", "50", "-f", "web"]]
+
+
+def test_cli_stack_logs_defaults(runner: CliRunner, dummy_runtime, temp_dir: pathlib.Path):
+    write_config(temp_dir / "compman.yml")
+    (temp_dir / "docker-compose.yml").touch()
+    with patch("compman.cli.detect_runtime", return_value=dummy_runtime):
+        res = runner.invoke(app, ["stack", "logs"])
+    assert res.exit_code == 0, res.output
+    assert ["logs"] in [c["args"] for c in dummy_runtime.compose_runs]
+
+
+def test_history_empty_journal_prints_message(runner: CliRunner, temp_dir: pathlib.Path):
+    set_lang("en")
+    home = temp_dir / "home"
+    home.mkdir()
+    with _isolated_stack_home(home):
+        res = runner.invoke(app, ["history"])
+    assert res.exit_code == 0
+    assert "Journal is empty." in res.output
+
+
+def test_history_renders_newest_first_with_limit(
+    runner: CliRunner, temp_dir: pathlib.Path
+):
+    from compman import history
+
+    set_lang("en")
+    home = temp_dir / "home"
+    home.mkdir()
+    with _isolated_stack_home(home):
+        history.append("backup", kind="volume", stack="a", archive="a.volume.1.tar.gz")
+        history.append("deploy", stack="b", source="s3://x/y")
+        res = runner.invoke(app, ["history", "--limit", "1"])
+    assert res.exit_code == 0, res.output
+    assert "Journal (1 entries):" in res.output
+    assert "deploy" in res.output
+    assert "a.volume.1.tar.gz" not in res.output
+
+
+def test_history_json_envelope_shape(runner: CliRunner, temp_dir: pathlib.Path):
+    import json as _json
+
+    from compman import history
+
+    set_lang("en")
+    home = temp_dir / "home"
+    home.mkdir()
+    with _isolated_stack_home(home):
+        history.append("deploy", stack="app", source="s3://bucket/app.tar.gz", built=True)
+        res = runner.invoke(app, ["history", "--json"])
+    assert res.exit_code == 0, res.output
+    data = _json.loads(res.output)
+    assert data["schema_version"] == 1
+    assert data["entries"][0]["action"] == "deploy"
+    assert data["entries"][0]["stack"] == "app"
+    assert isinstance(data["entries"][0]["built"], bool)
+
+
+def test_rollback_records_journal_entry(runner: CliRunner, temp_dir: pathlib.Path):
+    set_lang("en")
+    with patch(
+        "compman.deploy.restore_rollback",
+        return_value="2026-01-02T03:04:05+00:00",
+    ), patch("compman.history.append") as journal:
+        res = runner.invoke(app, ["rollback"])
+    assert res.exit_code == 0, res.output
+    journal.assert_called_once_with("rollback", restored="2026-01-02T03:04:05+00:00")
+
+
+def test_rollback_journal_failure_warns_but_succeeds(
+    runner: CliRunner, temp_dir: pathlib.Path
+):
+    set_lang("en")
+    with patch(
+        "compman.deploy.restore_rollback",
+        return_value="2026-01-02T03:04:05+00:00",
+    ), patch("compman.history.append", side_effect=OSError("disk full")):
+        res = runner.invoke(app, ["rollback"])
+    assert res.exit_code == 0, res.output
+    assert "disk full" in res.output

@@ -1068,8 +1068,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "ko": "[누락]",
     },
     "msg.schedule.cadence_conflict": {
-        "en": "Specify exactly one of --every, --daily, or --weekly.",
-        "ko": "--every, --daily, --weekly 중 정확히 하나만 지정해야 합니다.",
+        "en": "Specify exactly one of --every, --daily, --weekly, or --monthly.",
+        "ko": "--every, --daily, --weekly, --monthly 중 정확히 하나만 지정해야 합니다.",
     },
     "msg.schedule.cadence_invalid": {
         "en": "Invalid cadence '{value}': {reason}",
@@ -1193,6 +1193,66 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "en": "Previous tree kept as a rollback snapshot ({path}).",
         "ko": "이전 트리가 롤백 스냅샷으로 보존되었습니다 ({path}).",
     },
+    "cmd.stack.logs.help": {
+        "en": "Print or follow aggregated logs for stack services.",
+        "ko": "스택 서비스의 통합 로그를 출력하거나 팔로우합니다.",
+    },
+    "opt.log_services": {
+        "en": "Service names to limit logs to (default: all services).",
+        "ko": "로그를 제한할 서비스 이름입니다(기본값: 전체 서비스).",
+    },
+    "cmd.history.help": {
+        "en": "Show the deployment and backup activity journal.",
+        "ko": "배포 및 백업 활동 저널을 표시합니다.",
+    },
+    "opt.history_limit": {
+        "en": "Number of recent entries to show.",
+        "ko": "최근 항목을 몇 개 표시할지 지정합니다.",
+    },
+    "msg.history_header": {
+        "en": "Journal ({count} entries):",
+        "ko": "저널({count}개 항목):",
+    },
+    "msg.history_empty": {
+        "en": "Journal is empty.",
+        "ko": "저널이 비어 있습니다.",
+    },
+    "cmd.schedule.status.help": {
+        "en": "Show install state and the last recorded run for a scheduled job.",
+        "ko": "예약 작업의 등록 상태와 마지막 실행 기록을 표시합니다.",
+    },
+    "msg.schedule.no_runs": {
+        "en": "No recorded runs yet.",
+        "ko": "아직 기록된 실행이 없습니다.",
+    },
+    "msg.schedule.runs_tracking_hint": {
+        "en": "Run tracking starts with jobs (re-)added after this upgrade; remove and re-add this job to enable it.",
+        "ko": "실행 기록은 이번 업그레이드 이후 (재)등록한 작업부터 수집됩니다. 제거 후 다시 추가하면 활성화됩니다.",
+    },
+    "msg.schedule.last_run": {
+        "en": "Last run: {finished} · exit {code} · {seconds}s",
+        "ko": "마지막 실행: {finished} · 종료 코드 {code} · {seconds}초",
+    },
+    "msg.schedule.run_started": {
+        "en": "Run in progress (started {started}).",
+        "ko": "실행 진행 중입니다({started} 시작).",
+    },
+    "msg.schedule.state_registered": {
+        "en": "Platform entry: registered.",
+        "ko": "플랫폼 항목: 등록됨.",
+    },
+    "msg.schedule.state_missing_entry": {
+        "en": "Platform entry: MISSING.",
+        "ko": "플랫폼 항목: 없음.",
+    },
+    "opt.monthly": {
+        "en": "Run monthly on day DD at HH:MM.",
+        "ko": "매월 DD일 HH:MM에 실행합니다.",
+    },
+    "msg.invalid_month_day": {
+        "en": "Invalid day for --monthly: '{value}' (expected 1-31).",
+        "ko": "--monthly의 날짜가 잘못되었습니다: '{value}'(1-31).",
+    }
 }
 
 

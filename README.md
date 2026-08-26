@@ -358,6 +358,7 @@ compman completion [powershell|bash|zsh|fish] --install
 compman stack up [PROFILE] [-c|--config PATH] [--stack NAME]
 compman stack update [PROFILE] [-c|--config PATH] [--stack NAME]
 compman stack down [--profile PROFILE] [-c|--config PATH] --yes [--stack NAME]
+compman stack logs [SERVICE...] [-f] [--tail N] [--profile PROFILE] [-c|--config PATH] [--stack NAME]
 
 compman service start [SERVICE...] [--profile PROFILE] [-c|--config PATH] [--stack NAME]
 compman service stop [SERVICE...] [--profile PROFILE] [-c|--config PATH] [--stack NAME]
@@ -374,12 +375,14 @@ compman volume push [--replace] [--profile PROFILE] [-c|--config PATH] [--stack 
 compman image backup [-z LEVEL] [--zstd] [--source-image] [--profile PROFILE] [-c|--config PATH] [--stack NAME]
 compman image restore [TIMESTAMP] [--profile PROFILE] [-c|--config PATH] [--stack NAME]
 
-compman schedule add [--every N | --daily HH:MM | --weekly DAY HH:MM] [--no-stop] [-z LEVEL] [--profile PROFILE] [--name TEXT] [--scheduler systemd|cron] [-c|--config PATH]
+compman schedule add [--every N | --daily HH:MM | --weekly DAY HH:MM | --monthly DD HH:MM] [--no-stop] [-z LEVEL] [--profile PROFILE] [--name TEXT] [--scheduler systemd|cron] [-c|--config PATH]
 compman schedule list [--json]
+compman schedule status NAME
 compman schedule remove NAME
 
 compman stacks list [--json]
 compman stacks remove NAME
+compman history [--limit N] [--json]
 
 compman clear [--yes]
 ```
@@ -493,15 +496,19 @@ Operator note: aborted multipart transfers can leave billed orphaned parts in th
 compman schedule add --daily 04:30 --no-stop      # every day at 04:30 local time
 compman schedule add --every 30m                  # every 30 minutes
 compman schedule add --weekly sun 03:00 -z 9     # Sundays at 03:00, gzip level 9
+compman schedule add --monthly 1 05:00           # 1st of every month at 05:00
 compman schedule list [--json]
+compman schedule status my-stack.volume          # install state + last run outcome
 compman schedule remove my-stack.volume           # default job name: <project>.volume
 ```
 
-Exactly one cadence option is required: `--every Nm|Nh`, `--daily HH:MM`, or `--weekly <day> HH:MM` (day names `sun`..`sat`, case-insensitive; all times are local). Pass-through flags mirror `volume backup`: `--no-stop`, `-z LEVEL`, and `--profile`. The job runs `[compman, -c <config>, volume backup, ...]` directly — no wrapper scripts — and appends output to `schedule.log` next to the schedule registry (`%APPDATA%\compman\schedule.log` when the `APPDATA` environment variable is set — always the case on Windows — otherwise `~/.config/compman/schedule.log`). On Linux with systemd timers the output goes to journald instead (`journalctl --user -u compman-<name>.service`).
+Exactly one cadence option is required: `--every Nm|Nh`, `--daily HH:MM`, `--weekly <day> HH:MM`, or `--monthly <day 1-31> HH:MM` (day names `sun`..`sat`, case-insensitive; all times are local). Pass-through flags mirror `volume backup`: `--no-stop`, `-z LEVEL`, and `--profile`. The job runs through a thin internal wrapper — `[compman, schedule _exec, <job>, volume backup, -c <config>, ...]` — which appends output to `schedule.log` next to the schedule registry (`%APPDATA%\compman\schedule.log` when the `APPDATA` environment variable is set — always the case on Windows — otherwise `~/.config/compman/schedule.log`). On Linux with systemd timers the output goes to journald instead (`journalctl --user -u compman-<name>.service`).
 
 The scheduler mechanism is picked automatically: launchd on macOS, schtasks on Windows, and on Linux a systemd user timer when `systemctl --user show-environment` succeeds, otherwise crontab. Force the Linux mechanism with `--scheduler systemd|cron`. Cron cannot express every interval: `--every` values must divide 60 minutes (or be whole hours), otherwise registration fails and suggests `--scheduler systemd`.
 
 The registry file `schedules.json` lives in that same directory (`%APPDATA%\compman` when `APPDATA` is set, otherwise `~/.config/compman`) and is the source of truth. `schedule list` probes each platform artifact and marks drifted entries `[missing]`; `schedule remove` still deletes the registry entry when the platform artifact is already gone.
+
+`schedule status NAME` probes the platform artifact live (reporting it registered or `MISSING`) and prints the last recorded run — its finish time, exit code, and duration. Jobs added from this release on execute through the internal `schedule _exec` wrapper, which appends a start/finish record per run to `runs/<name>.jsonl` next to the registry. Jobs registered before this upgrade keep their original command line and have no run log yet; status says so and suggests removing and re-adding the job to enable tracking.
 
 Platform limitations to know before relying on this:
 

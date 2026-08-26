@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+from typing import Any
 
 import typer
 
@@ -16,8 +17,17 @@ from compman.backup_store import (
 from compman.config import Config
 from compman.docker import ContainerRuntime, resolve_compose_context
 from compman.errors import CommandError
+from compman.history import append as append_journal
 from compman.i18n import t
 from compman.ops.common import echo_available_backups, prune_archives, select_backup_timestamp, validate_timestamp
+
+
+def _journal(action: str, **fields: Any) -> None:
+    """Best-effort activity-journal write: warn on stderr, never raise."""
+    try:
+        append_journal(action, **fields)
+    except Exception as e:
+        typer.echo(t("msg.command_failed", error=e), err=True)
 
 
 def backup(
@@ -76,6 +86,7 @@ def backup(
     location = put_archive(config.backup_store, tarball.name, tarball)
     typer.echo(t("msg.backup_done", kind="Image", path=location))
     prune_archives(config, config.backup_store, config.name, "image")
+    _journal("backup", kind="image", stack=config.name, archive=tarball.name)
 
 
 def restore(
@@ -111,3 +122,4 @@ def restore(
         finally:
             shutil.rmtree(restore_dir, ignore_errors=True)
     typer.echo(t("msg.restore_done", kind="Image") + " " + t("msg.image_restore_hint"))
+    _journal("restore", kind="image", stack=config.name, timestamp=timestamp)

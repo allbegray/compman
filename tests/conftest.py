@@ -278,3 +278,12 @@ def temp_dir(tmp_path: pathlib.Path) -> Generator[pathlib.Path, None, None]:
 def _reset_language() -> Generator[None, None, None]:
     yield
     i18n._CURRENT_LANG.set(None)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_history_journal(tmp_path, monkeypatch):
+    """Keep ops-layer journal hooks out of the developer's real timeline."""
+    from compman import history as _history
+
+    monkeypatch.setattr(_history, "history_path", lambda: tmp_path / "history.jsonl")
+    yield

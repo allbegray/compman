@@ -318,3 +318,53 @@ def test_stack_up_with_wait_polls_until_ready(
     monkeypatch.setattr(stack.time, "sleep", lambda s: None)
     stack.up(dummy_runtime, cfg, wait=True)
     assert len(ps_calls) == 1
+
+
+# ---- stack logs passthru argv matrix ----
+
+def _stack_logs(dummy_runtime, temp_dir: pathlib.Path, **kwargs) -> dict:
+    (temp_dir / "docker-compose.yml").touch()
+    cfg = Config(name="my_stack", profiles={"default": Profile(file="docker-compose.yml")})
+    stack.logs(dummy_runtime, cfg, **kwargs)
+    return dummy_runtime.compose_runs[0]
+
+
+def test_stack_logs_default_passthru(dummy_runtime, temp_dir: pathlib.Path):
+    run = _stack_logs(dummy_runtime, temp_dir)
+    assert run["args"] == ["logs"]
+    assert run["project"] == "my_stack"
+    assert run["compose_files"] == (temp_dir / "docker-compose.yml",)
+
+
+def test_stack_logs_tail_flag(dummy_runtime, temp_dir: pathlib.Path):
+    run = _stack_logs(dummy_runtime, temp_dir, tail=100)
+    assert run["args"] == ["logs", "--tail", "100"]
+
+
+def test_stack_logs_follow_flag(dummy_runtime, temp_dir: pathlib.Path):
+    run = _stack_logs(dummy_runtime, temp_dir, follow=True)
+    assert run["args"] == ["logs", "-f"]
+
+
+def test_stack_logs_services_filter(dummy_runtime, temp_dir: pathlib.Path):
+    run = _stack_logs(dummy_runtime, temp_dir, services=("web", "db"))
+    assert run["args"] == ["logs", "web", "db"]
+
+
+def test_stack_logs_all_flags_combined(dummy_runtime, temp_dir: pathlib.Path):
+    run = _stack_logs(
+        dummy_runtime, temp_dir, services=("web",), follow=True, tail=50
+    )
+    assert run["args"] == ["logs", "--tail", "50", "-f", "web"]
+
+
+def test_stack_logs_profile_context(dummy_runtime, temp_dir: pathlib.Path):
+    (temp_dir / "docker-compose.dev.yml").touch()
+    cfg = Config(
+        name="my_stack",
+        profiles={"dev": Profile(file="docker-compose.dev.yml", env={"MODE": "dev"})},
+    )
+    stack.logs(dummy_runtime, cfg, profile="dev")
+    run = dummy_runtime.compose_runs[0]
+    assert run["env"] == {"MODE": "dev"}
+    assert run["compose_files"] == (temp_dir / "docker-compose.dev.yml",)

@@ -8,6 +8,7 @@ import pathlib
 import shutil
 import tarfile
 import zipfile
+from contextlib import contextmanager
 from http.client import HTTPMessage
 from unittest.mock import MagicMock, patch
 from urllib.request import Request
@@ -23,7 +24,7 @@ from botocore.exceptions import (
 )
 from conftest import write_config
 
-from compman import backup_store, deploy, http_source, s3_source
+from compman import backup_store, deploy, history, http_source, s3_source
 from compman.archive_source import ensure_digest, extract_archive, has_archive_suffix, sha256_file
 from compman.config import DeployAuth, load_config
 from compman.errors import CommandError
@@ -1854,3 +1855,64 @@ def test_update_deploy_stops_line_scan_at_dedented_sibling_key(temp_dir: pathlib
     parsed = yaml.safe_load(compman_yml.read_text(encoding="utf-8"))
     assert parsed["compman"]["deploy"] == "s3://new"
     assert parsed["other"] == "value"
+
+
+# ---- activity journal hook ----
+
+
+_DEPLOY_CFG = (
+    "compman:\n"
+    "  name: app\n"
+    "  compose:\n    default:\n      file: docker-compose.yml\n"
+    "  deploy: s3://bucket/app.tar.gz\n"
+)
+
+
+
+
+@contextmanager
+def _journal_root(tmp_path: pathlib.Path):
+    root = tmp_path / "journal"
+    with patch("compman.history.registry_dir", return_value=root):
+        yield root
+
+
+def _deploy_with_config(temp_dir: pathlib.Path, **kwargs) -> None:
+    (temp_dir / "compman.yml").write_text(_DEPLOY_CFG, encoding="utf-8")
+    source = temp_dir / "fetched"
+    source.mkdir()
+    (source / "new.txt").write_text("current", encoding="utf-8")
+    with patch("compman.deploy._fetch_http", return_value=source):
+        deploy.deploy(s3_path="https://example.test/app.zip", **kwargs)
+
+
+def test_deploy_records_journal_entry(temp_dir: pathlib.Path, tmp_path: pathlib.Path):
+    with _journal_root(tmp_path):
+        _deploy_with_config(temp_dir, tag="v9")
+        (entry,) = history.entries()
+    assert entry["action"] == "deploy"
+    assert entry["stack"] == "app"
+    assert entry["source"] == "https://example.test/app.zip"
+    assert entry["tag"] == "v9"
+    assert entry["built"] is False
+
+
+def test_deploy_without_tag_journals_null_tag(
+    temp_dir: pathlib.Path, tmp_path: pathlib.Path
+):
+    with _journal_root(tmp_path):
+        _deploy_with_config(temp_dir)
+        (entry,) = history.entries()
+    assert entry["tag"] is None
+
+
+def test_deploy_journal_failure_keeps_deploy_successful(
+    temp_dir: pathlib.Path, capsys
+):
+    with patch(
+        "compman.deploy.append_history", side_effect=OSError("Is a directory")
+    ):
+        _deploy_with_config(temp_dir)
+    captured = capsys.readouterr()
+    assert "Is a directory" in captured.err
+    assert (temp_dir / "project" / "new.txt").exists()

@@ -37,9 +37,17 @@ class JobRecord:
     log_path: str
     path_env: str
     created: str
+    # Absent in pre-monthly records; defaults keep old schedules.json loadable.
+    day: int | None = None
 
     def cadence(self) -> Cadence:
-        return Cadence(kind=self.kind, minutes=self.minutes, time=self.time, weekday=self.weekday)
+        return Cadence(
+            kind=self.kind,
+            minutes=self.minutes,
+            time=self.time,
+            weekday=self.weekday,
+            day=self.day,
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

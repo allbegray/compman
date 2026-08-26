@@ -39,7 +39,7 @@ from compman.scheduling import (
     schtasks_cadence_args,
     systemd_oncalendar,
 )
-from compman.scheduling.cadence import parse_time_value
+from compman.scheduling.cadence import parse_time_value, require_day
 from compman.scheduling.crontab import begin_marker, end_marker, without_block
 from compman.scheduling.launchd import label_for, plist_path
 from compman.scheduling.registry import failure_detail, require_success
@@ -128,23 +128,23 @@ def isolated_home(tmp_path: pathlib.Path) -> Iterator[None]:
 # ---------------------------------------------------------------------------
 # cadence parsing
 # ---------------------------------------------------------------------------
-
-
 @pytest.mark.parametrize(
-    ("every", "daily", "weekly"),
+    ("every", "daily", "weekly", "monthly"),
     [
-        (None, None, None),
-        ("30m", "04:30", None),
-        ("30m", None, "sun 03:00"),
-        (None, "04:30", "sun 03:00"),
-        ("30m", "04:30", "sun 03:00"),
+        (None, None, None, None),
+        ("30m", "04:30", None, None),
+        ("30m", None, "sun 03:00", None),
+        (None, "04:30", "sun 03:00", None),
+        ("30m", None, None, "15 03:00"),
+        (None, "04:30", None, "15 03:00"),
+        (None, None, "sun 03:00", "15 03:00"),
     ],
 )
 def test_parse_cadence_rejects_when_not_exactly_one_option(
-    every: str | None, daily: str | None, weekly: str | None
+    every: str | None, daily: str | None, weekly: str | None, monthly: str | None
 ) -> None:
     with pytest.raises(ValueError, match="Specify exactly one"):
-        parse_cadence(every, daily, weekly)
+        parse_cadence(every, daily, weekly, monthly)
 
 
 @pytest.mark.parametrize(
@@ -206,6 +206,43 @@ def test_parse_cadence_rejects_weekly_with_invalid_time(value: str) -> None:
         parse_cadence(None, None, value)
 
 
+@pytest.mark.parametrize(
+    ("value", "expected_day", "expected_time"),
+    [
+        ("1 03:00", 1, "03:00"),
+        ("31 04:30", 31, "04:30"),
+        ("7 4:05", 7, "4:05"),
+    ],
+)
+def test_parse_cadence_parses_monthly(
+    value: str, expected_day: int, expected_time: str
+) -> None:
+    cadence = parse_cadence(None, None, None, value)
+    assert cadence.kind == "monthly"
+    assert cadence.day == expected_day
+    assert cadence.time == expected_time
+
+
+@pytest.mark.parametrize(
+    "value", ["0 03:00", "32 03:00", "abc 03:00", "-1 03:00", "1.5 03:00"]
+)
+def test_parse_cadence_rejects_invalid_month_day(value: str) -> None:
+    with pytest.raises(CommandError, match="Invalid day for --monthly"):
+        parse_cadence(None, None, None, value)
+
+
+@pytest.mark.parametrize("value", ["15", "15 03:00 extra", ""])
+def test_parse_cadence_rejects_malformed_monthly(value: str) -> None:
+    with pytest.raises(ValueError, match=r"Invalid --monthly value"):
+        parse_cadence(None, None, None, value)
+
+
+@pytest.mark.parametrize("value", ["15 24:00", "15 4:30pm"])
+def test_parse_cadence_rejects_monthly_with_invalid_time(value: str) -> None:
+    with pytest.raises(ValueError, match="Invalid time"):
+        parse_cadence(None, None, None, value)
+
+
 def test_parse_time_value_requires_time() -> None:
     with pytest.raises(ValueError, match="required"):
         parse_time_value(None)
@@ -262,17 +299,36 @@ def test_cron_expr_weekly_requires_weekday() -> None:
         cron_expr(Cadence(kind="weekly", time="04:30"))
 
 
+def test_cron_expr_monthly_pins_day_of_month() -> None:
+    assert cron_expr(parse_cadence(None, None, None, "15 03:00")) == "0 3 15 * *"
+
+
+def test_cron_expr_monthly_requires_day() -> None:
+    with pytest.raises(ValueError, match="requires a day of month"):
+        cron_expr(Cadence(kind="monthly", time="04:30"))
+
+
+def test_require_day_rejects_missing_day() -> None:
+    with pytest.raises(ValueError, match="requires a day of month"):
+        require_day(Cadence(kind="monthly", time="04:30"))
+
+
 def test_launchd_start_spec_interval_returns_seconds() -> None:
     assert launchd_start_spec(Cadence(kind="interval", minutes=30)) == 1800
-
-
-def test_launchd_start_spec_daily_returns_calendar_dict() -> None:
-    assert launchd_start_spec(parse_cadence(None, "04:30", None)) == {"Hour": 4, "Minute": 30}
 
 
 def test_launchd_start_spec_weekly_includes_weekday() -> None:
     spec = launchd_start_spec(parse_cadence(None, None, "sun 04:30"))
     assert spec == {"Hour": 4, "Minute": 30, "Weekday": 0}
+
+
+def test_launchd_start_spec_monthly_leads_with_day() -> None:
+    spec = launchd_start_spec(parse_cadence(None, None, None, "15 03:00"))
+    assert spec == {"Day": 15, "Hour": 3, "Minute": 0}
+
+
+def test_systemd_oncalendar_monthly_pins_day() -> None:
+    assert systemd_oncalendar(parse_cadence(None, None, None, "15 4:30")) == "*-*-15 04:30:00"
 
 
 def test_systemd_oncalendar_daily() -> None:
@@ -297,6 +353,10 @@ def test_systemd_oncalendar_rejects_interval() -> None:
         (
             Cadence(kind="weekly", time="22:15", weekday=6),
             ["/SC", "WEEKLY", "/D", "SAT", "/ST", "22:15"],
+        ),
+        (
+            Cadence(kind="monthly", time="22:15", day=15),
+            ["/SC", "MONTHLY", "/D", "15", "/ST", "22:15"],
         ),
     ],
 )
@@ -475,6 +535,21 @@ def test_job_record_dict_roundtrip_and_cadence_view() -> None:
     assert restored.cadence() == Cadence(kind="weekly", time="04:30", weekday=3)
 
 
+def test_job_record_loads_legacy_record_without_day_key() -> None:
+    legacy = make_record().to_dict()
+    del legacy["day"]
+    restored = JobRecord.from_dict(legacy)
+    assert restored.day is None
+    assert restored.cadence() == Cadence(kind="daily", time="04:30")
+
+
+def test_job_record_roundtrips_monthly_day() -> None:
+    record = make_record(kind="monthly", day=15)
+    restored = JobRecord.from_dict(record.to_dict())
+    assert restored == record
+    assert restored.cadence() == Cadence(kind="monthly", time="04:30", day=15)
+
+
 def test_job_record_is_frozen() -> None:
     with pytest.raises(FrozenInstanceError):
         make_record().name = "other"
@@ -599,6 +674,12 @@ def test_build_plist_xml_interval_uses_start_interval() -> None:
     assert entries["StandardErrorPath"] == record.log_path
 
 
+def test_build_plist_xml_monthly_leads_calendar_with_day() -> None:
+    record = make_record(kind="monthly", day=15)
+    entries = plist_entries(build_plist_xml(record))
+    assert entries["StartCalendarInterval"] == {"Day": "15", "Hour": "4", "Minute": "30"}
+
+
 def test_build_plist_xml_daily_omits_weekday() -> None:
     entries = plist_entries(build_plist_xml(make_record()))
     assert entries["StartCalendarInterval"] == {"Hour": "4", "Minute": "30"}
@@ -706,6 +787,11 @@ def test_build_systemd_units_weekly_prefixes_day() -> None:
     assert "OnCalendar=Sun *-*-* 04:30:00" in timer
 
 
+def test_build_systemd_units_monthly_pins_day() -> None:
+    _service, timer = build_systemd_units(make_record(kind="monthly", day=7))
+    assert "OnCalendar=*-*-07 04:30:00" in timer
+
+
 @pytest.mark.parametrize(
     ("minutes", "span"),
     [(30, "30min"), (45, "45min"), (120, "2h"), (60, "1h")],
@@ -811,6 +897,18 @@ def test_build_crontab_block_daily_exact_format() -> None:
         "# BEGIN compman:app.volume\n"
         "PATH=/usr/bin:/bin\n"
         "30 4 * * * /opt/compman -c /work/app/compman.yml volume backup --no-stop"
+        " >> /work/app/backup/schedule.log 2>&1\n"
+        "# END compman:app.volume\n"
+    )
+    assert build_crontab_block(record) == expected
+
+
+def test_build_crontab_block_monthly_exact_format() -> None:
+    record = make_record(kind="monthly", day=15)
+    expected = (
+        "# BEGIN compman:app.volume\n"
+        "PATH=/usr/bin:/bin\n"
+        "30 4 15 * * /opt/compman -c /work/app/compman.yml volume backup --no-stop"
         " >> /work/app/backup/schedule.log 2>&1\n"
         "# END compman:app.volume\n"
     )
@@ -974,6 +1072,12 @@ def test_build_schtasks_command_interval_uses_minute_schedule() -> None:
     record = make_record(kind="interval", minutes=45, time=None)
     argv = build_schtasks_command(record)
     assert argv[5:9] == ["/SC", "MINUTE", "/MO", "45"]
+
+
+def test_build_schtasks_command_monthly_uses_day_number() -> None:
+    record = make_record(kind="monthly", day=15)
+    argv = build_schtasks_command(record)
+    assert argv[5:11] == ["/SC", "MONTHLY", "/D", "15", "/ST", "04:30"]
 
 
 def test_build_schtasks_command_hourly_interval_uses_hourly_schedule() -> None:

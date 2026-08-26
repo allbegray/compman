@@ -4,12 +4,14 @@ import pathlib
 import re
 import sys
 import tarfile
+from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
 import pytest
 from botocore.exceptions import ClientError
 from test_backup_store import FakeS3, _patch_stage, _stage
 
+from compman import history
 from compman.backup_store import S3BackupStore, local_root
 from compman.config import Config, Profile
 from compman.errors import CommandError
@@ -291,3 +293,63 @@ def test_image_backup_removes_partial_archive_when_save_fails(dummy_runtime, tem
 
     assert list(local_root(cfg.backup_store).glob("*.tar.gz")) == []
     dummy_runtime.remove_image.assert_called_once()
+
+
+# ---- activity journal hooks ----
+
+
+@contextmanager
+def _journal_root(tmp_path: pathlib.Path):
+    root = tmp_path / "journal"
+    with patch("compman.history.registry_dir", return_value=root):
+        yield root
+
+
+def test_image_backup_records_journal_entry(
+    dummy_runtime, temp_dir: pathlib.Path, tmp_path: pathlib.Path
+):
+    cfg = Config(name="my_stack", profiles={"default": Profile(file="docker-compose.yml")})
+    with _journal_root(tmp_path):
+        image.backup(dummy_runtime, cfg)
+        (entry,) = history.entries()
+    assert entry["action"] == "backup"
+    assert entry["kind"] == "image"
+    assert entry["stack"] == "my_stack"
+    assert entry["archive"].startswith("my_stack.image.")
+    assert entry["archive"].endswith(".tar.gz")
+
+
+def test_image_restore_records_journal_entry(
+    dummy_runtime, temp_dir: pathlib.Path, tmp_path: pathlib.Path
+):
+    cfg = Config(name="my_stack", profiles={"default": Profile(file="docker-compose.yml")})
+    backup_dir = local_root(cfg.backup_store)
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    backup_file = backup_dir / "my_stack.image.20260731_1200.tar.gz"
+    dummy_tar = temp_dir / "img.tar"
+    dummy_tar.touch()
+    with tarfile.open(backup_file, "w:gz") as tar:
+        tar.add(dummy_tar, arcname="img.tar")
+
+    with _journal_root(tmp_path):
+        with patch("subprocess.run"):
+            image.restore(dummy_runtime, cfg, timestamp="20260731_1200")
+        (entry,) = history.entries()
+    assert entry == {
+        **entry,
+        "action": "restore",
+        "kind": "image",
+        "stack": "my_stack",
+        "timestamp": "20260731_1200",
+    }
+
+
+def test_image_backup_journal_failure_keeps_backup_successful(
+    dummy_runtime, temp_dir: pathlib.Path, capsys
+):
+    cfg = Config(name="my_stack", profiles={"default": Profile(file="docker-compose.yml")})
+    with patch("compman.ops.image.append_journal", side_effect=OSError("Is a directory")):
+        image.backup(dummy_runtime, cfg)
+    captured = capsys.readouterr()
+    assert "Is a directory" in captured.err
+    assert list(local_root(cfg.backup_store).glob("my_stack.image.*.tar.gz"))

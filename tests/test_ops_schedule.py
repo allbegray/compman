@@ -3,8 +3,9 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import subprocess
 from collections.abc import Generator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from typing import Any
 from unittest.mock import patch
@@ -133,6 +134,9 @@ def test_add_schedule_registers_launchd_job_and_writes_registry(
     assert record.created.endswith("+00:00")
     assert record.args == [
         "/opt/compman/bin/compman",
+        "schedule",
+        "_exec",
+        "app-volume",
         "volume",
         "backup",
         "-c",
@@ -558,3 +562,328 @@ def test_list_schedules_json_payload(tmp_path: pathlib.Path, capsys: Any) -> Non
     assert payload["generated_at"].endswith("+00:00")
     job = payload["jobs"][0]
     assert job["name"] == "app.volume" and job["missing"] is True
+
+
+# ---------------------------------------------------------------------------
+# monthly cadence end-to-end
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("system", "force", "probe_rc", "expected_platform"),
+    [
+        ("Darwin", None, None, "launchd"),
+        ("Linux", "systemd", None, "systemd"),
+        ("Linux", "cron", None, "cron"),
+        ("Win32", None, None, "schtasks"),
+    ],
+)
+def test_add_schedule_bakes_monthly_job_per_adapter(
+    tmp_path: pathlib.Path,
+    system: str,
+    force: str | None,
+    probe_rc: int | None,
+    expected_platform: str,
+) -> None:
+    adapter_patch, adapter = patch_adapters()
+    patches: list[Any] = [
+        patch.object(pathlib.Path, "home", return_value=tmp_path),
+        patch("compman.ops.schedule.platform.system", return_value=system),
+        patch("compman.ops.schedule.resolve_executable", return_value="/exe"),
+        adapter_patch,
+    ]
+    if probe_rc is not None:
+        patches.append(
+            patch(
+                "compman.scheduling.pick.subprocess.run",
+                return_value=FakeProc(returncode=probe_rc),
+            )
+        )
+    if system == "Linux":
+        patches.append(
+            patch("compman.ops.schedule.crontab_status", return_value=(True, ""))
+        )
+    with ExitStack() as stack:
+        for entry in patches:
+            stack.enter_context(entry)
+        record = schedule_ops.add_schedule(
+            make_config(tmp_path), monthly="15 03:00", scheduler=force
+        )
+
+    assert record.platform == expected_platform
+    assert record.kind == "monthly"
+    assert record.day == 15
+    assert record.time == "03:00"
+    assert record.weekday is None
+    assert record.cadence().day == 15
+    assert record.args == [
+        "/exe",
+        "schedule",
+        "_exec",
+        "app-volume",
+        "volume",
+        "backup",
+        "-c",
+        str(tmp_path / "compman.yml"),
+    ]
+    assert adapter.installed == [record]
+
+
+def test_add_schedule_propagates_invalid_month_day_verbatim(tmp_path: pathlib.Path) -> None:
+    with pytest.raises(CommandError, match=r"Invalid day for --monthly: '32'"):
+        schedule_ops.add_schedule(make_config(tmp_path), monthly="32 03:00")
+
+
+def test_add_schedule_rejects_monthly_combined_with_other_cadence(
+    tmp_path: pathlib.Path,
+) -> None:
+    with pytest.raises(CommandError, match="--daily.*--monthly|--monthly.*--daily"):
+        schedule_ops.add_schedule(
+            make_config(tmp_path), daily="04:30", monthly="15 03:00"
+        )
+
+
+def test_runs_path_lives_under_the_registry_dir(tmp_path: pathlib.Path) -> None:
+    with patch.dict(os.environ, {"APPDATA": str(tmp_path)}):
+        assert schedule_ops.runs_path("job.one") == (
+            tmp_path / "compman" / "runs" / "job.one.jsonl"
+        )
+
+
+def test_list_schedules_summarizes_monthly_cadence(
+    tmp_path: pathlib.Path, capsys: Any
+) -> None:
+    seed_registry(
+        tmp_path,
+        {
+            "job.one": {
+                "platform": "launchd",
+                "kind": "monthly",
+                "day": 1,
+                "time": "05:00",
+                "config_path": "/cfg.yml",
+            }
+        },
+    )
+    adapter_patch, _adapter = patch_adapters(exists=True)
+    with isolated_home(tmp_path), adapter_patch:
+        schedule_ops.list_schedules()
+    line = next(line for line in capsys.readouterr().out.splitlines() if "job.one" in line)
+    assert "monthly on day 1 at 05:00" in line
+
+
+# ---------------------------------------------------------------------------
+# run_tracked_job
+# ---------------------------------------------------------------------------
+
+
+def _run_lines(tmp_path: pathlib.Path, name: str) -> list[dict[str, Any]]:
+    path = tmp_path / ".config" / "compman" / "runs" / f"{name}.jsonl"
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+
+
+def test_run_tracked_job_records_start_and_finish_then_exits_with_child_rc(
+    tmp_path: pathlib.Path,
+) -> None:
+    completed = subprocess.CompletedProcess(["cmd"], 0)
+    with (
+        isolated_home(tmp_path),
+        patch(
+            "compman.ops.schedule.subprocess.run", return_value=completed
+        ) as run_mock,
+        pytest.raises(SystemExit) as exit_info,
+    ):
+        schedule_ops.run_tracked_job("app.volume", ["/bin/echo", "hi"])
+    assert exit_info.value.code == 0
+    run_mock.assert_called_once_with(["/bin/echo", "hi"], check=False)
+    lines = _run_lines(tmp_path, "app.volume")
+    assert list(lines[0]) == ["started_at"]
+    assert lines[0]["started_at"].endswith("+00:00")
+    assert lines[1]["exit_code"] == 0
+    assert lines[1]["finished_at"].endswith("+00:00")
+    assert isinstance(lines[1]["seconds"], float)
+
+
+def test_run_tracked_job_records_failing_exit_code(tmp_path: pathlib.Path) -> None:
+    completed = subprocess.CompletedProcess(["cmd"], 3)
+    with (
+        isolated_home(tmp_path),
+        patch("compman.ops.schedule.subprocess.run", return_value=completed),
+        pytest.raises(SystemExit) as exit_info,
+    ):
+        schedule_ops.run_tracked_job("app.volume", ["false"])
+    assert exit_info.value.code == 3
+    lines = _run_lines(tmp_path, "app.volume")
+    assert lines[1]["exit_code"] == 3
+
+
+def test_run_tracked_job_records_130_on_keyboard_interrupt(
+    tmp_path: pathlib.Path,
+) -> None:
+    with (
+        isolated_home(tmp_path),
+        patch(
+            "compman.ops.schedule.subprocess.run",
+            side_effect=KeyboardInterrupt,
+        ),
+        pytest.raises(SystemExit),
+    ):
+        schedule_ops.run_tracked_job("app.volume", ["synthetic", "payload"])
+
+
+def test_run_tracked_job_honors_injected_runner(tmp_path: pathlib.Path) -> None:
+    calls: list[list[str]] = []
+
+    def fake_runner(command: list[str], check: bool) -> FakeProc:
+        calls.append(command)
+        return FakeProc(returncode=9)
+
+    with isolated_home(tmp_path), pytest.raises(SystemExit) as exit_info:
+        schedule_ops.run_tracked_job("app.volume", ["cmd"], runner=fake_runner)
+    assert exit_info.value.code == 9
+    assert calls == [["cmd"]]
+    lines = _run_lines(tmp_path, "app.volume")
+    assert lines[1]["exit_code"] == 9
+
+
+
+# ---------------------------------------------------------------------------
+# show_status
+# ---------------------------------------------------------------------------
+
+
+def seed_runs(tmp_path: pathlib.Path, name: str, text: str) -> None:
+    target = tmp_path / ".config" / "compman" / "runs" / f"{name}.jsonl"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(text, encoding="utf-8")
+
+
+STATUS_JOB = {"platform": "launchd", "kind": "daily", "time": "04:30"}
+
+
+def test_show_status_unknown_name_raises_not_found(tmp_path: pathlib.Path) -> None:
+    with isolated_home(tmp_path):
+        with pytest.raises(CommandError, match="No schedule named 'ghost'"):
+            schedule_ops.show_status("ghost")
+
+
+@pytest.mark.parametrize(
+    ("exists_result", "fragment"),
+    [(True, "registered"), (False, "MISSING")],
+)
+def test_show_status_reports_live_platform_state(
+    tmp_path: pathlib.Path, capsys: Any, exists_result: bool, fragment: str
+) -> None:
+    seed_registry(tmp_path, {"app.volume": {**STATUS_JOB, "config_path": "/a.yml"}})
+    adapter_patch, _adapter = patch_adapters(exists=exists_result)
+    with isolated_home(tmp_path), adapter_patch:
+        schedule_ops.show_status("app.volume")
+    assert f"Platform entry: {fragment}" in capsys.readouterr().out
+
+
+def test_show_status_without_runs_file_hints_migration(
+    tmp_path: pathlib.Path, capsys: Any
+) -> None:
+    seed_registry(tmp_path, {"app.volume": {**STATUS_JOB, "config_path": "/a.yml"}})
+    adapter_patch, _adapter = patch_adapters(exists=True)
+    with isolated_home(tmp_path), adapter_patch:
+        schedule_ops.show_status("app.volume")
+    out = capsys.readouterr().out
+    assert "Platform entry: registered" in out
+    assert "No recorded runs yet." in out
+    assert "remove and re-add this job" in out
+
+
+def test_show_status_prints_last_complete_run(tmp_path: pathlib.Path, capsys: Any) -> None:
+    seed_registry(tmp_path, {"app.volume": {**STATUS_JOB, "config_path": "/a.yml"}})
+    seed_runs(
+        tmp_path,
+        "app.volume",
+        '{"started_at": "2026-08-25T04:30:00+00:00"}\n'
+        '{"finished_at": "2026-08-25T04:33:10+00:00", "exit_code": 0, "seconds": 190.5}\n',
+    )
+    adapter_patch, _adapter = patch_adapters(exists=True)
+    with isolated_home(tmp_path), adapter_patch:
+        schedule_ops.show_status("app.volume")
+    out = capsys.readouterr().out
+    assert "Last run: 2026-08-25T04:33:10+00:00" in out
+    assert "exit 0" in out
+    assert "190.5s" in out
+
+
+def test_show_status_prefers_trailing_started_over_older_completes(
+    tmp_path: pathlib.Path, capsys: Any
+) -> None:
+    seed_registry(tmp_path, {"app.volume": {**STATUS_JOB, "config_path": "/a.yml"}})
+    seed_runs(
+        tmp_path,
+        "app.volume",
+        '{"started_at": "2026-08-24T04:30:00+00:00"}\n'
+        '{"finished_at": "2026-08-24T04:31:00+00:00", "exit_code": 0, "seconds": 60.0}\n'
+        '{"started_at": "2026-08-25T04:30:00+00:00"}\n',
+    )
+    adapter_patch, _adapter = patch_adapters(exists=True)
+    with isolated_home(tmp_path), adapter_patch:
+        schedule_ops.show_status("app.volume")
+    out = capsys.readouterr().out
+    assert "Run in progress (started 2026-08-25T04:30:00+00:00)." in out
+    assert "Last run:" not in out
+
+
+def test_show_status_skips_corrupt_lines(tmp_path: pathlib.Path, capsys: Any) -> None:
+    seed_registry(tmp_path, {"app.volume": {**STATUS_JOB, "config_path": "/a.yml"}})
+    seed_runs(
+        tmp_path,
+        "app.volume",
+        "{not json\n"
+        "\n"
+        '["not", "a", "dict"]\n'
+        '{"started_at": "2026-08-25T09:00:00+00:00"}\n'
+        '{"finished_at": "2026-08-25T09:01:00+00:00", "exit_code": 2, "seconds": 60.0}\n'
+        "garbage\n",
+    )
+    adapter_patch, _adapter = patch_adapters(exists=True)
+    with isolated_home(tmp_path), adapter_patch:
+        schedule_ops.show_status("app.volume")
+    out = capsys.readouterr().out
+    assert "Last run: 2026-08-25T09:01:00+00:00" in out
+    assert "exit 2" in out
+
+
+def test_show_status_treats_empty_file_as_no_runs(
+    tmp_path: pathlib.Path, capsys: Any
+) -> None:
+    seed_registry(tmp_path, {"app.volume": {**STATUS_JOB, "config_path": "/a.yml"}})
+    seed_runs(tmp_path, "app.volume", "")
+    adapter_patch, _adapter = patch_adapters(exists=True)
+    with isolated_home(tmp_path), adapter_patch:
+        schedule_ops.show_status("app.volume")
+    out = capsys.readouterr().out
+    assert "No recorded runs yet." in out
+    assert "remove and re-add this job" in out
+
+
+def test_show_status_treats_unparsable_file_as_no_runs(
+    tmp_path: pathlib.Path, capsys: Any
+) -> None:
+    seed_registry(tmp_path, {"app.volume": {**STATUS_JOB, "config_path": "/a.yml"}})
+    seed_runs(tmp_path, "app.volume", "{broken\n{also broken\n")
+    adapter_patch, _adapter = patch_adapters(exists=True)
+    with isolated_home(tmp_path), adapter_patch:
+        schedule_ops.show_status("app.volume")
+    out = capsys.readouterr().out
+    assert "No recorded runs yet." in out
+    assert "remove and re-add this job" in out
+
+
+def test_show_status_treats_keyless_records_as_no_runs(
+    tmp_path: pathlib.Path, capsys: Any
+) -> None:
+    seed_registry(tmp_path, {"app.volume": {**STATUS_JOB, "config_path": "/a.yml"}})
+    seed_runs(tmp_path, "app.volume", '{"junk": true}\n{}\n')
+    adapter_patch, _adapter = patch_adapters(exists=True)
+    with isolated_home(tmp_path), adapter_patch:
+        schedule_ops.show_status("app.volume")
+    out = capsys.readouterr().out
+    assert "No recorded runs yet." in out
+    assert "remove and re-add this job" in out

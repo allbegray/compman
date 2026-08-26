@@ -23,16 +23,20 @@ Each minor release carries one theme; patch releases stay fix-only. Backlog IDs
 above feed the sequence below; re-balance at each minor bump rather than
 planning further ahead.
 
-- **1.8 — Automation ergonomics, concluded**: [M9] `stack up --wait` and
-  [M10] project-scoped `--json` shipped in v1.8.0.
-- **1.9 — Backup format & restore ergonomics, concluded**: `--zstd` archives
-  and offline volume restore shipped in v1.9.0.
-- **1.10 — Operational convenience, concluded**: [L12] rollback, [L13]
-  SSH/SCP backup stores, [L14] multi-stack registry, plus the 2026-08-26
-  analysis wave ([H5]–[H8], [M13]–[M18], [L15]–[L23]) all shipped in v1.10.0.
+- **1.11 — Scheduling visibility & audit, concluded**: `schedule status`
+  with per-job run tracking, `--monthly` cadence, `compman history` journal,
+  and `stack logs` shipped in v1.11.0 (feature ideas adopted from the
+  post-1.10 ideation; not prior backlog IDs).
 - **1.10.1 — Test-seam & hygiene, concluded**: [M16] failure-injectable
   DummyRuntime with loud overrides plus coverage-sweep retirement, [L24]
   helper dedup batch, [L25] exit-code/CLI consolidation.
+- **1.10 — Operational convenience, concluded**: [L12] rollback, [L13]
+  SSH/SCP backup stores, [L14] multi-stack registry, plus the 2026-08-26
+  analysis wave ([H5]–[H8], [M13]–[M18], [L15]–[L23]) all shipped in v1.10.0.
+- **1.9 — Backup format & restore ergonomics, concluded**: `--zstd` archives
+  and offline volume restore shipped in v1.9.0.
+- **1.8 — Automation ergonomics, concluded**: [M9] `stack up --wait` and
+  [M10] project-scoped `--json` shipped in v1.8.0.
 - Ongoing between minors: [M1] module splits.
 
 Feature gate for any new candidate: real value for restricted-environment

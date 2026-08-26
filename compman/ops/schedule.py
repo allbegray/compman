@@ -3,6 +3,10 @@ from __future__ import annotations
 import json
 import os
 import platform
+import subprocess
+import sys
+import time
+from pathlib import Path
 from typing import Any, Protocol
 
 import typer
@@ -60,6 +64,8 @@ def _cadence_summary(job: dict[str, Any]) -> str:
         return f"every {minutes}m"
     if kind == "daily":
         return f"daily at {job['time']}"
+    if kind == "monthly":
+        return f"monthly on day {job['day']} at {job['time']}"
     weekday = WEEKDAY_NAMES[job["weekday"]]
     return f"weekly on {weekday} at {job['time']}"
 
@@ -70,6 +76,7 @@ def add_schedule(
     every: str | None = None,
     daily: str | None = None,
     weekly: str | None = None,
+    monthly: str | None = None,
     no_stop: bool = False,
     level: int = 6,
     profile: str | None = None,
@@ -77,11 +84,13 @@ def add_schedule(
     scheduler: str | None = None,
 ) -> JobRecord:
     try:
-        cadence = parse_cadence(every, daily, weekly)
+        cadence = parse_cadence(every, daily, weekly, monthly)
     except ValueError as exc:
         if str(exc) == EXACTLY_ONE_ERROR:
             raise CommandError(t("msg.schedule.cadence_conflict")) from exc
-        value = next(value for value in (every, daily, weekly) if value is not None)
+        value = next(
+            value for value in (every, daily, weekly, monthly) if value is not None
+        )
         raise CommandError(t("msg.schedule.cadence_invalid", value=value, reason=exc)) from exc
 
     system = platform.system().lower()
@@ -99,7 +108,16 @@ def add_schedule(
 
     job_name = sanitize_project_name(name or f"{config.name}.volume")
     config_path = str(config.source_path or config.root_dir / "compman.yml")
-    args = [executable, "volume", "backup", "-c", config_path]
+    args = [
+        executable,
+        "schedule",
+        "_exec",
+        job_name,
+        "volume",
+        "backup",
+        "-c",
+        config_path,
+    ]
     if no_stop:
         args.append("--no-stop")
     if level != 6:
@@ -114,6 +132,7 @@ def add_schedule(
         minutes=cadence.minutes,
         time=cadence.time,
         weekday=cadence.weekday,
+        day=cadence.day,
         workdir=str(config.root_dir),
         config_path=config_path,
         args=args,
@@ -193,3 +212,92 @@ def remove_schedule(name: str) -> None:
         del registry["jobs"][name]
         save_registry(registry)
     typer.echo(t("msg.schedule.removed", name=name))
+
+
+def runs_path(name: str) -> Path:
+    """JSONL run-log location for one scheduled job."""
+    return registry_dir() / "runs" / f"{name}.jsonl"
+
+
+def _append_run_event(name: str, event: dict[str, Any]) -> None:
+    path = runs_path(name)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(event) + "\n")
+
+
+def run_tracked_job(name: str, command: list[str], runner: Runner | None = None) -> None:
+    """Run a scheduled job's command, appending start/finish events to its run log.
+
+    The child inherits stdio so scheduled output keeps flowing into the
+    platform redirect (schedule.log); the process exits with the child's rc.
+    """
+    _append_run_event(name, {"started_at": utc_now_iso()})
+    if runner is None:
+        runner = subprocess.run
+    started = time.monotonic()
+    try:
+        completed = runner(command, check=False)
+    except KeyboardInterrupt:
+        _record_finish(name, started, 130)
+        sys.exit(130)
+    _record_finish(name, started, completed.returncode)
+    sys.exit(completed.returncode)
+
+
+def _record_finish(name: str, started: float, exit_code: int) -> None:
+    _append_run_event(
+        name,
+        {
+            "finished_at": utc_now_iso(),
+            "exit_code": exit_code,
+            "seconds": round(time.monotonic() - started, 3),
+        },
+    )
+
+
+def show_status(name: str) -> None:
+    """Print the live install state and last recorded run for one job."""
+    job = load_registry()["jobs"].get(name)
+    if job is None:
+        raise CommandError(t("msg.schedule.not_found", name=name))
+    registered = _adapter_for(job["platform"]).exists(name)
+    if registered:
+        typer.echo(t("msg.schedule.state_registered"))
+    else:
+        typer.echo(t("msg.schedule.state_missing_entry"))
+    _print_last_run(name)
+
+
+def _print_last_run(name: str) -> None:
+    events: list[dict[str, Any]] = []
+    path = runs_path(name)
+    if path.is_file():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            try:
+                parsed = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(parsed, dict):
+                events.append(parsed)
+    if not events:
+        typer.echo(t("msg.schedule.no_runs"))
+        typer.echo(t("msg.schedule.runs_tracking_hint"))
+        return
+    last = events[-1]
+    if "started_at" in last and "finished_at" not in last:
+        typer.echo(t("msg.schedule.run_started", started=last["started_at"]))
+        return
+    complete = next((event for event in reversed(events) if "finished_at" in event), None)
+    if complete is None:
+        typer.echo(t("msg.schedule.no_runs"))
+        typer.echo(t("msg.schedule.runs_tracking_hint"))
+        return
+    typer.echo(
+        t(
+            "msg.schedule.last_run",
+            finished=complete["finished_at"],
+            code=complete["exit_code"],
+            seconds=complete["seconds"],
+        )
+    )

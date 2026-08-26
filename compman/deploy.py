@@ -15,6 +15,7 @@ from compman.archive_source import has_archive_suffix
 from compman.config import SHA256_PATTERN, Config, ConfigError, load_config, sanitize_project_name
 from compman.docker import ContainerRuntime, detect_runtime
 from compman.errors import CommandError
+from compman.history import append as append_history
 from compman.http_source import fetch as _fetch_http
 from compman.i18n import t
 from compman.ops.common import ensure_runtime_ready
@@ -166,6 +167,18 @@ def deploy(
                 record_stack(config.name, str(config.root_dir))
             except Exception as e:
                 # Registry bookkeeping is best-effort: warn and keep the
+                # successful deploy result intact.
+                typer.echo(t("msg.command_failed", error=e), err=True)
+            try:
+                append_history(
+                    "deploy",
+                    stack=config.name,
+                    source=s3_path,
+                    tag=tag or None,
+                    built=build,
+                )
+            except Exception as e:
+                # Journal bookkeeping is best-effort: warn and keep the
                 # successful deploy result intact.
                 typer.echo(t("msg.command_failed", error=e), err=True)
     except CommandError:

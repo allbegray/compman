@@ -3,6 +3,22 @@
 Major user-visible changes to compman are recorded here, with the newest release
 first.
 
+## [1.11.0] - 2026-08-26
+
+### Added
+
+- `schedule status NAME`: shows whether the platform entry is registered and
+  the last recorded run (finish time, exit code, duration). New jobs record
+  each run to `<registry>/runs/<name>.jsonl`; jobs added before this release
+  show a hint to remove/re-add for tracking.
+- `--monthly DD HH:MM` cadence for scheduled backups across cron, launchd,
+  systemd, and schtasks.
+- `compman history [--limit N] [--json]`: append-only journal of deploys,
+  rollbacks, and volume/image backup & restore events with timestamps and
+  exit codes; recording is best-effort and never fails the operation.
+- `stack logs [SERVICE...] [-f] [--tail N]`: aggregated compose logs for the
+  whole stack or a service subset.
+
 ## [1.10.1] - 2026-08-26
 
 ### Changed

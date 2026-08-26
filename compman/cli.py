@@ -281,6 +281,12 @@ def rollback_cmd() -> None:
 
     timestamp = restore_rollback(pathlib.Path.cwd())
     typer.echo(t("msg.rollback_done", time=timestamp))
+    try:
+        from compman.history import append as _journal
+
+        _journal("rollback", restored=timestamp)
+    except OSError as exc:
+        typer.echo(t("msg.command_failed", error=exc), err=True)
 
 
 def _existing_stack_image(cfg) -> tuple[str | None, list[str]]:
@@ -504,6 +510,30 @@ def lang_cmd(
     typer.echo("  Bash/Zsh   : export COMPMAN_LANG=ko")
 
 
+# ---- history ----
+@app.command("history", help=t("cmd.history.help"))
+def history_cmd(
+    limit: Annotated[int, typer.Option("--limit", help=t("opt.history_limit"))] = 20,
+    json_output: Annotated[bool, typer.Option("--json", help=t("opt.json"))] = False,
+) -> None:
+    from compman import history
+
+    if json_output:
+        typer.echo(json.dumps(history.envelope(limit)))
+        return
+    entries = history.entries(limit)
+    if not entries:
+        typer.echo(t("msg.history_empty"))
+        return
+    typer.echo(t("msg.history_header", count=len(entries)))
+    for entry in entries:
+        action = str(entry.get("action", "?"))
+        fields = ", ".join(
+            f"{key}={entry[key]}" for key in sorted(entry) if key not in ("ts", "action")
+        )
+        typer.echo(f"{entry.get('ts', '?')}  {action:<8}  {fields}")
+
+
 # ---- version ----
 @app.command("version", help=t("cmd.version"))
 def version_cmd() -> None:
@@ -548,6 +578,20 @@ def stack_update(
 ) -> None:
     ctx = _load(config)
     _stack_ops().update(ctx["runtime"], ctx["config"], profile, wait=wait)
+
+
+@stack_app.command("logs", help=t("cmd.stack.logs.help"))
+def stack_logs(
+    services: Annotated[list[str], typer.Argument(help=t("opt.log_services"))] = [],
+    follow: Annotated[bool, typer.Option("--follow", "-f", help=t("opt.follow"))] = False,
+    tail: Annotated[int | None, typer.Option("--tail", "-n", help=t("opt.tail"))] = None,
+    profile: ProfileOpt = None,
+    config: ConfigOpt = None,
+) -> None:
+    ctx = _load(config)
+    _stack_ops().logs(
+        ctx["runtime"], ctx["config"], tuple(services), follow=follow, tail=tail, profile=profile
+    )
 
 
 app.add_typer(stack_app, name="stack")
@@ -730,6 +774,7 @@ def schedule_add(
     every: Annotated[str | None, typer.Option("--every", help=t("opt.every"))] = None,
     daily: Annotated[str | None, typer.Option("--daily", help=t("opt.daily"))] = None,
     weekly: Annotated[str | None, typer.Option("--weekly", help=t("opt.weekly"))] = None,
+    monthly: Annotated[tuple[str, str] | None, typer.Option("--monthly", help=t("opt.monthly"))] = None,
     no_stop: Annotated[bool, typer.Option("--no-stop", help=t("opt.no_stop"))] = False,
     level: Annotated[int, typer.Option("-z", "--level", min=1, max=9, help=t("opt.compression_level"))] = 6,
     profile: ProfileOpt = None,
@@ -745,6 +790,7 @@ def schedule_add(
         every=every,
         daily=daily,
         weekly=weekly,
+        monthly=" ".join(monthly) if monthly else None,
         no_stop=no_stop,
         level=level,
         profile=profile,
@@ -765,6 +811,23 @@ def schedule_remove(
     name: Annotated[str, typer.Argument()],
 ) -> None:
     _schedule_ops().remove_schedule(name)
+
+
+@schedule_app.command("status", help=t("cmd.schedule.status.help"))
+def schedule_status(
+    name: Annotated[str, typer.Argument()],
+) -> None:
+    _schedule_ops().show_status(name)
+
+
+@schedule_app.command(
+    "_exec",
+    hidden=True,
+    context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+)
+def schedule_exec(ctx: typer.Context) -> None:
+    """Internal entrypoint the scheduler invokes; tracks the run and exits with its rc."""
+    _schedule_ops().run_tracked_job(ctx.args[0], list(ctx.args[1:]))
 
 
 app.add_typer(schedule_app, name="schedule")

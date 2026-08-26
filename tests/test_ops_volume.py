@@ -4,6 +4,7 @@ import json
 import pathlib
 import sys
 import tarfile
+from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -11,6 +12,7 @@ from botocore.exceptions import ClientError
 from conftest import write_config
 from test_backup_store import FakeS3, _patch_stage, _stage
 
+from compman import history
 from compman.backup_store import S3BackupStore, local_root
 from compman.config import Config, Profile
 from compman.errors import CommandError
@@ -596,3 +598,67 @@ def test_volume_pull_replaces_existing_volume_directory(dummy_runtime, temp_dir:
     assert not (cfg.volume_dir / "stale.txt").exists()
     assert (cfg.volume_dir / "volume-map.json").exists()
 
+
+
+# ---- activity journal hooks ----
+
+
+@contextmanager
+def _journal_root(tmp_path: pathlib.Path):
+    root = tmp_path / "journal"
+    with patch("compman.history.registry_dir", return_value=root):
+        yield root
+
+
+def test_volume_backup_records_journal_entry(
+    dummy_runtime, temp_dir: pathlib.Path, tmp_path: pathlib.Path
+):
+    cfg = Config(name="my_stack", profiles={"default": Profile(file="docker-compose.yml")})
+    with _journal_root(tmp_path):
+        with patch("compman.ops.volume._inspect_mount", return_value={"container": "c1", "volume": "vol1", "destination": "/data"}):
+            volume.backup(dummy_runtime, cfg)
+        (entry,) = history.entries()
+    assert entry["kind"] == "volume"
+    assert entry["stack"] == "my_stack"
+    assert entry["archive"].startswith("my_stack.volume.")
+    assert entry["archive"].endswith(".tar.gz")
+
+
+def test_volume_restore_records_journal_entry(
+    dummy_runtime, temp_dir: pathlib.Path, tmp_path: pathlib.Path
+):
+    cfg = Config(name="my_stack", profiles={"default": Profile(file="docker-compose.yml")})
+    backup_dir = local_root(cfg.backup_store)
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    backup_file = backup_dir / "my_stack.volume.20260731_1200.tar.gz"
+    map_file = temp_dir / "volume-map.json"
+    map_file.write_text('{"container1": {"volume": "vol1", "destination": "/data"}}', encoding="utf-8")
+    with tarfile.open(backup_file, "w:gz") as tar:
+        tar.add(map_file, arcname="volume-map.json")
+
+    with _journal_root(tmp_path):
+        with patch("compman.ops.volume._inspect_mount", return_value={"container": "c1", "volume": "vol1", "destination": "/data"}):
+            volume.restore(dummy_runtime, cfg, timestamp="20260731_1200", no_stop=True)
+        (entry,) = history.entries()
+    assert entry == {
+        **entry,
+        "action": "restore",
+        "kind": "volume",
+        "stack": "my_stack",
+        "timestamp": "20260731_1200",
+    }
+
+
+def test_volume_backup_journal_failure_keeps_backup_successful(
+    dummy_runtime, temp_dir: pathlib.Path, capsys
+):
+    cfg = Config(name="my_stack", profiles={"default": Profile(file="docker-compose.yml")})
+    with patch(
+        "compman.ops.volume.append_journal", side_effect=OSError("Is a directory")
+    ), patch(
+        "compman.ops.volume._inspect_mount", return_value={"container": "c1", "volume": "vol1", "destination": "/data"}
+    ):
+        volume.backup(dummy_runtime, cfg)
+    captured = capsys.readouterr()
+    assert "Is a directory" in captured.err
+    assert list(local_root(cfg.backup_store).glob("my_stack.volume.*.tar.gz"))

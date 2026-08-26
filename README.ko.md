@@ -326,6 +326,7 @@ compman completion [powershell|bash|zsh|fish] --install
 compman stack up [PROFILE] [-c|--config PATH] [--stack NAME]
 compman stack update [PROFILE] [-c|--config PATH] [--stack NAME]
 compman stack down [--profile PROFILE] [-c|--config PATH] --yes [--stack NAME]
+compman stack logs [SERVICE...] [-f] [--tail N] [--profile PROFILE] [-c|--config PATH] [--stack NAME]
 
 compman service start [SERVICE...] [--profile PROFILE] [-c|--config PATH] [--stack NAME]
 compman service stop [SERVICE...] [--profile PROFILE] [-c|--config PATH] [--stack NAME]
@@ -342,12 +343,14 @@ compman volume push [--replace] [--profile PROFILE] [-c|--config PATH] [--stack 
 compman image backup [-z LEVEL] [--zstd] [--source-image] [--profile PROFILE] [-c|--config PATH] [--stack NAME]
 compman image restore [TIMESTAMP] [--profile PROFILE] [-c|--config PATH] [--stack NAME]
 
-compman schedule add [--every N | --daily HH:MM | --weekly DAY HH:MM] [--no-stop] [-z LEVEL] [--profile PROFILE] [--name TEXT] [--scheduler systemd|cron] [-c|--config PATH]
+compman schedule add [--every N | --daily HH:MM | --weekly DAY HH:MM | --monthly DD HH:MM] [--no-stop] [-z LEVEL] [--profile PROFILE] [--name TEXT] [--scheduler systemd|cron] [-c|--config PATH]
 compman schedule list [--json]
+compman schedule status NAME
 compman schedule remove NAME
 
 compman stacks list [--json]
 compman stacks remove NAME
+compman history [--limit N] [--json]
 
 compman clear [--yes]
 ```
@@ -449,15 +452,19 @@ compman:
 compman schedule add --daily 04:30 --no-stop      # every day at 04:30 local time
 compman schedule add --every 30m                  # every 30 minutes
 compman schedule add --weekly sun 03:00 -z 9     # Sundays at 03:00, gzip level 9
+compman schedule add --monthly 1 05:00           # 1st of every month at 05:00
 compman schedule list [--json]
+compman schedule status my-stack.volume          # install state + last run outcome
 compman schedule remove my-stack.volume           # default job name: <project>.volume
 ```
 
-캐던스 옵션은 정확히 하나가 필요합니다: `--every Nm|Nh`, `--daily HH:MM`, 또는 `--weekly <day> HH:MM`(요일 이름은 `sun`..`sat`, 대소문자 무관; 모든 시각은 로컬). pass-through 플래그는 `volume backup`을 따릅니다: `--no-stop`, `-z LEVEL`, `--profile`. 작업은 래퍼 스크립트 없이 `[compman, -c <config>, volume backup, ...]`를 직접 실행하고, 출력을 스케줄 레지스트리 옆의 `schedule.log`에 append합니다(`APPDATA` 환경 변수가 설정되어 있으면 — Windows에서는 항상 설정됨 — `%APPDATA%\compman\schedule.log`, 없으면 `~/.config/compman/schedule.log`). Linux systemd timer에서는 출력이 journald로 갑니다(`journalctl --user -u compman-<name>.service`).
+캐던스 옵션은 정확히 하나가 필요합니다: `--every Nm|Nh`, `--daily HH:MM`, `--weekly <day> HH:MM`, 또는 `--monthly <day 1-31> HH:MM`(요일 이름은 `sun`..`sat`, 대소문자 무관; 모든 시각은 로컬). pass-through 플래그는 `volume backup`을 따릅니다: `--no-stop`, `-z LEVEL`, `--profile`. 작업은 얇은 내부 래퍼 — `[compman, schedule _exec, <job>, volume backup, -c <config>, ...]` — 를 통해 실행되고, 출력을 스케줄 레지스트리 옆의 `schedule.log`에 append합니다(`APPDATA` 환경 변수가 설정되어 있으면 — Windows에서는 항상 설정됨 — `%APPDATA%\compman\schedule.log`, 없으면 `~/.config/compman/schedule.log`). Linux systemd timer에서는 출력이 journald로 갑니다(`journalctl --user -u compman-<name>.service`).
 
 스케줄러 메커니즘은 자동으로 고릅니다: macOS는 launchd, Windows는 schtasks, Linux는 `systemctl --user show-environment`가 성공하면 systemd user timer, 아니면 crontab입니다. Linux 메커니즘은 `--scheduler systemd|cron`으로 강제할 수 있습니다. cron은 모든 간격을 표현할 수 없습니다: `--every` 값은 60분을 나눠떨어지거나 정수 시간이어야 하며, 그렇지 않으면 등록이 실패하고 `--scheduler systemd`를 제안합니다.
 
 같은 디렉터리의 `schedules.json` 레지스트리 파일(`APPDATA`가 설정되어 있으면 `%APPDATA%\compman`, 없으면 `~/.config/compman`)이 source of truth입니다. `schedule list`는 각 플랫폼 아티팩트를 probe하고 drift된 항목에 `[missing]`을 표시합니다. `schedule remove`는 플랫폼 아티팩트가 이미 사라졌어도 레지스트리 항목을 삭제합니다.
+
+`schedule status NAME`은 플랫폼 아티팩트를 실시간으로 probe하여(등록됨 또는 `MISSING`) 마지막 실행 결과 — 종료 시각, exit 코드, 소요 시간 — 를 표시합니다. 이번 릴리스부터 추가된 작업은 내부 `schedule _exec` 래퍼를 통해 실행되며, 실행마다 시작/종료 기록을 레지스트리 옆의 `runs/<name>.jsonl`에 append합니다. 이번 업그레이드 이전에 등록된 작업은 기존 명령줄을 그대로 사용하며 아직 실행 기록이 없습니다. status는 이를 안내하고 추적을 활성화하려면 작업을 제거 후 다시 추가하라고 알려줍니다.
 
 이 기능에 의존하기 전에 알아야 할 플랫폼 제약:
 

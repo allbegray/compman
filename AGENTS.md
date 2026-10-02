@@ -26,6 +26,7 @@ compman/               # Python package
   s3_source.py         # S3 prefix/archive download
   env_source.py        # AWS Secrets Manager resolution + ${secrets:NAME} interpolation
   scaffold.py          # deploy-time compman/compose generation
+  version.py           # package version lookup (shared by `version` and notify)
   errors.py            # CommandError / ConfigError exception hierarchy
   i18n.py              # en/ko TRANSLATIONS dict + t(); language via ContextVar/COMPMAN_LANG
   __main__.py          # python -m compman shim
@@ -41,7 +42,7 @@ compman/               # Python package
     pick.py            # pick_scheduler platform/mechanism selection
 tests/                 # pytest unit/regression suite (1:1 module mirror, 100% branch coverage)
 examples/compman-config/  # case-by-case compman.yml examples
-docs/site/             # dependency-free GitHub Pages homepage
+docs/site/             # dependency-free GitHub Pages homepage + SEO assets (og-image.png, robots.txt, sitemap.xml, 404.html, favicon.svg)
 docker-init/           # Ministack S3 seed bundle for integration/E2E
 scratch/               # throwaway experiment projects (not production code)
 .github/workflows/     # ci.yml, pages.yml, publish.yml, release-tag.yml
@@ -69,6 +70,7 @@ SOLUTION.md            # dev/test/debug lessons (read before touching runtime/CL
 | Deploy sources (S3/HTTP/archive) | `compman/deploy.py` + `{s3,http,archive,archive_source}_source.py` |
 | Slack webhook config + delivery | `compman/notify.py` + `notify:` block in `compman/config.py` |
 | Named-volume mounts from compose files | `compman/compose_spec.py` |
+| Homepage SEO contract (titles, JSON-LD, crawl files) | `tests/test_site_seo.py` |
 | All user-facing strings / language | `compman/i18n.py` (`t()`, `TRANSLATIONS`) |
 | Exception types | `compman/errors.py` |
 | Interactive selection / backup timestamps | `compman/ops/common.py` |
@@ -266,8 +268,24 @@ that for compman). Rules:
   its Korean mirror kept in sync by the command-block validation test
   (`test_readme_ko_command_list_matches_registered_command_tree`); prose changes to
   either file must be mirrored in the other.
+- **The GitHub Pages homepage stays English-only and dependency-free.** No Korean
+  text (enforced by the hangul policy) and no executable JavaScript — the only
+  permitted `<script>` is `type="application/ld+json"`. Assets use absolute
+  `/compman/...` paths because GitHub serves `404.html` at the requested URL,
+  where a relative href would miss. SEO invariants (title and description length
+  bands, single `h1`, non-skipping heading levels, resolvable anchors,
+  `softwareVersion` matching `pyproject.toml`, FAQ answers matching the visible
+  page) are pinned by `tests/test_site_seo.py`.
 
 ## Execution Log
+
+- **2026-10-02** — Homepage SEO pass for the Pages site: keyword-led title and
+  description, canonical, robots/OG/Twitter tags with a hand-generated 1200x630
+  PNG share card, `SoftwareApplication` + `FAQPage` JSON-LD, `robots.txt`,
+  `sitemap.xml`, `favicon.svg`, a real 404 page, and task-oriented Use cases /
+  Install sections. Fixed a pre-existing mobile horizontal-overflow bug (grid
+  children default to `min-width: auto`) and corrected the page's stale
+  "Python 3.10+" claim. `tests/test_site_seo.py` pins all of it.
 
 - **2026-10-02** — Shipped Slack stack-start notifications in v1.12.0. Added
   `compman/notify.py` (webhook resolution, Block Kit message, best-effort

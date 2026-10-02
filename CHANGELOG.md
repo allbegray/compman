@@ -3,6 +3,32 @@
 Major user-visible changes to compman are recorded here, with the newest release
 first.
 
+## [Unreleased]
+
+### Changed
+
+- Homepage search-engine optimization for the GitHub Pages site: keyword-led
+  title and meta description, a canonical URL, `robots` directives with large
+  image previews, Open Graph and Twitter Card tags with a generated 1200x630
+  share image, and `SoftwareApplication` + `FAQPage` JSON-LD. Crawl discovery
+  via a new `robots.txt` and `sitemap.xml`, a `favicon.svg`, and a real 404
+  page.
+- Added task-oriented "Use cases" and "Install" sections targeting the
+  long-tail queries a product page rarely ranks for, expanded the FAQ to nine
+  entries including when *not* to use compman, and labelled every section for
+  assistive technology.
+
+### Fixed
+
+- The homepage no longer scrolls horizontally on narrow screens. Grid children
+  default to `min-width: auto`, so a single long `<pre>` line in the quick-start
+  code panel was widening the whole grid track to ~615px inside a 375px
+  viewport.
+- The homepage claimed "Python 3.10+" while the package has required 3.12 since
+  before 1.0; it now states the real minimum and is enforced by a test.
+- Site assets use absolute `/compman/...` paths so the stylesheet and icon still
+  resolve from GitHub's 404 page, which is served at the requested URL.
+
 ## [1.12.0] - 2026-10-02
 
 ### Added

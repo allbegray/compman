@@ -3,10 +3,131 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="compman is a lightweight CLI for Docker and Podman Compose stacks, backups, diagnostics, and deployments.">
+
+  <title>compman — Docker Compose Stack Manager: Backup, Deploy, Monitor</title>
+  <meta name="description" content="Lightweight Docker Compose and Podman CLI: back up and restore volumes and images, schedule backups, deploy from S3 or HTTPS, check JSON health, and notify Slack.">
+  <meta name="author" content="allbegray">
+  <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1">
+  <link rel="canonical" href="https://allbegray.github.io/compman/">
   <meta name="theme-color" content="#090e1a">
-  <title>compman — Docker Compose, kept manageable</title>
-  <link rel="stylesheet" href="styles.css">
+
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="compman">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:url" content="https://allbegray.github.io/compman/">
+  <meta property="og:title" content="compman — Docker Compose Stack Manager">
+  <meta property="og:description" content="A lightweight CLI that starts stacks, backs up volumes and images, schedules backups, deploys releases, reports JSON health, and posts to Slack. No daemon, no web UI.">
+  <meta property="og:image" content="https://allbegray.github.io/compman/og-image.png">
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="compman — Docker Compose stack manager for backup, deploy, schedule, and notify">
+
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="compman — Docker Compose Stack Manager">
+  <meta name="twitter:description" content="Start stacks, back up volumes and images, schedule backups, deploy from S3 or HTTPS, check JSON health, and notify Slack. No daemon, no web UI.">
+  <meta name="twitter:image" content="https://allbegray.github.io/compman/og-image.png">
+  <meta name="twitter:image:alt" content="compman — Docker Compose stack manager for backup, deploy, schedule, and notify">
+
+  <link rel="icon" href="/compman/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/compman/og-image.png">
+  <link rel="stylesheet" href="/compman/styles.css">
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "SoftwareApplication",
+        "@id": "https://allbegray.github.io/compman/#app",
+        "name": "compman",
+        "alternateName": "compman CLI",
+        "description": "Lightweight command-line manager for Docker Compose and Podman Compose stacks: start and update stacks, back up and restore volumes and container images, schedule unattended backups, deploy releases from S3 or HTTPS archives, report health as human-readable text or JSON, and post Slack notifications when a stack comes up.",
+        "url": "https://allbegray.github.io/compman/",
+        "downloadUrl": "https://pypi.org/project/compman/",
+        "installUrl": "https://pypi.org/project/compman/",
+        "softwareVersion": "1.12.0",
+        "applicationCategory": "DeveloperApplication",
+        "applicationSubCategory": "Container and Compose Management",
+        "operatingSystem": "Linux, macOS, Windows",
+        "programmingLanguage": { "@type": "ComputerLanguage", "name": "Python" },
+        "runtimePlatform": "Python 3.12 or later",
+        "license": "https://opensource.org/licenses/MIT",
+        "codeRepository": "https://github.com/allbegray/compman",
+        "issueTracker": "https://github.com/allbegray/compman/issues",
+        "releaseNotes": "https://github.com/allbegray/compman/blob/main/CHANGELOG.md",
+        "author": { "@type": "Organization", "name": "allbegray", "url": "https://github.com/allbegray" },
+        "maintainer": { "@type": "Organization", "name": "allbegray", "url": "https://github.com/allbegray" },
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+        "isAccessibleForFree": true,
+        "keywords": "docker compose manager, docker compose cli, podman compose, docker volume backup, docker compose deploy, docker health check, cron docker backup, slack notification docker, self-hosted docker management, docker image backup",
+        "featureList": [
+          "Start, stop, and update Compose stacks",
+          "Back up and restore named volumes and container images",
+          "gzip and Zstandard archive compression with per-stack retention",
+          "Local, S3-compatible, and SSH remote backup storage",
+          "Unattended scheduled backups via launchd, systemd, cron, and schtasks",
+          "Deploy from an S3 prefix or HTTPS archive with SHA-256 pinning",
+          "Stack health as readable text or JSON for CI pipelines",
+          "Docker and Podman auto-detection",
+          "Bilingual English and Korean interface",
+          "Slack notifications when a stack starts"
+        ]
+      },
+      {
+        "@type": "FAQPage",
+        "@id": "https://allbegray.github.io/compman/#faq",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "Does compman work with Docker only?",
+            "acceptedAnswer": { "@type": "Answer", "text": "No. compman auto-detects Docker Compose, Podman Compose, podman-compose, and the legacy docker-compose command, and you can force a runtime with CONTAINER_RUNTIME=podman." }
+          },
+          {
+            "@type": "Question",
+            "name": "Where is compman configuration stored?",
+            "acceptedAnswer": { "@type": "Answer", "text": "In a project-local compman.yml file that describes the stack name, Compose files and profiles, managed directories, backup location, and an optional deploy source. Managed paths can never escape the directory that contains it." }
+          },
+          {
+            "@type": "Question",
+            "name": "How does compman handle secrets?",
+            "acceptedAnswer": { "@type": "Answer", "text": "Compose variables are declared as ${secrets:NAME} markers and resolved at command time from AWS Secrets Manager, so secret values never live in compman.yml. Deploy tokens and Slack webhook URLs are read from named environment variables for the same reason." }
+          },
+          {
+            "@type": "Question",
+            "name": "Is archive deployment safe?",
+            "acceptedAnswer": { "@type": "Answer", "text": "Archive extraction rejects absolute paths, path traversal, and links. Managed-tree replacement rolls back if the file swap fails, and an optional SHA-256 pin verifies the download before extraction, build, or any change to your project." }
+          },
+          {
+            "@type": "Question",
+            "name": "Does compman run a daemon or web server?",
+            "acceptedAnswer": { "@type": "Answer", "text": "No. compman is an on-demand CLI that delegates container operations to the detected local runtime, so there is no background service to install, secure, or keep running." }
+          },
+          {
+            "@type": "Question",
+            "name": "Can I back up Docker volumes on a schedule?",
+            "acceptedAnswer": { "@type": "Answer", "text": "Yes. compman schedule add registers an unattended volume backup job with the platform scheduler: launchd on macOS, schtasks on Windows, and a systemd user timer or crontab on Linux, with hourly, daily, weekly, or monthly cadences." }
+          },
+          {
+            "@type": "Question",
+            "name": "Can I get notified when a deployment finishes?",
+            "acceptedAnswer": { "@type": "Answer", "text": "Yes. Set COMPMAN_SLACK_WEBHOOK_URL or add a notify.slack block to compman.yml and stack up, stack update, and compman update post a Slack message with the stack, runtime, host, duration, unhealthy services, and named-volume sizes. A failed notification warns but never fails the command." }
+          },
+          {
+            "@type": "Question",
+            "name": "Which Python version and operating systems are supported?",
+            "acceptedAnswer": { "@type": "Answer", "text": "Python 3.12, 3.13, and 3.14 on Linux, macOS, and Windows. The --zstd backup format requires Python 3.14, which ships the standard-library compression.zstd module." }
+          },
+          {
+            "@type": "Question",
+            "name": "When is compman the wrong tool?",
+            "acceptedAnswer": { "@type": "Answer", "text": "compman has no web UI, no multi-host orchestration, no image registry, and no container metrics history. If you need a browser-based management console, scheduling across several hosts, or a built-in registry, a full platform fits better. compman is built for one host, driven from a terminal or a script." }
+          }
+        ]
+      }
+    ]
+  }
+  </script>
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
@@ -15,9 +136,10 @@
       <a class="brand" href="#top"><span aria-hidden="true">◆</span> compman</a>
       <div class="nav-links">
         <a href="#features">Features</a>
+        <a href="#use-cases">Use cases</a>
         <a href="#quick-start">Quick start</a>
         <a href="#commands">Commands</a>
-        <a href="#deploy">Deploy</a>
+        <a href="#install">Install</a>
         <a href="#faq">FAQ</a>
         <a class="nav-github" href="https://github.com/allbegray/compman">GitHub</a>
       </div>
@@ -27,16 +149,16 @@
   <main id="main">
     <section class="hero shell" id="top">
       <div class="hero-copy">
-        <p class="eyebrow">Lightweight Compose operations</p>
+        <p class="eyebrow">Docker Compose stack manager</p>
         <h1>Docker Compose,<br><span>kept manageable.</span></h1>
-        <p class="hero-lead">Control stacks, inspect services, protect data, and deploy releases without installing a heavyweight management platform.</p>
+        <p class="hero-lead">compman is a lightweight CLI that starts and updates Compose stacks, backs up volumes and container images, schedules unattended backups, deploys releases from S3 or HTTPS, reports health as JSON, and posts to Slack. No daemon, no web UI, no platform to maintain.</p>
         <div class="hero-actions">
           <a class="button primary" href="#quick-start">Get started</a>
           <a class="button secondary" href="https://github.com/allbegray/compman#readme">Read the docs</a>
         </div>
-        <p class="compatibility">Python 3.10+ · Docker or Podman · Linux, macOS, Windows</p>
+        <p class="compatibility">Python 3.12+ · Docker or Podman · Linux, macOS, Windows · MIT license</p>
       </div>
-      <div class="terminal" aria-label="Example compman commands">
+      <div class="terminal" aria-label="Example compman terminal session">
         <div class="terminal-bar"><i></i><i></i><i></i><span>operator@host</span></div>
         <pre><code><b>$</b> compman status
 Stack <em>payments</em> is healthy
@@ -59,26 +181,70 @@ Deploy completed</code></pre>
       </div>
     </section>
 
-    <section class="section shell" id="features">
+    <section class="section shell" id="features" aria-labelledby="features-heading">
       <div class="section-heading">
         <p class="eyebrow">One focused tool</p>
-        <h2>Common operations without the command archaeology.</h2>
+        <h2 id="features-heading">Common Docker Compose operations without the command archaeology.</h2>
       </div>
       <div class="feature-grid">
         <article class="card"><span class="card-icon">01</span><h3>Stack &amp; services</h3><p>Start, stop, update, inspect, connect to, and follow logs from Compose services.</p></article>
         <article class="card"><span class="card-icon">02</span><h3>Safe backups</h3><p>Back up and restore named volumes or container images with configurable gzip or Zstandard compression. Point <code>dirs.backup</code> at an S3 URI to store archives in the cloud, schedule unattended backups, and rely on retention to keep the newest N per stack. Endpoint overrides make Ministack and LocalStack work.</p></article>
-        <article class="card"><span class="card-icon">03</span><h3>Useful diagnostics</h3><p>Get human-readable or JSON health reports with <code>status</code> and <code>doctor</code>.</p></article>
+        <article class="card"><span class="card-icon">03</span><h3>Useful diagnostics</h3><p>Get human-readable or JSON health reports with <code>status</code> and <code>doctor</code>, stable enough to gate a pipeline.</p></article>
         <article class="card"><span class="card-icon">04</span><h3>Simple deployments</h3><p>Fetch an S3 prefix or archive, or an authenticated HTTPS archive, then optionally build and recreate. A SHA-256 pin verifies the artifact before anything changes.</p></article>
         <article class="card"><span class="card-icon">05</span><h3>Secret-safe config</h3><p>Inject environment variables from AWS Secrets Manager instead of hardcoding secrets in <code>compman.yml</code>.</p></article>
-        <article class="card"><span class="card-icon">06</span><h3>Scheduled backups</h3><p>Register platform-native jobs (launchd, systemd, cron, schtasks) that run volume backups on a cadence you choose &mdash; hourly, daily, weekly.</p></article>
+        <article class="card"><span class="card-icon">06</span><h3>Scheduled backups</h3><p>Register platform-native jobs (launchd, systemd, cron, schtasks) that run volume backups on a cadence you choose &mdash; hourly, daily, weekly, or monthly.</p></article>
+        <article class="card"><span class="card-icon">07</span><h3>Slack notifications</h3><p>Post a message when a stack comes up, with the host, runtime, elapsed time, unhealthy services, and named-volume sizes. Delivery never fails the command.</p></article>
+        <article class="card"><span class="card-icon">08</span><h3>Multi-stack registry</h3><p>Remember deployed stacks and run any command against them from any directory with <code>--stack NAME</code>.</p></article>
       </div>
     </section>
 
-    <section class="section quick-start" id="quick-start">
+    <section class="section use-case-section" id="use-cases" aria-labelledby="use-cases-heading">
+      <div class="shell">
+        <div class="section-heading">
+          <p class="eyebrow">Use cases</p>
+          <h2 id="use-cases-heading">The jobs people actually install a Compose manager for.</h2>
+          <p>Every item below is a concrete task, not a feature label.</p>
+        </div>
+        <div class="usecase-grid">
+          <article>
+            <h3>Back up a Docker volume</h3>
+            <p>Snapshot a named volume to a timestamped <code>.tar.gz</code> (or <code>.tar.zst</code>) archive, then restore it onto another host or into a fresh stack. The stack is paused during the transfer unless you opt out.</p>
+            <p class="usecase-cmd"><code>compman volume backup</code> · <code>compman volume restore</code></p>
+          </article>
+          <article>
+            <h3>Check whether the stack is healthy</h3>
+            <p>Get per-service state and health as readable text or as versioned JSON. <code>status</code> exits non-zero when the stack is missing, which makes it usable as a CI or monitoring gate.</p>
+            <p class="usecase-cmd"><code>compman status --json</code> · <code>compman doctor --json</code></p>
+          </article>
+          <article>
+            <h3>Deploy a release archive</h3>
+            <p>Point a stack at an S3 prefix or an HTTPS archive and let <code>deploy</code> or <code>update</code> fetch it, verify it, build, swap the managed tree, and recreate. Roll back to the previous release in one command.</p>
+            <p class="usecase-cmd"><code>compman deploy --build</code> · <code>compman rollback</code></p>
+          </article>
+          <article>
+            <h3>Back up every night on a server</h3>
+            <p>Register a volume backup with the platform scheduler so it runs unattended. Works the same on macOS launchd, Windows schtasks, and Linux systemd timers or cron, and writes run records you can inspect later.</p>
+            <p class="usecase-cmd"><code>compman schedule add --daily 04:30</code> · <code>compman schedule status</code></p>
+          </article>
+          <article>
+            <h3>Know when a deploy finished</h3>
+            <p>Send a Slack message the moment <code>stack up</code> or <code>stack update</code> brings a stack up, listing any unhealthy service and the size of each named volume. Useful on a headless host where nobody is watching the terminal.</p>
+            <p class="usecase-cmd"><code>compman stack up</code> with <code>COMPMAN_SLACK_WEBHOOK_URL</code></p>
+          </article>
+          <article>
+            <h3>Keep a stack running without a server</h3>
+            <p>compman adds no daemon and opens no port. It calls the Docker or Podman CLI you already have, so it fits locked-down hosts, jump boxes, and air-gapped networks where a management platform cannot be installed.</p>
+            <p class="usecase-cmd"><code>compman stack up --wait</code> · <code>compman ps</code> · <code>compman stats -f</code></p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section quick-start" id="quick-start" aria-labelledby="quick-start-heading">
       <div class="shell split-section">
         <div>
           <p class="eyebrow">Quick start</p>
-          <h2>From Compose file to managed stack.</h2>
+          <h2 id="quick-start-heading">From Compose file to managed stack.</h2>
           <p>Install compman as an isolated tool, create a starting configuration, and bring the project up.</p>
           <a class="text-link" href="https://github.com/allbegray/compman#configuration">Explore configuration →</a>
         </div>
@@ -96,25 +262,25 @@ compman stats -f</code></pre>
       </div>
     </section>
 
-    <section class="section shell" id="commands">
+    <section class="section shell" id="commands" aria-labelledby="commands-heading">
       <div class="section-heading">
         <p class="eyebrow">Command map</p>
-        <h2>Predictable commands, grouped by what you manage.</h2>
+        <h2 id="commands-heading">Predictable commands, grouped by what you manage.</h2>
       </div>
       <div class="command-grid">
-        <div><h3>Observe</h3><code>status</code><code>doctor</code><code>ps</code><code>stats -f</code><code>service status</code><code>service log</code></div>
-        <div><h3>Operate</h3><code>stack up</code><code>stack down</code><code>stack update</code><code>service connect</code></div>
-        <div><h3>Protect</h3><code>volume backup</code><code>volume restore</code><code>image backup</code><code>image restore</code></div>
-        <div><h3>Deliver</h3><code>deploy</code><code>update</code><code>init</code><code>completion</code></div>
+        <div><h3>Observe</h3><code>status</code><code>doctor</code><code>ps</code><code>stats -f</code><code>service status</code><code>service log</code><code>history</code></div>
+        <div><h3>Operate</h3><code>stack up</code><code>stack down</code><code>stack update</code><code>stack logs</code><code>service connect</code></div>
+        <div><h3>Protect</h3><code>volume backup</code><code>volume restore</code><code>volume pull</code><code>image backup</code><code>image restore</code></div>
+        <div><h3>Deliver</h3><code>deploy</code><code>update</code><code>rollback</code><code>init</code><code>stacks list</code></div>
       </div>
       <p class="center"><a class="button secondary" href="https://github.com/allbegray/compman#commands">View the full command reference</a></p>
     </section>
 
-    <section class="section deploy-section" id="deploy">
+    <section class="section deploy-section" id="deploy" aria-labelledby="deploy-heading">
       <div class="shell">
         <div class="section-heading">
           <p class="eyebrow">Bring your own release source</p>
-          <h2>Deploy from S3 or authenticated HTTPS archives.</h2>
+          <h2 id="deploy-heading">Deploy from S3 or authenticated HTTPS archives.</h2>
           <p>S3 supports prefixes and archives. HTTP and HTTPS accept <code>.tar.gz</code>, <code>.tgz</code>, and <code>.zip</code> archives. Pin any source with a SHA-256 digest: the download is verified before extraction, build, and the managed-tree swap, so a mismatch aborts with nothing changed.</p>
         </div>
         <div class="deploy-grid">
@@ -128,14 +294,33 @@ compman stats -f</code></pre>
       </div>
     </section>
 
-    <section class="section shell" id="faq">
-      <div class="section-heading"><p class="eyebrow">FAQ</p><h2>Small tool, clear boundaries.</h2></div>
+    <section class="section shell install-section" id="install" aria-labelledby="install-heading">
+      <div class="section-heading">
+        <p class="eyebrow">Install</p>
+        <h2 id="install-heading">One command, isolated from your Python environment.</h2>
+        <p>compman is published on PyPI and installed as a self-contained tool, so it never touches your project dependencies.</p>
+      </div>
+      <div class="install-grid">
+        <article><h3>uv</h3><pre><code>uv tool install compman</code></pre><p>Recommended. Self-contained, and <code>compman upgrade</code> refreshes the stored install in place.</p></article>
+        <article><h3>pipx</h3><pre><code>pipx install compman</code></pre><p>Works the same way if pipx is already part of your tooling.</p></article>
+        <article><h3>One-line scripts</h3><pre><code>curl -fsSL .../install.sh | sh
+irm .../install.ps1 | iex</code></pre><p>Bundled installers for Linux, macOS, and Windows that place the CLI on your PATH.</p></article>
+        <article><h3>From source</h3><pre><code>uv tool install git+https://github.com/allbegray/compman.git</code></pre><p>Tracks the main branch instead of a release, for testing unreleased changes.</p></article>
+      </div>
+    </section>
+
+    <section class="section shell" id="faq" aria-labelledby="faq-heading">
+      <div class="section-heading"><p class="eyebrow">FAQ</p><h2 id="faq-heading">Small tool, clear boundaries.</h2></div>
       <div class="faq-grid">
-        <details><summary>Docker only?</summary><p>No. compman auto-detects Docker Compose, Podman Compose, legacy docker-compose, and podman-compose.</p></details>
-        <details><summary>Where is configuration stored?</summary><p>A project-local <code>compman.yml</code> describes the stack, Compose files, profiles, managed directories, and optional deploy source.</p></details>
-        <details><summary>How are secrets handled?</summary><p>compman can inject environment variables from AWS Secrets Manager at command time, so secrets never need to live in <code>compman.yml</code>.</p></details>
-        <details><summary>Are archive deployments safe?</summary><p>Archive extraction rejects absolute paths, traversal, and links. Managed-tree replacement rolls back if its file swap fails. An optional SHA-256 pin verifies the download before extraction, so a bad artifact never reaches your project.</p></details>
-        <details><summary>Is there a daemon or server?</summary><p>No. compman is an on-demand CLI that delegates container operations to the detected local runtime.</p></details>
+        <details><summary>Does compman work with Docker only?</summary><p>No. compman auto-detects Docker Compose, Podman Compose, podman-compose, and the legacy docker-compose command, and you can force a runtime with <code>CONTAINER_RUNTIME=podman</code>.</p></details>
+        <details><summary>Where is compman configuration stored?</summary><p>In a project-local <code>compman.yml</code> file that describes the stack name, Compose files and profiles, managed directories, backup location, and an optional deploy source. Managed paths can never escape the directory that contains it.</p></details>
+        <details><summary>How does compman handle secrets?</summary><p>Compose variables are declared as <code>${secrets:NAME}</code> markers and resolved at command time from AWS Secrets Manager, so secret values never live in <code>compman.yml</code>. Deploy tokens and Slack webhook URLs are read from named environment variables for the same reason.</p></details>
+        <details><summary>Is archive deployment safe?</summary><p>Archive extraction rejects absolute paths, path traversal, and links. Managed-tree replacement rolls back if the file swap fails, and an optional SHA-256 pin verifies the download before extraction, build, or any change to your project.</p></details>
+        <details><summary>Does compman run a daemon or web server?</summary><p>No. compman is an on-demand CLI that delegates container operations to the detected local runtime, so there is no background service to install, secure, or keep running.</p></details>
+        <details><summary>Can I back up Docker volumes on a schedule?</summary><p>Yes. <code>compman schedule add</code> registers an unattended volume backup job with the platform scheduler: launchd on macOS, schtasks on Windows, and a systemd user timer or crontab on Linux, with hourly, daily, weekly, or monthly cadences.</p></details>
+        <details><summary>Can I get notified when a deployment finishes?</summary><p>Yes. Set <code>COMPMAN_SLACK_WEBHOOK_URL</code> or add a <code>notify.slack</code> block to <code>compman.yml</code> and <code>stack up</code>, <code>stack update</code>, and <code>compman update</code> post a Slack message with the stack, runtime, host, duration, unhealthy services, and named-volume sizes. A failed notification warns but never fails the command.</p></details>
+        <details><summary>Which Python version and operating systems are supported?</summary><p>Python 3.12, 3.13, and 3.14 on Linux, macOS, and Windows. The <code>--zstd</code> backup format requires Python 3.14, which ships the standard-library <code>compression.zstd</code> module.</p></details>
+        <details><summary>When is compman the wrong tool?</summary><p>compman has no web UI, no multi-host orchestration, no image registry, and no container metrics history. If you need a browser-based management console, scheduling across several hosts, or a built-in registry, a full platform fits better. compman is built for one host, driven from a terminal or a script.</p></details>
       </div>
     </section>
   </main>
@@ -143,7 +328,7 @@ compman stats -f</code></pre>
   <footer class="footer">
     <div class="shell footer-inner">
       <p><strong>◆ compman</strong><br><span>Compose operations for constrained environments.</span></p>
-      <p><a href="https://github.com/allbegray/compman">Repository</a><a href="https://github.com/allbegray/compman/blob/main/CHANGELOG.md">Changelog</a><a href="https://github.com/allbegray/compman/blob/main/LICENSE">MIT License</a></p>
+      <p><a href="https://github.com/allbegray/compman">Repository</a><a href="https://github.com/allbegray/compman#readme">Documentation</a><a href="https://github.com/allbegray/compman/blob/main/CHANGELOG.md">Changelog</a><a href="https://github.com/allbegray/compman/issues">Issues</a><a href="https://pypi.org/project/compman/">PyPI</a><a href="https://github.com/allbegray/compman/blob/main/LICENSE">MIT License</a></p>
     </div>
   </footer>
 </body>

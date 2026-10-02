@@ -56,11 +56,15 @@ def test_github_pages_homepage_contract():
     for expected in (
         'name="viewport"',
         'name="description"',
-        'href="styles.css"',
+        # Absolute asset paths: GitHub Pages serves 404.html at the requested
+        # URL, so a relative href would miss the stylesheet on a bad path.
+        'href="/compman/styles.css"',
         'id="features"',
+        'id="use-cases"',
         'id="quick-start"',
         'id="commands"',
         'id="deploy"',
+        'id="install"',
         'id="faq"',
         "compman init --scaffold",
         "compman ps",
@@ -72,7 +76,9 @@ def test_github_pages_homepage_contract():
     ):
         assert expected in html
 
-    assert "<script" not in html
+    # Still dependency-free: the only script is inert structured data, so no
+    # JavaScript ever executes on the page.
+    assert set(re.findall(r"<script[^>]*>", html)) == {'<script type="application/ld+json">'}
     assert "http://" not in html
     assert "@media" in css
     assert ":focus-visible" in css

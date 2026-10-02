@@ -1,0 +1,14 @@
+# compman documentation site
+# https://allbegray.github.io/compman/
+#
+# Everything here is meant to be crawled and indexed: this is the landing
+# page for the compman Docker Compose stack manager.
+
+User-agent: *
+Allow: /
+
+# Nothing private is served from this origin, but keep AI crawlers off the
+# static asset paths so they spend their budget on the page itself.
+Disallow: /compman.schema.json
+
+Sitemap: https://allbegray.github.io/compman/sitemap.xml

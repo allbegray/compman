@@ -129,6 +129,23 @@ mistakes below. Companion files: `AGENTS.md` (operating rules for agents) and
   service lines; they read "3 of 3 healthy" and only need the names of the ones
   that are not. Same data, a fraction of the noise, and the failure case is where
   all the detail lands.
+- **SEO regressions are silent, so pin them with tests.** A renamed anchor, a
+  `softwareVersion` that drifts from `pyproject.toml`, a FAQ answer that no
+  longer matches the visible page, or a truncated meta description all ship
+  unnoticed in a static site. `tests/test_site_seo.py` asserts the title and
+  description length bands, one `<h1>`, non-skipping heading levels, resolvable
+  internal anchors, labelled sections, JSON-LD parseability, version agreement
+  with the package, and — because Google's structured-data policy requires it —
+  that every FAQPage question is actually visible on the page.
+- **Grid children default to `min-width: auto`.** One long `<pre>` line in a
+  grid cell widens the whole track past the viewport and the page starts
+  scrolling sideways on a phone, even though the `<pre>` itself has
+  `overflow-x: auto`. Set `min-width: 0` on any grid child that can hold code.
+- **Verify rendering under the real deployment path.** Switching asset hrefs to
+  absolute `/compman/...` is correct on GitHub Pages and silently 404s on a
+  local `http.server` rooted at `docs/site` — which looks like broken CSS and
+  hides real layout bugs. Serve a copy under the `/compman/` prefix and check
+  there.
 
 ## 4. Recurring real-device E2E procedure
 

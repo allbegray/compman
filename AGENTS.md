@@ -18,6 +18,8 @@ compman/               # Python package
   docker.py            # ContainerRuntime abstraction, compose file resolution, Docker Desktop readiness
   deploy.py            # source dispatch, managed-tree swap, optional image build
   diagnostics.py       # doctor/status report collection (schema v1)
+  notify.py            # Slack webhook resolution + best-effort stack-start delivery
+  compose_spec.py      # read-only compose introspection (named-volume mounts)
   archive.py           # path-safe tar/zip extraction
   archive_source.py    # shared archive recognition/extraction
   http_source.py       # public HTTP/HTTPS archive download
@@ -47,7 +49,7 @@ SOLUTION.md            # dev/test/debug lessons (read before touching runtime/CL
 ```
 
 - `compman init` provides an interactive 3-mode menu (1. Scaffold compman.yml, 2. S3 URL deploy, 3. Test seed project). Direct flags `--scaffold`, `--s3 <url>`, and `--seed` are also supported.
-- Current package version: `1.11.0`.
+- Current package version: `1.12.0`.
 - English is the default UI and documentation language. Korean remains supported through `--lang ko` or `COMPMAN_LANG=ko`; keep Korean text isolated to `i18n.py` TRANSLATIONS and their tests.
 - Build/running is `uv`-based (`pyproject.toml` has `[tool.uv] package = true`).
 - Python >=3.12; runtime deps: typer, PyYAML, boto3, botocore.
@@ -65,6 +67,8 @@ SOLUTION.md            # dev/test/debug lessons (read before touching runtime/CL
 | `doctor`/`status` JSON (schema v1) | `compman/diagnostics.py` |
 | `${secrets:NAME}` resolution | `compman/env_source.py` |
 | Deploy sources (S3/HTTP/archive) | `compman/deploy.py` + `{s3,http,archive,archive_source}_source.py` |
+| Slack webhook config + delivery | `compman/notify.py` + `notify:` block in `compman/config.py` |
+| Named-volume mounts from compose files | `compman/compose_spec.py` |
 | All user-facing strings / language | `compman/i18n.py` (`t()`, `TRANSLATIONS`) |
 | Exception types | `compman/errors.py` |
 | Interactive selection / backup timestamps | `compman/ops/common.py` |
@@ -115,6 +119,15 @@ compose:
   source size (enforced on the extracted tree; exceeding it aborts the deploy
   before any filesystem change). When configured, the deployed source and its
   byte size are echoed as provenance.
+- Optional top-level `notify: { slack: { webhook_env?, webhook? } }` turns on
+  Slack notifications for `stack up` / `stack update`. `webhook_env` names the
+  environment variable holding the Incoming Webhook URL (recommended, mirrors
+  `deploy.auth.value_env`); a literal `webhook` must be `https://`. Resolution
+  order is `webhook`, then `webhook_env`, then the global `COMPMAN_SLACK_WEBHOOK_URL`
+  when no `notify.slack` block exists. An unsupported `notify` key, a non-mapping
+  `slack`, or a `slack` block without either key is a `ConfigError`. Delivery is
+  best-effort: it never changes the exit status, and Slack returns HTTP 200 even
+  for revoked webhooks, so `notify.post` verifies the response body is `ok`.
 - `deploy` also accepts a mapping `{ url?, sha256?, auth?: { header, value_env } }`.
   `sha256` pins the artifact and is verified after download, before extraction/
   build/managed-tree swap; a mismatch aborts with exit 1 and nothing changes.
@@ -190,6 +203,7 @@ compose:
 - `compman schedule add|list|remove|status` registers unattended `volume backup` jobs with the platform scheduler: launchd on macOS, schtasks on Windows, systemd user timer (probe `systemctl --user show-environment`) else crontab on Linux; `--scheduler systemd|cron` forces the Linux mechanism only. Exactly one cadence option (`--every Nm|Nh`, `--daily HH:MM`, `--weekly <day> HH:MM`, `--monthly DD HH:MM`) is required; cron targets additionally require 60-divisible minutes or whole-hour intervals. Jobs added from 1.11.0 run wrapped as `[exe, schedule, _exec, <name>, volume, backup, -c <config>, ...flags]`; `_exec` records per-run start/finish lines to `<registry_dir>/runs/<name>.jsonl`, which `schedule status NAME` reports (jobs registered earlier show a re-add hint). Output is still appended to `<registry_dir>/schedule.log` (journald for systemd). The default job name is `<sanitized config name>.volume`. The registry file `schedules.json` lives under `%APPDATA%\compman` when the `APPDATA` environment variable is set (always set on Windows), otherwise `~/.config/compman`, and is the source of truth: `list` marks absent artifacts `[missing]`, `remove` tolerates already-missing artifacts and always deletes the entry.
 - `stack logs [SERVICE...] [-f] [--tail N]` passes through compose logs for all services or a subset.
 - `compman history [--limit N] [--json]` reads the append-only activity journal (`<registry base>/history.jsonl`) recording deploy/rollback/backup/restore events; journal write failures warn and never fail the triggering operation.
+- Slack notifications fire only after a successful `stack up` / `stack update` / deploy-driven `compman update`. Data comes from one `compose ps --all --format json` (state, health, exit code, image, published ports) plus, only when the compose files declare a named volume, one `docker system df -v --format json` filtered by the `com.docker.compose.project` label (volume sizes). Mount paths come from `compose_spec.read_volume_mounts`, because `compose ps` truncates its `Mounts` column. `stack down`, backup, and restore never notify. With no webhook configured the extra queries are skipped entirely. Delivery is warning-only: transport errors, a revoked webhook, or an unset configured variable warn on stderr and still exit 0.
 - Expected operational failures, including Docker Desktop readiness failures, are shown as concise errors without Python tracebacks.
 - Root version flags are `-v` and `--version`; help flags are `-h` and `--help` for the root and command groups.
 
@@ -255,6 +269,17 @@ that for compman). Rules:
 
 ## Execution Log
 
+- **2026-10-02** — Shipped Slack stack-start notifications in v1.12.0. Added
+  `compman/notify.py` (webhook resolution, Block Kit message, best-effort
+  delivery), `compman/compose_spec.py` (named-volume mount introspection), the
+  `notify.slack` config block (`webhook_env` recommended, literal `webhook`
+  allowed), a `doctor` `notify_env` check, and a `stack up`/`stack update` hook.
+  Lessons recorded in `SOLUTION.md`: Slack answers HTTP 200 for revoked webhooks
+  (verify the body); a best-effort side channel must be gated on "is it
+  configured" before doing extra work; and three assumptions about `compose ps`
+  output were wrong until a real Docker run — it needs `--all` to show exited
+  containers, it truncates `Mounts`, and it duplicates Publishers per address
+  family.
 - **2026-08-10** — Applied the gorani governance rules in English: audited the six
   mandatory root documents (all present, already English), rewrote `SECURITY.md`
   from the GitHub template into a real policy, restructured `BACKLOG.md` into the

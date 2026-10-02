@@ -7,8 +7,6 @@ import shutil
 import subprocess
 import sys
 from enum import Enum
-from importlib.metadata import PackageNotFoundError
-from importlib.metadata import version as _pkg_version
 from typing import TYPE_CHECKING, Annotated
 
 import typer
@@ -146,11 +144,9 @@ ProfileOpt = Annotated[str | None, typer.Option("--profile", help=t("opt.profile
 
 def _version_callback(value: bool) -> None:
     if value:
-        try:
-            v = _pkg_version("compman")
-        except PackageNotFoundError:
-            v = "dev"
-        typer.echo(f"compman {v}")
+        from compman.version import package_version
+
+        typer.echo(f"compman {package_version()}")
         raise typer.Exit()
 
 
@@ -537,11 +533,9 @@ def history_cmd(
 # ---- version ----
 @app.command("version", help=t("cmd.version"))
 def version_cmd() -> None:
-    try:
-        v = _pkg_version("compman")
-    except PackageNotFoundError:
-        v = "dev"
-    typer.echo(f"compman {v}")
+    from compman.version import package_version
+
+    typer.echo(f"compman {package_version()}")
 
 
 # ---- stack group ----

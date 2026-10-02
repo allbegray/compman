@@ -22,6 +22,7 @@ If every convenient option has been answered with "not allowed," `compman` is fo
 - Creates and restores timestamped backups of volumes and container images (gzip `.tar.gz` by default, optional Zstandard `.tar.zst` via `--zstd`)
 - Stores backups in a local directory, an S3-compatible bucket (`s3://bucket/prefix`), or a remote host over SSH/SCP (`ssh://[user@]host[:port]/path`) via `dirs.backup`
 - Korean and English help, plus shell completion
+- Posts a Slack notification when `stack up` or `stack update` brings a stack up, with unhealthy-service detail and named-volume sizes
 - Supports Windows, Linux, and macOS
 
 ## Requirements
@@ -515,6 +516,62 @@ Platform limitations to know before relying on this:
 - macOS LaunchAgents fire only while the user is logged in; headless servers should use the Linux mechanisms.
 - Windows scheduled tasks run only while the user is logged on.
 - A scheduled backup behaves like any non-interactive run: if Docker Desktop is required and not ready, the job fails concisely instead of hanging.
+
+### Slack notifications
+
+`stack up` and `stack update` can post to a Slack Incoming Webhook when the stack comes up, so a long deploy finishing on a headless host is visible without watching the terminal.
+
+The message is built to stay short on a healthy stack and to get specific when something is wrong:
+
+```text
+✅ Stack started
+
+  *Stack* notify-demo  ·  *Profile* default
+  *Runtime* docker     ·  *Host* hongui-MacStudio.local
+  *Started at* 2026-10-02 20:06 KST  ·  *Duration* 681ms
+
+  *Services* — 3 of 3 healthy
+
+  ────────────────────────────────────────
+  *Volumes* (2)
+  🟢 notify-demo_web-data · web:/usr/share/nginx/html · 1.393kB
+  🟢 notify-demo_pgdata · db:/var/lib/postgresql/data · 40.01MB
+
+compman 1.12.0 · stack up
+```
+
+- The metadata block packs two labelled items per line, three lines in total. Slack's `section.fields` is only documented as rendering "in a compact format that allows for 2 columns", and clients that stack those fields vertically turn six fields into twelve lines — writing the pairs into one text block keeps two per row on every surface.
+- Services are summarized as a healthy count. Only services that are *not* healthy are listed, each with its state, exit code, image tag, and published ports (`18080→80`). Nothing is lost on a broken stack, and a healthy one costs a single line.
+- The headline turns into `⚠️ Stack started — N service(s) need attention` as soon as any service is not healthy, so the push notification itself carries the alarm.
+- Named volumes appear with the services that mount them and their on-disk size. Volumes mounted by a failing service are marked 🔴, which points at the likely culprit.
+
+The fastest setup needs no config change at all — export the webhook and every stack picks it up:
+
+```bash
+export COMPMAN_SLACK_WEBHOOK_URL='https://hooks.slack.com/services/T000/B000/XXXX'
+# PowerShell: $env:COMPMAN_SLACK_WEBHOOK_URL="https://hooks.slack.com/services/T000/B000/XXXX"
+```
+
+To scope a webhook per stack, or to keep the URL out of the environment of the calling shell, name the variable in `compman.yml` instead:
+
+```yaml
+compman:
+  notify:
+    slack:
+      webhook_env: COMPMAN_SLACK_WEBHOOK_URL   # recommended: the URL stays in the environment
+      # webhook: https://hooks.slack.com/services/...   # literal URL, stores the secret in this file
+```
+
+`webhook_env` is preferred because the webhook URL is a write-capable credential: `compman.yml` is committed more often than a shell profile is rotated. Prefer `webhook_env` and keep the value in a secret store or an untracked env file. A literal `webhook` must be an `https://` URL.
+
+Resolution order is `webhook`, then the variable named by `webhook_env`, then `COMPMAN_SLACK_WEBHOOK_URL` — but only when the file has no `notify.slack` block. A stack that configures `webhook_env` never falls back to the global variable, so a per-stack setting cannot be silently replaced by an ambient one.
+
+Delivery is best-effort and never affects the exit status. The containers are already running when the notification is sent, so a Slack outage, a revoked webhook, or an unset variable prints a warning on stderr and the command still exits `0`. Slack answers `HTTP 200` even for revoked webhooks and reports the real verdict in the body, so compman checks the body (`ok`) rather than trusting the status line. `compman doctor` warns when `webhook_env` names a variable that is not set.
+
+Two consequences worth knowing:
+
+- Volume **sizes** come from `docker system df -v`, the only Docker surface that reports them. It scans every image and volume on the host, so compman runs it only when the compose files actually declare a named volume, and only when notifications are enabled. On a runtime that does not support it (Podman), or when it fails, volumes are still listed with their mount paths — only the sizes are missing.
+- Only `stack up`, `stack update`, and a deploy-driven `compman update` notify. `stack down`, backup, and restore do not, so the temporary restarts that back up the stack stay silent.
 
 ## Runtime selection
 

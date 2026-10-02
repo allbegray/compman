@@ -939,6 +939,66 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "en": "Multiple service images found ({images}); skipping the automatic rebuild because the rebuild target is ambiguous.",
         "ko": "여러 서비스 이미지가 발견되어({images}) 재빌드 대상을 특정할 수 없어 자동 재빌드를 건너뜁니다.",
     },
+    "msg.notify_stack_started": {
+        "en": "Stack started",
+        "ko": "스택 시작됨",
+    },
+    "msg.notify_stack_updated": {
+        "en": "Stack updated",
+        "ko": "스택 업데이트됨",
+    },
+    "msg.notify_stack": {
+        "en": "Stack",
+        "ko": "스택",
+    },
+    "msg.notify_profile": {
+        "en": "Profile",
+        "ko": "프로필",
+    },
+    "msg.notify_runtime": {
+        "en": "Runtime",
+        "ko": "런타임",
+    },
+    "msg.notify_host": {
+        "en": "Host",
+        "ko": "호스트",
+    },
+    "msg.notify_started_at": {
+        "en": "Started at",
+        "ko": "시작 시각",
+    },
+    "msg.notify_duration": {
+        "en": "Duration",
+        "ko": "소요 시간",
+    },
+    "msg.notify_services_summary": {
+        "en": "*Services* — {healthy} of {total} healthy",
+        "ko": "*서비스* — 전체 {total}개 중 {healthy}개 정상",
+    },
+    "msg.notify_volumes_header": {
+        "en": "*Volumes* ({count})",
+        "ko": "*볼륨* ({count}개)",
+    },
+    "msg.notify_healthy_count": {
+        "en": "{healthy} of {total} services healthy",
+        "ko": "서비스 {total}개 중 {healthy}개 정상",
+    },
+    "msg.notify_more": {
+        "en": "_…and {count} more_",
+        "ko": "_외 {count}개_",
+    },
+    "msg.notify_attention": {
+        "en": "{count} service(s) need attention",
+        "ko": "{count}개 서비스 확인 필요",
+    },
+    "msg.notify_env_missing": {
+        "en": "Slack webhook environment variable '{name}' is not set; skipping notification.",
+        "ko": "슬랙 웹훅 환경 변수 '{name}'이(가) 설정되지 않아 알림을 건너뜁니다.",
+    },
+    "msg.notify_failed": {
+        "en": "Slack notification failed (ignored): {error}",
+        "ko": "슬랙 알림 전송에 실패했습니다(무시됨): {error}",
+    },
     "opt.wait": {
         "en": "Wait until every service is running (or healthy) before returning",
         "ko": "모든 서비스가 실행 중(또는 healthy) 상태가 될 때까지 기다린 후 반환합니다",

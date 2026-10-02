@@ -47,6 +47,20 @@ class DeployAuth:
     value_env: str
 
 
+@dataclass(frozen=True)
+class SlackNotify:
+    """Slack webhook settings from the optional ``notify.slack`` block.
+
+    ``webhook_env`` names an environment variable holding the webhook URL
+    and is the recommended form: the secret stays out of compman.yml, which
+    mirrors the ``deploy.auth.value_env`` convention. ``webhook`` holds a
+    literal URL for setups that prefer a single self-contained config.
+    """
+
+    webhook_env: str | None = None
+    webhook: str | None = None
+
+
 @dataclass
 class Config:
     name: str
@@ -64,6 +78,7 @@ class Config:
     deploy_auth: DeployAuth | None = None
     max_archive_mb: int | None = None
     max_backups: int | None = None
+    notify_slack: SlackNotify | None = None
     backup_store: BackupStore = field(
         default_factory=lambda: LocalBackupStore(Path.cwd() / "backup")
     )
@@ -114,6 +129,53 @@ def _parse_secrets(raw: object, field_name: str) -> dict[str, SecretRef]:
             raise ConfigError(f"'{field_name}.{env_name}' is missing a 'key' string.")
         secrets[str(env_name)] = SecretRef(arn=str(raw_ref["arn"]), key=raw_key)
     return secrets
+
+
+def _notify_url_text(raw: object, field_name: str) -> str:
+    if not isinstance(raw, str) or not raw or "\r" in raw or "\n" in raw:
+        raise ConfigError(f"'{field_name}' must be a non-empty single-line string.")
+    return raw
+
+
+def _parse_notify(raw: object) -> SlackNotify | None:
+    """Parse the optional ``notify`` block (currently Slack only)."""
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ConfigError("'notify' must be a mapping.")
+    unsupported = sorted(set(raw) - {"slack"})
+    if unsupported:
+        raise ConfigError(
+            f"'notify' has unsupported key(s): {', '.join(unsupported)}. Only 'slack' is supported."
+        )
+    if not raw:
+        return None
+    raw_slack = raw.get("slack")
+    if raw_slack is None:
+        # 'slack:' with no keys at all -- Slack was clearly intended here.
+        raise ConfigError(
+            "'notify.slack' requires 'webhook_env' (recommended) or 'webhook'."
+        )
+    if not isinstance(raw_slack, dict):
+        raise ConfigError("'notify.slack' must be a mapping.")
+
+    raw_webhook = raw_slack.get("webhook")
+    raw_webhook_env = raw_slack.get("webhook_env")
+    if raw_webhook is None and raw_webhook_env is None:
+        raise ConfigError(
+            "'notify.slack' requires 'webhook_env' (recommended) or 'webhook'."
+        )
+    webhook = None
+    if raw_webhook is not None:
+        webhook = _notify_url_text(raw_webhook, "notify.slack.webhook")
+        if not webhook.startswith("https://"):
+            raise ConfigError(
+                "'notify.slack.webhook' must be an https:// URL; Slack webhooks never use plain HTTP."
+            )
+    webhook_env = None
+    if raw_webhook_env is not None:
+        webhook_env = _notify_url_text(raw_webhook_env, "notify.slack.webhook_env")
+    return SlackNotify(webhook_env=webhook_env, webhook=webhook)
 
 
 def _parse_limit(raw_limits: dict[str, object], key: str) -> int | None:
@@ -248,6 +310,8 @@ def load_config(config_path: str | None = None) -> Config:
     max_archive_mb = _parse_limit(raw_limits, "max_archive_mb")
     max_backups = _parse_limit(raw_limits, "max_backups")
 
+    notify_slack = _parse_notify(root.get("notify"))
+
     raw_backup = str(raw_dirs.get("backup", "backup"))
     # Branch before _managed_path: an s3:// URI would otherwise fail the
     # child-of-config-root check with a confusing error.
@@ -271,6 +335,7 @@ def load_config(config_path: str | None = None) -> Config:
         deploy_auth=deploy_auth,
         max_archive_mb=max_archive_mb,
         max_backups=max_backups,
+        notify_slack=notify_slack,
         backup_store=backup_store,
     )
     # Resolve all paths while loading so unsafe configuration fails before a
@@ -303,6 +368,12 @@ compman:
   #   volume: volume
   # limits:
   #   max_backups: 10                # keep newest 10 archives per stack and kind
+  # Slack notification on 'stack up' / 'stack update':
+  # notify:
+  #   slack:
+  #     webhook_env: COMPMAN_SLACK_WEBHOOK_URL   # env var holding the webhook URL
+  #     # webhook: https://hooks.slack.com/services/...  # literal URL (secret in this file)
+  # COMPMAN_SLACK_WEBHOOK_URL alone also works when no notify block is set.
   # per-profile env (consumed via ${{VAR}} in compose files):
   #   dev:
   #     file: docker-compose.dev.yml

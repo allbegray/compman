@@ -292,6 +292,58 @@ def test_doctor_no_deploy_auth_check_without_auth(tmp_path, monkeypatch, dummy_r
     assert all(check.id != "deploy_auth_env" for check in report.checks)
 
 
+def _write_notify_project(tmp_path: Path, slack_block: str) -> None:
+    (tmp_path / "compman.yml").write_text(
+        "compman:\n"
+        "  name: app\n"
+        "  compose:\n"
+        "    default:\n"
+        "      file: docker-compose.yml\n"
+        f"  notify:\n{slack_block}",
+        encoding="utf-8",
+    )
+    (tmp_path / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+
+
+def test_doctor_notify_env_set_is_ok(tmp_path, monkeypatch, dummy_runtime):
+    _write_notify_project(tmp_path, "    slack:\n      webhook_env: COMPMAN_SLACK_WEBHOOK_URL\n")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("compman.diagnostics.detect_runtime", lambda: dummy_runtime)
+
+    with patch.dict(os.environ, {"COMPMAN_SLACK_WEBHOOK_URL": "https://hooks.slack.com/x"}):
+        report = collect_doctor(None)
+
+    assert all(check.id != "notify_env" for check in report.checks)
+
+
+def test_doctor_warns_when_notify_env_unset(tmp_path, monkeypatch, dummy_runtime):
+    _write_notify_project(tmp_path, "    slack:\n      webhook_env: COMPMAN_SLACK_WEBHOOK_URL\n")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("compman.diagnostics.detect_runtime", lambda: dummy_runtime)
+
+    with patch.dict(os.environ, {}, clear=True):
+        report = collect_doctor(None)
+
+    check = next(item for item in report.checks if item.id == "notify_env")
+    assert check.severity == "warning"
+    assert check.ok is False
+    assert "COMPMAN_SLACK_WEBHOOK_URL" in check.remediation
+    assert report.ok is True
+
+
+def test_doctor_no_notify_check_for_literal_webhook_or_without_block(
+    tmp_path, monkeypatch, dummy_runtime
+):
+    write_simple_project(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("compman.diagnostics.detect_runtime", lambda: dummy_runtime)
+
+    assert all(check.id != "notify_env" for check in collect_doctor(None).checks)
+
+    _write_notify_project(tmp_path, "    slack:\n      webhook: https://hooks.slack.com/x\n")
+    assert all(check.id != "notify_env" for check in collect_doctor(None).checks)
+
+
 @pytest.mark.parametrize("config_contents", [None, "invalid: : ["])
 def test_invalid_or_missing_config_is_a_failed_required_check(tmp_path, monkeypatch, dummy_runtime, config_contents):
     if config_contents is not None:

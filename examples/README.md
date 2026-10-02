@@ -42,6 +42,7 @@ injected value. A plain `environment:` entry without `${...}` stays literal.
 | [11](compman-config/11-s3-backup-store.md) | S3 backup store | `dirs.backup` as an `s3://bucket/prefix` URI |
 | [12](compman-config/12-authenticated-http-deploy.md) | Authenticated HTTP deploy | `deploy.auth` header sourced from `value_env` env var |
 | [13](compman-config/13-scheduled-backup.md) | Scheduled backups | `schedule add/list/remove` cadences, mechanisms, and log locations |
+| [14](compman-config/14-slack-notifications.md) | Slack notifications | `notify.slack` block, `COMPMAN_SLACK_WEBHOOK_URL`, resolution order |
 
 Run any example from the directory that contains its `compman.yml`:
 

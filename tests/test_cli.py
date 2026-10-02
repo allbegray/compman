@@ -945,8 +945,8 @@ def test_cli_upgrade_missing_uv_pip_failure_handles_replacement_text(runner: Cli
     assert "Traceback" not in res.output
 
 
-def test_cli_version_pkg_not_found(runner: CliRunner):
-    with patch("compman.cli._pkg_version", side_effect=Exception):
+def test_cli_version_lookup_failure_propagates(runner: CliRunner):
+    with patch("compman.version.package_version", side_effect=Exception):
         res = runner.invoke(app, ["version"])
         assert res.exit_code == 1
 
@@ -1471,7 +1471,7 @@ def test_find_uv_prefers_path_then_local_install_then_bare_uv():
 
 
 def test_version_and_version_flag_report_dev_without_package_metadata(runner: CliRunner):
-    with patch("compman.cli._pkg_version", side_effect=PackageNotFoundError):
+    with patch("compman.version.version", side_effect=PackageNotFoundError):
         assert runner.invoke(app, ["--version"]).output.strip() == "compman dev"
         assert runner.invoke(app, ["version"]).output.strip() == "compman dev"
 

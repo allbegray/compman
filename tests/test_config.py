@@ -10,10 +10,87 @@ from compman.config import (
     Config,
     ConfigError,
     DeployAuth,
+    SlackNotify,
     dump_default_config,
     load_config,
     sanitize_project_name,
 )
+
+
+def _notify_config(body: str) -> str:
+    return (
+        "compman:\n"
+        "  name: app\n"
+        "  compose:\n"
+        "    default:\n"
+        "      file: docker-compose.yml\n" + body
+    )
+
+
+def test_load_config_parses_notify_slack_env_indirection(temp_dir: pathlib.Path):
+    config_file = temp_dir / "compman.yml"
+    config_file.write_text(
+        _notify_config("  notify:\n    slack:\n      webhook_env: COMPMAN_SLACK_WEBHOOK_URL\n"),
+        encoding="utf-8",
+    )
+    assert load_config(str(config_file)).notify_slack == SlackNotify(
+        webhook_env="COMPMAN_SLACK_WEBHOOK_URL"
+    )
+
+
+def test_load_config_parses_notify_slack_literal_webhook(temp_dir: pathlib.Path):
+    config_file = temp_dir / "compman.yml"
+    config_file.write_text(
+        _notify_config("  notify:\n    slack:\n      webhook: https://hooks.slack.com/services/T/B/X\n"),
+        encoding="utf-8",
+    )
+    assert load_config(str(config_file)).notify_slack == SlackNotify(
+        webhook="https://hooks.slack.com/services/T/B/X"
+    )
+
+
+def test_load_config_without_notify_block(tmp_path: pathlib.Path):
+    assert load_config(str(write_config(tmp_path / "compman.yml"))).notify_slack is None
+
+
+def test_load_config_notify_without_slack_key(tmp_path: pathlib.Path):
+    config_file = tmp_path / "compman.yml"
+    config_file.write_text(_notify_config("  notify: {}\n"), encoding="utf-8")
+    assert load_config(str(config_file)).notify_slack is None
+
+
+def test_load_config_rejects_empty_slack_block(tmp_path: pathlib.Path):
+    config_file = tmp_path / "compman.yml"
+    config_file.write_text(_notify_config("  notify:\n    slack:\n"), encoding="utf-8")
+    with pytest.raises(ConfigError, match="requires 'webhook_env'"):
+        load_config(str(config_file))
+
+
+def test_load_config_rejects_slack_block_without_webhook_keys(tmp_path: pathlib.Path):
+    config_file = tmp_path / "compman.yml"
+    config_file.write_text(_notify_config("  notify:\n    slack: {}\n"), encoding="utf-8")
+    with pytest.raises(ConfigError, match="requires 'webhook_env'"):
+        load_config(str(config_file))
+
+
+@pytest.mark.parametrize(
+    ("body", "message"),
+    [
+        ("  notify: []\n", "'notify' must be a mapping"),
+        ("  notify:\n    discord:\n      webhook_env: X\n", "unsupported key"),
+        ("  notify:\n    slack: nope\n", "'notify.slack' must be a mapping"),
+        ("  notify:\n    slack:\n      webhook_env: 7\n", "non-empty single-line string"),
+        ("  notify:\n    slack:\n      webhook_env: ''\n", "non-empty single-line string"),
+        ('  notify:\n    slack:\n      webhook_env: "A\\nB"\n', "non-empty single-line string"),
+        ('  notify:\n    slack:\n      webhook: "https://x/y\\r"\n', "non-empty single-line"),
+        ("  notify:\n    slack:\n      webhook: http://hooks.slack.com/x\n", "https:// URL"),
+    ],
+)
+def test_load_config_rejects_invalid_notify_blocks(tmp_path: pathlib.Path, body, message):
+    config_file = tmp_path / "compman.yml"
+    config_file.write_text(_notify_config(body), encoding="utf-8")
+    with pytest.raises(ConfigError, match=message):
+        load_config(str(config_file))
 
 
 def test_sanitize_project_name():

@@ -3,6 +3,50 @@
 Major user-visible changes to compman are recorded here, with the newest release
 first.
 
+## [1.12.0] - 2026-10-02
+
+### Added
+
+- Slack notifications for stack start events: `stack up`, `stack update`, and a
+  deploy-driven `compman update` post a Block Kit message carrying the stack,
+  profile, runtime, host, local start time, and elapsed duration. Configure the
+  webhook with the `COMPMAN_SLACK_WEBHOOK_URL` environment variable (works with
+  no config change) or per stack with `notify.slack.webhook_env`, which names the
+  variable so the secret stays out of `compman.yml`. A literal
+  `notify.slack.webhook` URL is also accepted and must be `https://`.
+- Service reporting in that message: a healthy count plus every service that is
+  *not* healthy, each with state, exit code, image tag, and published ports. A
+  failing service turns the headline into `⚠️ … N service(s) need attention`, and
+  block bodies are capped so an oversized message is never rejected outright by
+  Slack's `invalid_payload`.
+- The metadata block packs two labelled items per line instead of using
+  `section.fields`. Slack documents fields only as rendering "in a compact
+  format that allows for 2 columns"; clients that stack them vertically would
+  double the message height.
+- Named-volume reporting: each volume the compose files declare, with the
+  services and container paths that mount it and its on-disk size. A volume
+  mounted by a failing service is marked so the message names the likely cause.
+  Sizes come from `docker system df -v`, which is only invoked when volumes are
+  declared and notifications are enabled; on an unsupported runtime or on failure
+  the volumes are still listed and only the sizes are dropped.
+- `doctor` check `notify_env`: warns when `notify.slack.webhook_env` names a
+  variable that is not set.
+
+### Notes
+
+- Delivery is best-effort and never changes the exit status: the containers
+  are already running when the notification is sent, so a Slack outage, a
+  revoked webhook, or an unset variable warns on stderr and the command still
+  exits `0`. Slack answers `HTTP 200` even for revoked webhooks, so compman
+  verifies the response body (`ok`) instead of trusting the status line, and
+  truncates an unexpected HTML body so a mistyped webhook cannot flood the
+  terminal.
+- `stack down`, backup, and restore deliberately do not notify, so the
+  temporary restarts performed around a backup stay silent.
+- A stack that configures `webhook_env` never falls back to the global
+  `COMPMAN_SLACK_WEBHOOK_URL`, so a per-stack setting cannot be silently
+  replaced by an ambient one.
+
 ## [1.11.0] - 2026-08-26
 
 ### Added

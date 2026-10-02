@@ -63,6 +63,25 @@
             "max_backups": {"type": "integer", "minimum": 1}
           }
         },
+        "notify": {
+          "type": "object",
+          "description": "Outbound notifications for stack start events. Requires at least one of 'slack.webhook' or 'slack.webhook_env'.",
+          "properties": {
+            "slack": {
+              "type": "object",
+              "properties": {
+                "webhook_env": {"type": "string", "minLength": 1, "description": "Environment variable holding the Slack Incoming Webhook URL. Recommended: keeps the secret out of this file."},
+                "webhook": {"type": "string", "pattern": "^https://", "description": "Literal Slack Incoming Webhook URL; requires https. Stores the secret in this file."}
+              },
+              "anyOf": [
+                {"required": ["webhook_env"]},
+                {"required": ["webhook"]}
+              ],
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
         "secrets": {
           "type": "object",
           "additionalProperties": {

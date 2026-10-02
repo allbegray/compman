@@ -9,6 +9,7 @@ from typing import Literal
 from compman.backup_store import archive_location, local_root
 from compman.config import Config, ConfigError, load_config
 from compman.docker import ContainerRuntime, detect_runtime, resolve_compose_context
+from compman.notify import resolve_webhook
 from compman.ops.common import utc_now_iso
 
 StatusErrorCode = Literal["stack-missing", "runtime-error", "config-error", "compose-error"]
@@ -113,6 +114,7 @@ def collect_doctor(config_path: str | None, profile: str | None = None) -> Docto
         _collect_backup_store(config, checks)
         _collect_deploy_checksum(config, checks)
         _collect_deploy_auth(config, checks)
+        _collect_notify(config, checks)
     return DoctorReport(tuple(checks))
 
 
@@ -357,3 +359,23 @@ def _collect_deploy_auth(config: Config, checks: list[CheckResult]) -> None:
         else f"Deploy authentication environment variable '{value_env}' is not set."
     )
     checks.append(CheckResult("deploy_auth_env", "warning", value_present, message))
+
+
+def _collect_notify(config: Config, checks: list[CheckResult]) -> None:
+    """Warn when Slack is configured but its webhook variable is not set."""
+    notify = config.notify_slack
+    if notify is None or notify.webhook:
+        return
+    if resolve_webhook(notify) is not None:
+        return
+    value_env = notify.webhook_env or ""
+    checks.append(
+        CheckResult(
+            "notify_env",
+            "warning",
+            False,
+            f"Slack notification environment variable '{value_env}' is not set.",
+            remediation=f"Set {value_env} to a Slack Incoming Webhook URL, or remove the "
+            "'notify.slack.webhook_env' entry from compman.yml.",
+        )
+    )

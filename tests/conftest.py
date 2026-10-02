@@ -287,3 +287,11 @@ def _isolate_history_journal(tmp_path, monkeypatch):
 
     monkeypatch.setattr(_history, "history_path", lambda: tmp_path / "history.jsonl")
     yield
+
+
+@pytest.fixture(autouse=True)
+def _isolate_slack_webhook(monkeypatch):
+    """Stop a developer's real webhook from receiving test notifications."""
+    from compman import notify as _notify
+
+    monkeypatch.delenv(_notify.WEBHOOK_ENV, raising=False)

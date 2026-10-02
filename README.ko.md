@@ -22,6 +22,7 @@
 - 볼륨과 컨테이너 이미지의 타임스탬프 백업을 만들고 복구합니다(기본은 gzip `.tar.gz`, `--zstd`로 Zstandard `.tar.zst` 선택)
 - `dirs.backup`(`s3://bucket/prefix` 또는 `ssh://[user@]host[:port]/path`)을 통해 백업을 로컬 디렉터리, S3 호환 버킷, 또는 SSH/SCP 원격 호스트에 저장합니다
 - 한국어/영어 도움말과 셸 완성을 제공합니다
+- `stack up`/`stack update`로 스택이 기동되면 장애 서비스 상세와 명명 볼륨 용량을 담아 슬랙 알림을 보냅니다
 - Windows, Linux, macOS를 지원합니다
 
 ## 요구 사항
@@ -471,6 +472,62 @@ compman schedule remove my-stack.volume           # default job name: <project>.
 - macOS LaunchAgents는 사용자가 로그인해 있는 동안에만 발화합니다. headless 서버는 Linux 메커니즘을 쓰세요.
 - Windows 예약 작업은 사용자가 로그온해 있는 동안에만 실행됩니다.
 - 스케줄 백업은 non-interactive 실행과 똑같이 동작합니다. Docker Desktop이 필요한데 준비되지 않았으면 작업이 멈추지 않고 간결하게 실패합니다.
+
+### 슬랙 알림
+
+`stack up`과 `stack update`는 스택이 기동되면 Slack Incoming Webhook으로 알림을 보낼 수 있으므로, headless 호스트에서 오래 걸리는 배포가 끝났을 때 터미널을 계속 지켜보지 않아도 확인할 수 있습니다.
+
+메시지는 정상 스택에서는 짧게, 문제가 생기면 구체적으로 구성됩니다:
+
+```text
+✅ Stack started
+
+  *Stack* notify-demo  ·  *Profile* default
+  *Runtime* docker     ·  *Host* hongui-MacStudio.local
+  *Started at* 2026-10-02 20:06 KST  ·  *Duration* 681ms
+
+  *Services* — 3 of 3 healthy
+
+  ────────────────────────────────────────
+  *Volumes* (2)
+  🟢 notify-demo_web-data · web:/usr/share/nginx/html · 1.393kB
+  🟢 notify-demo_pgdata · db:/var/lib/postgresql/data · 40.01MB
+
+compman 1.12.0 · stack up
+```
+
+- 메타데이터 블록은 한 줄에 라벨 항목 2개를 배치해 총 3줄로 줄였습니다. Slack의 `section.fields`는 "2열을 허용하는 컴팩트 형식"으로 **표시된다**고만 문서화되어 있고, 이를 세로로 쌓는 클라이언트에서는 필드 6개가 12줄이 됩니다. 쌍을 하나의 텍스트 블록에 직접 써서 어떤 화면에서도 한 줄에 2개씩 유지됩니다.
+- 서비스는 정상 개수로 요약됩니다. **정상이 아닌 서비스만** 나열되며, 각 줄에 state, exit code, 이미지 태그, 공개된 포트(`18080→80`)가 함께 표시됩니다. 장애가 나면 정보가 사라지지 않고, 정상이면 단 한 줄이면 됩니다.
+- 하나라도 정상이 아닌 서비스가 있으면 헤드라인이 `⚠️ Stack started — N service(s) need attention`로 바뀌므로, 푸시 알림 자체에 경고가 담깁니다.
+- 명명된 볼륨은 마운트하는 서비스와 디스크 사용량과 함께 표시됩니다. 장애 난 서비스가 마운트한 볼륨은 🔴로 표시되어 원인이 되는 서비스를 짚어줍니다.
+
+가장 빠른 방법은 설정 파일을 건드리지 않고 웹훅을 export 하는 것입니다. 그러면 모든 스택이 바로 인식합니다:
+
+```bash
+export COMPMAN_SLACK_WEBHOOK_URL='https://hooks.slack.com/services/T000/B000/XXXX'
+# PowerShell: $env:COMPMAN_SLACK_WEBHOOK_URL="https://hooks.slack.com/services/T000/B000/XXXX"
+```
+
+스택별로 웹훅을 지정하거나 호출하는 셸의 환경에서 URL을 빼두려면 대신 `compman.yml`에 변수 이름을 적습니다:
+
+```yaml
+compman:
+  notify:
+    slack:
+      webhook_env: COMPMAN_SLACK_WEBHOOK_URL   # 권장: URL은 환경 변수에만 존재
+      # webhook: https://hooks.slack.com/services/...   # 직접 적으면 이 파일에 시크릿이 남습니다
+```
+
+웹훅 URL은 메시지를 쓸 수 있는 자격 증명입니다. `compman.yml`은 셸 프로파일보다 커밋이 훨씬 자주 되므로 `webhook_env` 방식을 권장하고, 값은 시크릿 저장소나 추적되지 않는 env 파일에 두세요. 직접 적는 `webhook`는 반드시 `https://` URL이어야 합니다.
+
+해석 순서는 `webhook`, `webhook_env`가 가리키는 변수, `COMPMAN_SLACK_WEBHOOK_URL` 순서입니다. 단, 마지막 것은 파일에 `notify.slack` 블록이 없을 때만 적용됩니다. `webhook_env`를 설정한 스택은 전역 변수로 대체되지 않으므로, 스택별 설정이 환경에 떠 있는 값으로 조용히 바뀌지 않습니다.
+
+전송은 best-effort이며 종료 코드에 영향을 주지 않습니다. 알림을 보내는 시점에는 이미 컨테이너가 실행 중이므로, Slack 장애나 폐기된 웹훅 또는 설정되지 않은 변수는 stderr에 경고만 남기고 명령은 여전히 exit `0`입니다. Slack은 폐기된 웹훅에도 `HTTP 200`을 반환하고 실제 결과를 본문에 담으므로, compman은 상태 줄을 믿지 않고 본문(`ok`)을 확인합니다. `webhook_env`가 설정되지 않은 변수를 가리키면 `compman doctor`가 경고합니다.
+
+알아야 할 두 가지 부작용:
+
+- 볼륨 **용량**은 `docker system df -v`에서 가져옵니다. Docker에서 크기를 노출하는 유일한 경로입니다. 이 명령은 호스트의 모든 이미지와 볼륨을 스캔하므로, compman은 compose 파일에 명명된 볼륨이 실제로 선언되어 있고 알림이 켜져 있을 때만 실행합니다. 지원하지 않는 런타임(Podman)이나 실패 시에는 볼륨을 마운트 경로와 함께 계속 표시하고 **용량만 생략**합니다.
+- 알림을 보내는 명령은 `stack up`, `stack update`, deploy를 사용하는 `compman update`뿐입니다. `stack down`, 백업, 복구는 알림을 보내지 않으므로 백업 과정의 임시 재기동은 조용합니다.
 
 ## 런타임 선택
 

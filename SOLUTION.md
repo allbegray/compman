@@ -90,6 +90,45 @@ mistakes below. Companion files: `AGENTS.md` (operating rules for agents) and
 - **Duplicated helpers drift.** `ops/volume.py` and `ops/image.py` each had their own
   `_validate_timestamp` with *different* messages; consolidated into one public
   `ops/common.validate_timestamp`.
+- **A webhook that returns `HTTP 200` has not necessarily worked.** Slack answers
+  `200` for revoked, expired, and malformed webhooks too, and puts the real verdict
+  in the body (`ok` on success, `no_token` / `invalid_payload` / `user_not_found`
+  on failure). Checking only the status line makes a dead webhook look healthy;
+  verify the body. A mistyped webhook path is redirected to Slack's HTML docs site,
+  so collapse whitespace and truncate the verdict or one warning dumps a whole web
+  page into the terminal.
+- **A best-effort side channel must be gated before it does any work.** The Slack
+  hook needs an extra `compose ps` query for service states; guard it on
+  "is a webhook configured?" first so an opted-out stack pays nothing. Same rule as
+  the lazy boto3 import and the lazily resolved secrets.
+- **Secrets belong in environment variables, not in `compman.yml`.** Follow the
+  existing `deploy.auth.value_env` pattern: config names the variable, the value is
+  read at use time, and error messages name only the variable. A config block is
+  committed far more often than a shell profile is rotated. When a config block
+  *does* opt into one variable, do not silently fall back to a global default of the
+  same purpose — that hides a broken per-stack setting.
+- **Verify against the real tool before designing around its output.** Three
+  assumptions were wrong on the first pass and only a live Docker run caught them:
+  `compose ps` **omits exited containers** unless `--all` is passed (a crashed
+  service would have vanished from the alert and the message would have claimed
+  everything healthy); its `Mounts` column is **truncated to an ellipsis** in
+  `--format json`, so mount paths must be read from the compose files instead; and
+  `Publishers` lists every mapping **twice** (IPv4 and IPv6), which needs
+  deduplicating. A mistyped webhook URL is also not a 404 — Slack serves its HTML
+  docs with `HTTP 200`.
+- **An oversized Slack block is rejected, not truncated.** `invalid_payload` comes
+  back as a 200-with-error-body, so a 40-service stack would silently lose every
+  notification until someone noticed. Cap block bodies and collapse the remainder.
+- **"Allows for 2 columns" is not "renders as 2 columns".** Slack's Block Kit docs
+  describe `section.fields` as rendering "in a compact format that allows for 2
+  columns of side-by-side text" — permissive language, and clients that stack the
+  fields vertically double the message height. Anything that must look the same
+  on desktop web, mobile, and Connect belongs in one `mrkdwn` text block that
+  packs its own columns, not in a grid the client controls.
+- **A summary plus exceptions beats a full dump.** An operator does not read 40
+  service lines; they read "3 of 3 healthy" and only need the names of the ones
+  that are not. Same data, a fraction of the noise, and the failure case is where
+  all the detail lands.
 
 ## 4. Recurring real-device E2E procedure
 

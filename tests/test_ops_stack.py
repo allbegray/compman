@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
+import os
 import pathlib
+import socket
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -8,7 +11,7 @@ from conftest import write_config
 from typer.testing import CliRunner
 
 from compman.cli import app
-from compman.config import Config, Profile
+from compman.config import Config, Profile, SlackNotify
 from compman.ops import stack
 from compman.ops.common import ensure_runtime_ready
 
@@ -160,8 +163,6 @@ def test_stack_update_profiles_default(dummy_runtime, temp_dir: pathlib.Path):
 
 
 # ---- --wait readiness gate ----
-
-import json  # noqa: E402
 
 from compman.errors import CommandError  # noqa: E402
 
@@ -368,3 +369,411 @@ def test_stack_logs_profile_context(dummy_runtime, temp_dir: pathlib.Path):
     run = dummy_runtime.compose_runs[0]
     assert run["env"] == {"MODE": "dev"}
     assert run["compose_files"] == (temp_dir / "docker-compose.dev.yml",)
+
+
+# ---- Slack notifications on up / update ----
+
+WEBHOOK = "https://hooks.slack.com/services/T000/B000/XXXX"
+GREEN = "\U0001f7e2"
+RED = "\U0001f534"
+
+
+def _notified_stack(
+    dummy_runtime,
+    temp_dir,
+    *,
+    event,
+    profile=None,
+    notify_slack=None,
+    wait=False,
+    services=({"Service": "app", "State": "running"},),
+):
+    """Run up/update with a webhook configured and return the sent payloads."""
+    if notify_slack is None:
+        notify_slack = SlackNotify(webhook_env="MY_SLACK_HOOK")
+    cfg = Config(
+        name="my_stack",
+        profiles={
+            "default": Profile(file="docker-compose.yml"),
+            "dev": Profile(file="docker-compose.yml"),
+        },
+        notify_slack=notify_slack,
+    )
+    dummy_runtime.ensure_ready_for_start = MagicMock()
+    dummy_runtime.compose_stdout = json.dumps(list(services))
+    sent: list[dict] = []
+
+    def fake_post(url, payload, timeout=0.0):
+        sent.append(payload)
+        return None
+
+    with patch.dict(os.environ, {"MY_SLACK_HOOK": WEBHOOK}), patch(
+        "compman.notify.post", side_effect=fake_post
+    ):
+        if event == "up":
+            stack.up(dummy_runtime, cfg, profile=profile, wait=wait)
+        else:
+            stack.update(dummy_runtime, cfg, profile=profile, wait=wait)
+    return sent
+
+
+def _header(payload: dict) -> str:
+    return payload["blocks"][0]["text"]["text"]
+
+
+def _details_body(payload: dict) -> str:
+    return payload["blocks"][1]["text"]["text"]
+
+
+def _block_types(payload: dict) -> list[str]:
+    return [block["type"] for block in payload["blocks"]]
+
+
+def _services_body(payload: dict) -> str:
+    return payload["blocks"][2]["text"]["text"]
+
+
+def _volumes_body(payload: dict) -> str:
+    blocks = payload["blocks"]
+    return blocks[blocks.index({"type": "divider"}) + 1]["text"]["text"]
+
+
+def test_stack_up_notifies_slack_with_full_context(dummy_runtime, temp_dir: pathlib.Path):
+    sent = _notified_stack(dummy_runtime, temp_dir, event="up")
+    assert len(sent) == 1
+    payload = sent[0]
+
+    assert payload["text"] == "✅ my_stack (default) — Stack started · 1 of 1 services healthy"
+    assert _header(payload) == "✅ Stack started"
+
+    details = _details_body(payload)
+    assert details.splitlines()[0] == "*Stack* `my_stack`  ·  *Profile* `default`"
+    assert details.splitlines()[1] == f"*Runtime* `docker`  ·  *Host* `{socket.gethostname()}`"
+    assert details.splitlines()[2].startswith("*Started at* ")
+    assert details.splitlines()[2].endswith("  ·  *Duration* 0ms")
+
+    # Service health comes from the post-start `compose ps --all` query, which
+    # keeps an immediately-exited container visible instead of dropping it.
+    assert _services_body(payload) == "*Services* — 1 of 1 healthy"
+    assert dummy_runtime.compose_runs[-1]["args"] == ["ps", "--all", "--format", "json"]
+
+    assert payload["blocks"][-1]["elements"][0]["text"].endswith("· `stack up`")
+
+
+def test_stack_update_notifies_slack(dummy_runtime, temp_dir: pathlib.Path):
+    sent = _notified_stack(dummy_runtime, temp_dir, event="update")
+    assert _header(sent[0]) == "✅ Stack updated"
+    assert sent[0]["blocks"][-1]["elements"][0]["text"].endswith("· `stack update`")
+
+
+def test_notify_reports_the_explicit_profile(dummy_runtime, temp_dir: pathlib.Path):
+    sent = _notified_stack(dummy_runtime, temp_dir, event="up", profile="dev")
+    assert _details_body(sent[0]).startswith("*Stack* `my_stack`  ·  *Profile* `dev`")
+
+
+def test_notify_uses_the_literal_webhook_without_environment_lookup(
+    dummy_runtime, temp_dir: pathlib.Path
+):
+    sent = _notified_stack(
+        dummy_runtime,
+        temp_dir,
+        event="up",
+        notify_slack=SlackNotify(webhook=WEBHOOK),
+    )
+    assert len(sent) == 1
+
+
+def test_notify_details_only_the_service_that_failed(
+    dummy_runtime, temp_dir: pathlib.Path
+):
+    sent = _notified_stack(
+        dummy_runtime,
+        temp_dir,
+        event="up",
+        services=(
+            {
+                "Service": "web",
+                "State": "running",
+                "Image": "nginx:alpine",
+                "Publishers": [
+                    {"TargetPort": 80, "PublishedPort": 18080, "Protocol": "tcp"},
+                    {"TargetPort": 80, "PublishedPort": 18080, "Protocol": "tcp"},
+                ],
+            },
+            {"Service": "db", "State": "exited", "ExitCode": 3, "Image": "postgres:17"},
+        ),
+    )
+    payload = sent[0]
+    assert _header(payload) == "⚠️ Stack started — 1 service(s) need attention"
+    assert _services_body(payload) == (
+        "*Services* — 1 of 2 healthy\n"
+        f"{RED} `db` · exited · exit 3 — postgres:17"
+    )
+
+
+def test_notify_deduplicates_ipv4_and_ipv6_publishers(
+    dummy_runtime, temp_dir: pathlib.Path
+):
+    sent = _notified_stack(
+        dummy_runtime,
+        temp_dir,
+        event="up",
+        services=(
+            {
+                "Service": "web",
+                "State": "running",
+                "Health": "unhealthy",
+                "Image": "nginx:alpine",
+                "Publishers": [
+                    {"URL": "0.0.0.0", "TargetPort": 80, "PublishedPort": 18080, "Protocol": "tcp"},
+                    {"URL": "::", "TargetPort": 80, "PublishedPort": 18080, "Protocol": "tcp"},
+                    {"TargetPort": 53, "PublishedPort": 0, "Protocol": "udp"},
+                ],
+            },
+        ),
+    )
+    assert _services_body(sent[0]) == (
+        "*Services* — 0 of 1 healthy\n"
+        "\U0001f7e1 `web` · running · unhealthy — nginx:alpine · 18080→80"
+    )
+
+
+def test_notify_reports_volumes_with_mount_paths_and_sizes(
+    dummy_runtime, temp_dir: pathlib.Path
+):
+    (temp_dir / "docker-compose.yml").write_text(
+        "services:\n"
+        "  web:\n"
+        "    image: nginx:alpine\n"
+        "    volumes:\n"
+        "      - web-data:/usr/share/nginx/html\n"
+        "volumes:\n"
+        "  web-data:\n",
+        encoding="utf-8",
+    )
+    dummy_runtime.commands_run.clear()
+    dummy_runtime.CLI_STDOUT = json.dumps(
+        {
+            "Volumes": [
+                {
+                    "Name": "my_stack_web-data",
+                    "Size": "12.5MB",
+                    "Labels": "com.docker.compose.project=my_stack,"
+                    "com.docker.compose.volume=web-data",
+                },
+                {
+                    "Name": "other_project_cache",
+                    "Size": "1GB",
+                    "Labels": "com.docker.compose.project=other,com.docker.compose.volume=cache",
+                },
+            ]
+        }
+    )
+    sent = _notified_stack(dummy_runtime, temp_dir, event="up")
+    payload = sent[0]
+
+    assert _block_types(payload) == ["header", "section", "section", "divider", "section", "context"]
+    assert _volumes_body(payload) == (
+        "*Volumes* (1)\n"
+        f"{GREEN} `my_stack_web-data` · web:/usr/share/nginx/html · 12.5MB"
+    )
+    assert ["system", "df", "-v", "--format", "json"] in dummy_runtime.commands_run
+
+
+def test_notify_lists_volumes_even_when_sizes_are_unavailable(
+    dummy_runtime, temp_dir: pathlib.Path
+):
+    (temp_dir / "docker-compose.yml").write_text(
+        "services:\n"
+        "  db:\n"
+        "    image: postgres:17\n"
+        "    volumes:\n"
+        "      - type: volume\n"
+        "        source: pgdata\n"
+        "        target: /var/lib/postgresql/data\n"
+        "volumes:\n"
+        "  pgdata:\n",
+        encoding="utf-8",
+    )
+    dummy_runtime.CLI_STDOUT = json.dumps({"Volumes": []})
+    sent = _notified_stack(dummy_runtime, temp_dir, event="up")
+    assert _volumes_body(sent[0]) == (
+        "*Volumes* (1)\n" f"{GREEN} `pgdata` · db:/var/lib/postgresql/data"
+    )
+
+
+def test_notify_skips_the_host_scan_when_no_volume_is_declared(
+    dummy_runtime, temp_dir: pathlib.Path
+):
+    dummy_runtime.commands_run.clear()
+    sent = _notified_stack(dummy_runtime, temp_dir, event="up")
+    assert _block_types(sent[0]) == ["header", "section", "section", "context"]
+    assert ["system", "df", "-v", "--format", "json"] not in dummy_runtime.commands_run
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        {"returncode": 1, "stdout": "", "stderr": "boom"},
+        {"returncode": 0, "stdout": "not json", "stderr": ""},
+        {"returncode": 0, "stdout": '["unexpected"]', "stderr": ""},
+        {"returncode": 0, "stdout": json.dumps({"Volumes": "nope"}), "stderr": ""},
+        {"raises": "OSError"},
+    ],
+)
+def test_notify_degrades_gracefully_when_the_volume_scan_fails(
+    dummy_runtime, temp_dir: pathlib.Path, failure
+):
+    (temp_dir / "docker-compose.yml").write_text(
+        "services:\n"
+        "  db:\n"
+        "    volumes:\n"
+        "      - pgdata:/data\n"
+        "volumes:\n"
+        "  pgdata:\n",
+        encoding="utf-8",
+    )
+    if failure.get("raises"):
+        dummy_runtime.run_cli = MagicMock(side_effect=OSError("docker not answering"))
+    else:
+        dummy_runtime.run_cli = MagicMock(
+            return_value=_Proc(failure["stdout"], failure["returncode"])
+        )
+    sent = _notified_stack(dummy_runtime, temp_dir, event="up")
+    # The volume is still reported; only its size is missing.
+    assert _volumes_body(sent[0]).endswith("`pgdata` · db:/data")
+
+
+def test_notify_ignores_unusable_volume_entries(dummy_runtime, temp_dir: pathlib.Path):
+    (temp_dir / "docker-compose.yml").write_text(
+        "services:\n"
+        "  db:\n"
+        "    volumes:\n"
+        "      - pgdata:/data\n"
+        "volumes:\n"
+        "  pgdata:\n",
+        encoding="utf-8",
+    )
+    dummy_runtime.CLI_STDOUT = json.dumps(
+        {
+            "Volumes": [
+                "not-a-mapping",
+                {"Name": "no-labels", "Size": "1kB"},
+                {"Name": "foreign", "Size": "1kB", "Labels": "com.docker.compose.project=other"},
+                {"Name": "unlabeled", "Size": "9kB", "Labels": "no.project.here"},
+                {
+                    "Name": "found",
+                    "Size": "9kB",
+                    "Labels": "com.docker.compose.project=my_stack,com.docker.compose.volume=pgdata",
+                },
+                {
+                    "Name": "no-compose-key",
+                    "Size": "5kB",
+                    "Labels": "com.docker.compose.project=my_stack",
+                },
+            ]
+        }
+    )
+    sent = _notified_stack(dummy_runtime, temp_dir, event="up")
+    body = _volumes_body(sent[0])
+    assert "9kB" in body
+    assert "1kB" not in body
+    assert "5kB" not in body
+
+
+def test_notify_still_sends_when_service_query_fails(
+    dummy_runtime, temp_dir: pathlib.Path
+):
+    dummy_runtime.run_compose = MagicMock(side_effect=OSError("docker not answering"))
+    sent = _notified_stack(dummy_runtime, temp_dir, event="up")
+    # No services block at all, but the notification itself still goes out.
+    assert _block_types(sent[0]) == ["header", "section", "context"]
+    assert sent[0]["text"] == "my_stack"
+
+
+def test_notify_survives_a_runtime_error_from_the_service_query(
+    dummy_runtime, temp_dir: pathlib.Path
+):
+    dummy_runtime.run_compose = MagicMock(side_effect=RuntimeError("compose ps blew up"))
+    assert len(_notified_stack(dummy_runtime, temp_dir, event="up")) == 1
+
+
+def test_notify_skips_the_service_section_when_ps_returns_nothing(
+    dummy_runtime, temp_dir: pathlib.Path
+):
+    dummy_runtime.run_compose = MagicMock(return_value=_Proc(""))
+    sent = _notified_stack(dummy_runtime, temp_dir, event="up")
+    assert _block_types(sent[0]) == ["header", "section", "context"]
+
+
+def test_notify_reads_podman_style_lowercase_ps_fields(
+    dummy_runtime, temp_dir: pathlib.Path
+):
+    dummy_runtime.run_compose = MagicMock(
+        return_value=_Proc(json.dumps([{"Name": "web", "state": "running", "health": "healthy"}]))
+    )
+    sent = _notified_stack(dummy_runtime, temp_dir, event="up")
+    assert _services_body(sent[0]) == "*Services* — 1 of 1 healthy"
+
+
+def test_notify_defaults_the_service_state_when_ps_omits_it(
+    dummy_runtime, temp_dir: pathlib.Path
+):
+    dummy_runtime.run_compose = MagicMock(return_value=_Proc(json.dumps([{"Service": "db"}])))
+    sent = _notified_stack(dummy_runtime, temp_dir, event="up")
+    assert _services_body(sent[0]) == f"*Services* — 0 of 1 healthy\n{RED} `db` · unknown"
+
+
+def test_notify_ignores_unusable_publisher_entries(
+    dummy_runtime, temp_dir: pathlib.Path
+):
+    dummy_runtime.run_compose = MagicMock(
+        return_value=_Proc(
+            json.dumps(
+                [
+                    {
+                        "Service": "web",
+                        "State": "running",
+                        "Health": "starting",
+                        "Publishers": "not-a-list",
+                    },
+                    {
+                        "Service": "db",
+                        "State": "exited",
+                        "Publishers": ["nope", {"TargetPort": 5432}],
+                    },
+                ]
+            )
+        )
+    )
+    sent = _notified_stack(dummy_runtime, temp_dir, event="up")
+    body = _services_body(sent[0])
+    assert f"{RED} `db` · exited" in body
+    assert "nope" not in body
+
+
+def test_stack_down_never_notifies(dummy_runtime, temp_dir: pathlib.Path):
+    (temp_dir / "docker-compose.yml").touch()
+    cfg = Config(
+        name="my_stack",
+        profiles={"default": Profile(file="docker-compose.yml")},
+        notify_slack=SlackNotify(webhook=WEBHOOK),
+    )
+    dummy_runtime.ensure_ready_for_start = MagicMock()
+    with patch("compman.notify.post") as post:
+        stack.down(dummy_runtime, cfg)
+    post.assert_not_called()
+
+
+def test_unset_notify_env_warns_once_per_start(dummy_runtime, temp_dir: pathlib.Path, capsys):
+    (temp_dir / "docker-compose.yml").touch()
+    cfg = Config(
+        name="my_stack",
+        profiles={"default": Profile(file="docker-compose.yml")},
+        notify_slack=SlackNotify(webhook_env="MY_SLACK_HOOK"),
+    )
+    dummy_runtime.ensure_ready_for_start = MagicMock()
+    with patch("compman.notify.post") as post:
+        stack.up(dummy_runtime, cfg)
+    post.assert_not_called()
+    assert "MY_SLACK_HOOK" in capsys.readouterr().err

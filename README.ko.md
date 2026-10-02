@@ -151,13 +151,15 @@ S3 경로는 두 가지 형식을 지원합니다.
 compman deploy --path https://example.com/releases/app.zip --build --tag my-app
 ```
 
-같은 이름의 배포 대상만 교체하고 다른 사용자 파일은 유지합니다. `--build`를 쓰면 교체(swap) 전에 임시 소스에서 이미지를 빌드하므로, 빌드가 실패해도 기존 트리와 설정은 그대로입니다. 소스 교체 단계가 실패하면 이전 트리를 복원합니다. swap 이후의 스캐폴드 생성 실패만이 새 소스 트리를 그 자리에 남길 수 있습니다.
+같은 이름의 배포 대상만 교체하고 사용자의 파일은 유지합니다.
 
-배포 소스는 SHA-256 다이제스트로 known-good 아티팩트에 고정할 수 있습니다. 한 번의 실행에만 적용하려면 `--sha256 HEX`를 전달하고, `compman.yml`에서 `deploy`를 매핑(`{ url: ..., sha256: ... }`)으로 설정해도 됩니다. 내려받은 소스는 추출, 이미지 빌드, managed-tree swap 전에 검증되며, 불일치 시 exit status 1로 배포를 중단하고 디스크에는 아무 변경도 남기지 않습니다. 이 고정은 배포 소스 URL이 설정된 `deploy` URL과 같을 때 항상 적용되므로 `compman update`가 자동으로 상속합니다.
+보장 사항:
 
-HTTPS 배포 소스는 `deploy`의 매핑 형태에 선택적 `auth` 블록으로 인증할 수 있습니다: `{ url: https://..., sha256?: ..., auth?: { header, value_env } }`. fetch 시점에 compman은 `value_env`가 가리키는 환경 변수에서 헤더 값을 읽습니다. 토큰은 `compman.yml`에 저장되지도, 출력에 노출되지도 않으며, 오류 메시지는 변수 이름만 언급합니다. 헤더는 `<env value>` 그대로 전송되므로 Bearer 인증이라면 변수에 `Bearer <token>` 문자열 전체를 넣어야 합니다.
-
-인증 소스는 `https://`를 요구합니다. plain `http://`에 `auth`를 조합하면 설정 오류입니다. cross-host 리디렉션에서는 따라가기 전에 auth 헤더를 제거해 토큰이 리디렉션 대상으로 새지 않게 하고, same-host 리디렉션에서는 헤더를 유지합니다. CDN이 리디렉션 후에도 헤더를 요구한다면 아카이브를 같은 호스트에서 서브하세요. 인증은 배포 소스 URL이 설정된 `deploy` URL과 같을 때만 적용되며, 명시적인 `--path` 배포는 인증되지 않습니다(문서화된 제한). `deploy.auth`가 설정됐는데 환경 변수가 unset이면 `compman doctor`가 경고합니다.
+- **트랜잙셔널 빌드.** `--build`는 managed-tree swap *이전에* 임시 소스에서 이미지를 빌드하므로, 빌드가 실패해도 기존 트리와 설정은 그대로입니다. swap이 실패하면 롤백됩니다. swap 이후의 스캐폴드 생성 실패만이 새 트리를 그 자리에 남길 수 있습니다.
+- **무결성 고정.** `--sha256 HEX` 또는 매핑 형태의 `deploy.sha256`은 내려받은 뒤, 추출·빌드·swap *이전에* 검증됩니다. 불일치 시 exit 1로 중단되고 디스크에는 아무 변화도 없습니다. 배포 URL이 설정된 `deploy` URL과 같을 때 항상 적용되므로 `compman update`가 상속합니다.
+- **토큰 처리.** `deploy.auth: { header, value_env }`는 fetch 시점에 `value_env`가 가리키는 변수에서 헤더 값을 읽습니다. 토큰은 `compman.yml`에 저장되지도 출력에 노출되지도 않으며, 오류는 변수 이름만 언급합니다. 헤더는 그대로 전송되므로 Bearer 인증이라면 변수에 `Bearer <token>` 전체를 넣습니다.
+- **인증은 HTTPS 필수.** `http://`와 `auth` 조합은 설정 오류입니다. cross-host 리디렉션에서는 따라가기 전에 헤더를 제거해 토큰이 새지 않게 하고, same-host에서는 유지합니다. CDN이 리디렉션 후에도 헤더를 요구하면 같은 호스트에서 서브하세요.
+- **적용 범위.** 인증은 배포 URL이 설정된 `deploy` URL과 같을 때만 적용되므로 명시적인 `--path` 배포는 인증되지 않습니다. `deploy.auth`가 설정됐는데 변수가 unset이면 `compman doctor`가 경고합니다.
 
 ## 설정 파일
 
@@ -251,7 +253,7 @@ compman:
 
 ### AWS Secrets Manager 환경 변수
 
-최상위 `secrets` 키로 공유 시크릿 값을 제공합니다. 각 항목은 이름을 `{ arn, key }`에 매핑합니다. 프로파일 `env` 값은 `${secrets:NAME}` 마커로 이 이름을 참조하고, compose 컨텍스트를 만들 때 compman이 시크릿의 JSON `SecretString`을 가져와 `key` 위치의 값으로 치환합니다.
+최상위 `secrets` 키에 공유 시크릿을 `{ arn, key }` 쌍으로 선언하고, 프로파일 `env`에서 `${secrets:NAME}` 마커로 참조합니다. compose 컨텍스트를 만들 때 compman이 시크릿의 JSON `SecretString`을 가져와 `key` 위치의 값으로 치환합니다.
 
 ```yaml
 compman:
@@ -259,32 +261,11 @@ compman:
   compose:
     default:
       file: docker-compose.yml
-  secrets:
-    DB_URL:
-      arn: arn:aws:secretsmanager:ap-northeast-2:123456789012:secret:db
-      key: dtx/db/url
-    DB_PASSWORD:
-      arn: arn:aws:secretsmanager:ap-northeast-2:123456789012:secret:db
-      key: dtx/db/password
-```
-
-- 시크릿은 프로파일 `env` 값에 `${secrets:NAME}` 마커가 있을 때만 주입되며, standalone compose 변수로 전달되지 않습니다. 프로파일 `secrets` 블록은 최상위 블록 위에 병합됩니다(이름이 겹치면 프로파일이 이깁니다).
-- `key`는 시크릿 안의 JSON 키 이름입니다(`dtx/db/url` 같은 slash 키를 지원합니다).
-- 같은 ARN은 여러 env 변수가 참조해도 명령 실행당 한 번만 가져옵니다.
-- 시크릿 누락, region 미확정, 잘못된 시크릿 본문은 명령을 명확한 오류로 실패시킵니다. 표준 AWS 자격 증명/region 환경 변수를 사용하세요. 시크릿이 설정됐는데 자격 증명이나 region이 없으면 `compman doctor`가 경고를 보고합니다.
-
-**프로파일 `env`에서 시크릿 참조:** `secrets`에 `DB_URL`/`DB_PASSWORD` 쌍을 선언하고 `docker-compose.yml`에 그대로 옮기는 대신, `${secrets:NAME}` 마커로 env 값을 구성할 수 있습니다. `NAME`은 `secrets` 블록에 선언된 이름이어야 합니다. 부분 치환을 지원하며, 마커는 시스템 변수 참조(compose가 해석하도록 그대로 둠) 옆에 놓일 수 있습니다:
-
-```yaml
-compman:
-  name: my-stack
-  compose:
-    local: docker-compose.local.yml
     dev:
       file: docker-compose.dev.yml
       env:
         DATABASE_URL: postgres://${secrets:DB_USER}:${secrets:DB_PASSWORD}@db.example.com
-        LOG_LEVEL: ${LOG_LEVEL:-info}          # system var, resolved by compose
+        LOG_LEVEL: ${LOG_LEVEL:-info}          # 시스템 변수, compose가 해석
   secrets:
     DB_USER:
       arn: arn:aws:secretsmanager:ap-northeast-2:123456789012:secret:db
@@ -294,9 +275,7 @@ compman:
       key: dtx/db/password
 ```
 
-선언되지 않은 이름을 참조하는 마커는 명령을 명확한 오류로 실패시킵니다.
-
-**주입된 변수 사용:** 선언만으로는 부족합니다. compman은 치환된 프로파일 `env` 값을 `docker compose` 프로세스 환경에 넘기므로, `docker-compose.yml`은 `${VAR}` 치환으로 참조해야 합니다:
+치환된 값은 `docker compose` 프로세스 환경으로 전달되므로 Compose 파일에서 여전히 참조해야 합니다:
 
 ```yaml
 # docker-compose.yml
@@ -304,9 +283,14 @@ services:
   app:
     image: my-app
     environment:
-      - DB_URL=${DB_URL}                  # injected from secrets
-      - LOG_LEVEL=${LOG_LEVEL:-info}      # with a default fallback
+      - DB_USER=${DB_USER}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
 ```
+
+- 시크릿은 프로파일 `env` 값에 `${secrets:NAME}` 마커가 있을 때만 주입되며, standalone compose 변수로 전달되지 않습니다. 선언되지 않은 이름을 참조하면 명령이 실패합니다.
+- `key`는 slash 경로일 수 있습니다(`dtx/db/user`). 부분 치환이 가능하며 마커는 시스템 변수 참조 옆에 놓일 수 있습니다.
+- 프로파일 `secrets` 블록은 최상위 블록 위에 병합됩니다(이름이 겹치면 프로파일 우선). 같은 ARN은 여러 변수가 참조해도 실행당 한 번만 가져옵니다.
+- 시크릿 누락, region 미확정, 잘못된 본문은 명령을 명확한 오류로 실패시킵니다. 표준 AWS 자격 증명/region 환경 변수를 사용하세요. 시크릿이 설정됐는데 자격 증명이나 region이 없으면 `compman doctor`가 경고합니다.
 
 ## 명령어
 
@@ -360,16 +344,14 @@ compman clear [--yes]
 
 ### 동작 참고 사항
 
-- `update`: `deploy`가 설정되어 있으면 S3 또는 HTTP 소스를 내려받아 이미지를 빌드하고 스택을 시작합니다. 없으면 로컬 Compose 프로젝트를 `up -d --build`로 갱신합니다.
-- `stack down`: 존재하지 않는 스택을 종료해도 오류가 아닙니다. compman은 안내를 출력하고 exit 0으로 끝나므로 스크립트가 멱등하게 호출할 수 있습니다.
-- `service log`: 기본으로 마지막 50줄을 표시하고 `-f`로 출력을 스트리밍합니다. Compose 서비스 이름을 받아 `compose ps -q`로 컨테이너를 찾으며, 여러 인스턴스로 스케일된 서비스는 정확한 컨테이너 이름을 요청합니다.
-- `ps`: 선택한 compman 프로젝트의 실행 중인 컨테이너를 나열합니다. `-a`로 중단된 컨테이너까지 포함합니다.
-- `stats`: 선택한 프로젝트의 실행 중인 컨테이너에 대한 리소스 사용량 스냅샷을 한 번 출력합니다. `-f`로 계속 스트리밍합니다.
-- `service connect`: `bash` 연결이 실패하면 `sh`로 폴백합니다.
-- `volume backup/restore`: 기본적으로 작업 동안 스택을 내리고 끝난 뒤 되살립니다. 일관성 위험을 이해할 때만 `--no-stop`을 쓰세요.
-- `volume restore/push --replace`: 병합하는 대신 대상에 없는 소스 기준으로 대상의 파일을 삭제합니다(바이트 단위 교체). 대상은 검증된 절대 컨테이너 경로여야 하며, 파괴적이므로 신중하게 쓰세요.
-- `image backup`: 기본적으로 실행 중인 컨테이너 상태를 commit해 저장합니다. 원본 이미지를 저장하려면 `--source-image`를 쓰세요.
-- `volume backup`과 `image backup`: gzip 레벨 기본값은 6입니다. `-z 1`은 더 빠른 백업, `-z 9`는 더 작은 아카이브입니다(`-z`는 gzip에만 적용). `--zstd`를 추가하면 대신 Zstandard `.tar.zst` 아카이브를 작성합니다. Python 3.14 이상이 필요하고, `.tar.zst` 백업 복구에도 마찬가지입니다.
+- `update`: `deploy`가 설정되어 있으면 소스를 가져와 빌드하고 스택을 시작하며, 없으면 로컬에서 `up -d --build`를 실행합니다. 재빌드 + 강제 재생성이며 **무중단 롤링 배포가 아닙니다**.
+- `stack down`: 존재하지 않는 스택을 종료해도 오류가 아니라 안내를 출력하고 exit 0으로 끝나므로 스크립트가 멱등하게 호출할 수 있습니다. `--yes`가 없으면 확인을 요청합니다.
+- `ps` / `stats`: 선택한 compman 프로젝트 범위로 한정되며 런타임 전체를 보지 않습니다. `ps -a`는 중단된 컨테이너까지 포함합니다.
+- `service log` / `connect`: Compose **서비스** 이름을 받아 `compose ps -q`로 컨테이너를 찾습니다. tail 기본값은 50줄입니다. 인스턴스가 0개이거나 여러 개인 서비스는 추정하지 않고 안내와 함께 실패합니다.
+- `service connect`: `bash`가 없으면 `sh`로 폴백합니다.
+- `volume backup` / `restore`: 작업 동안 스택을 내리고 끝난 뒤 되살립니다. `--no-stop`은 이 일관성 보장을 포기하는 것입니다. 모든 컨테이너가 중지된 상태에서도 복구할 수 있으며, 이때 compman이 스택을 임시로 시작해 복구한 뒤 다시 중지합니다.
+- `volume restore` / `push --replace`: 병합하는 대신 대상에 없는 소스 기준으로 파일을 삭제하는 바이트 단위 교체입니다. 대상은 검증된 절대 컨테이너 경로여야 하므로 설계상 파괴적입니다.
+- `volume backup` / `image backup`: gzip 레벨 기본값은 6입니다(`-z 1`은 더 빠르고, `-z 9`는 더 작습니다. `-z`는 gzip에만 적용). `--zstd`를 추가하면 대신 Zstandard `.tar.zst`를 작성하며 Python 3.14 이상이 필요하고 복구도 마찬가지입니다. `image backup`은 기본적으로 컨테이너 상태를 commit하고, `--source-image`를 주면 원본 이미지를 저장합니다.
 - `clear`: 선택한 런타임에 `image prune -af`를 실행하므로 현재 프로젝트 밖의 미사용 이미지도 삭제할 수 있습니다. `--yes` 확인(또는 대화형 `y` 응답)이 필요합니다.
 
 ## 진단 및 상태
@@ -496,10 +478,9 @@ compman schedule remove my-stack.volume           # default job name: <project>.
 compman 1.12.0 · stack up
 ```
 
-- 메타데이터 블록은 한 줄에 라벨 항목 2개를 배치해 총 3줄로 줄였습니다. Slack의 `section.fields`는 "2열을 허용하는 컴팩트 형식"으로 **표시된다**고만 문서화되어 있고, 이를 세로로 쌓는 클라이언트에서는 필드 6개가 12줄이 됩니다. 쌍을 하나의 텍스트 블록에 직접 써서 어떤 화면에서도 한 줄에 2개씩 유지됩니다.
-- 서비스는 정상 개수로 요약됩니다. **정상이 아닌 서비스만** 나열되며, 각 줄에 state, exit code, 이미지 태그, 공개된 포트(`18080→80`)가 함께 표시됩니다. 장애가 나면 정보가 사라지지 않고, 정상이면 단 한 줄이면 됩니다.
-- 하나라도 정상이 아닌 서비스가 있으면 헤드라인이 `⚠️ Stack started — N service(s) need attention`로 바뀌므로, 푸시 알림 자체에 경고가 담깁니다.
-- 명명된 볼륨은 마운트하는 서비스와 디스크 사용량과 함께 표시됩니다. 장애 난 서비스가 마운트한 볼륨은 🔴로 표시되어 원인이 되는 서비스를 짚어줍니다.
+메타데이터 블록은 한 줄에 라벨 항목 2개를 담습니다. Slack의 `section.fields`는 "2열을 허용하는 컴팩트 형식"으로 **표시된다**고만 문서화되어 있고, 이를 세로로 쌓는 클라이언트에서는 필드 6개가 12줄이 됩니다. 쌍을 하나의 텍스트 블록에 직접 써서 어떤 화면에서도 한 줄에 2개씩 유지됩니다.
+
+서비스는 정상 개수로 요약하고 **정상이 아닌 것만** 나열하며, 각 줄에 state, exit code, 이미지 태그, 공개된 포트(`18080→80`)가 함께 표시됩니다. 하나라도 정상이 아니면 헤드라인이 `⚠️ Stack started — N service(s) need attention`로 바뀌므로 푸시 알림 자체에 경고가 담깁니다. 명명된 볼륨은 마운트 경로와 디스크 사용량과 함께 표시되며, 장애 난 서비스가 쓴 볼륨은 🔴로 표시해 원인을 짚어줍니다.
 
 가장 빠른 방법은 설정 파일을 건드리지 않고 웹훅을 export 하는 것입니다. 그러면 모든 스택이 바로 인식합니다:
 
@@ -508,7 +489,7 @@ export COMPMAN_SLACK_WEBHOOK_URL='https://hooks.slack.com/services/T000/B000/XXX
 # PowerShell: $env:COMPMAN_SLACK_WEBHOOK_URL="https://hooks.slack.com/services/T000/B000/XXXX"
 ```
 
-스택별로 웹훅을 지정하거나 호출하는 셸의 환경에서 URL을 빼두려면 대신 `compman.yml`에 변수 이름을 적습니다:
+스택별로 지정하려면 대신 `compman.yml`에 변수 이름을 적습니다:
 
 ```yaml
 compman:
@@ -518,15 +499,15 @@ compman:
       # webhook: https://hooks.slack.com/services/...   # 직접 적으면 이 파일에 시크릿이 남습니다
 ```
 
-웹훅 URL은 메시지를 쓸 수 있는 자격 증명입니다. `compman.yml`은 셸 프로파일보다 커밋이 훨씬 자주 되므로 `webhook_env` 방식을 권장하고, 값은 시크릿 저장소나 추적되지 않는 env 파일에 두세요. 직접 적는 `webhook`는 반드시 `https://` URL이어야 합니다.
+웹훅 URL은 채널에 메시지를 쓸 수 있으므로 `webhook_env` 방식을 권장합니다. `compman.yml`은 셸 프로파일보다 커밋이 훨씬 자주 되기 때문입니다. 직접 적는 `webhook`는 반드시 `https://` URL이어야 합니다.
 
-해석 순서는 `webhook`, `webhook_env`가 가리키는 변수, `COMPMAN_SLACK_WEBHOOK_URL` 순서입니다. 단, 마지막 것은 파일에 `notify.slack` 블록이 없을 때만 적용됩니다. `webhook_env`를 설정한 스택은 전역 변수로 대체되지 않으므로, 스택별 설정이 환경에 떠 있는 값으로 조용히 바뀌지 않습니다.
+해석 순서는 `webhook`, `webhook_env`가 가리키는 변수, `COMPMAN_SLACK_WEBHOOK_URL` 순서이며, 마지막 것은 파일에 `notify.slack` 블록이 없을 때만 적용됩니다. `webhook_env`를 설정한 스택은 전역 변수로 대체되지 않으므로, 스택별 설정이 환경에 떠 있는 값으로 조용히 바뀌지 않습니다.
 
-전송은 best-effort이며 종료 코드에 영향을 주지 않습니다. 알림을 보내는 시점에는 이미 컨테이너가 실행 중이므로, Slack 장애나 폐기된 웹훅 또는 설정되지 않은 변수는 stderr에 경고만 남기고 명령은 여전히 exit `0`입니다. Slack은 폐기된 웹훅에도 `HTTP 200`을 반환하고 실제 결과를 본문에 담으므로, compman은 상태 줄을 믿지 않고 본문(`ok`)을 확인합니다. `webhook_env`가 설정되지 않은 변수를 가리키면 `compman doctor`가 경고합니다.
+전송은 best-effort이며 종료 코드에 영향을 주지 않습니다. 알림을 보내는 시점에는 이미 컨테이너가 실행 중이므로, Slack 장애나 폐기된 웹훅 또는 설정되지 않은 변수는 stderr에 경고만 남기고 명령은 여전히 exit `0`입니다. Slack은 폐기된 웹훅에도 `HTTP 200`을 반환하고 결과를 본문에 담으므로, compman은 상태 줄 대신 본문(`ok`)을 확인합니다. `webhook_env`가 설정되지 않은 변수를 가리키면 `compman doctor`가 경고합니다.
 
 알아야 할 두 가지 부작용:
 
-- 볼륨 **용량**은 `docker system df -v`에서 가져옵니다. Docker에서 크기를 노출하는 유일한 경로입니다. 이 명령은 호스트의 모든 이미지와 볼륨을 스캔하므로, compman은 compose 파일에 명명된 볼륨이 실제로 선언되어 있고 알림이 켜져 있을 때만 실행합니다. 지원하지 않는 런타임(Podman)이나 실패 시에는 볼륨을 마운트 경로와 함께 계속 표시하고 **용량만 생략**합니다.
+- 볼륨 **용량**은 `docker system df -v`에서 가져옵니다. Docker에서 크기를 노출하는 유일한 경로입니다. 이 명령은 호스트의 모든 이미지와 볼륨을 스캔하므로, compose 파일에 명명된 볼륨이 실제로 선언되어 있고 알림이 켜져 있을 때만 실행합니다. 지원하지 않는 런타임(Podman)이나 실패 시에는 볼륨을 마운트 경로와 함께 계속 표시하고 **용량만 생략**합니다.
 - 알림을 보내는 명령은 `stack up`, `stack update`, deploy를 사용하는 `compman update`뿐입니다. `stack down`, 백업, 복구는 알림을 보내지 않으므로 백업 과정의 임시 재기동은 조용합니다.
 
 ## 런타임 선택
@@ -560,16 +541,16 @@ Docker Desktop 준비 실패를 포함한 예상된 운영 실패는 Python trac
 
 ## S3 호환 스토리지
 
-표준 AWS SDK 환경 변수를 사용합니다.
+표준 AWS SDK 환경 변수를 사용합니다. `AWS_ENDPOINT_URL_S3`가 클라이언트를
+리디렉트하며, 없을 때는 `AWS_ENDPOINT_URL`도 동작합니다. S3 배포와 S3 백업
+저장소 모두 이를 따르므로 Ministack과 LocalStack가 별도 설정 없이 동작합니다.
 
 ```bash
 export AWS_ACCESS_KEY_ID=...
 export AWS_SECRET_ACCESS_KEY=...
 export AWS_DEFAULT_REGION=ap-northeast-2
-export AWS_ENDPOINT_URL_S3=http://localhost:4566   # Default Ministack/LocalStack port
+export AWS_ENDPOINT_URL_S3=http://localhost:4566   # Ministack/LocalStack 기본 포트
 ```
-
-`AWS_ENDPOINT_URL_S3`가 없으면 `AWS_ENDPOINT_URL`도 사용할 수 있습니다.
 
 ## 언어 및 셸 완성
 

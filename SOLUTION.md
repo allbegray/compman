@@ -91,61 +91,50 @@ mistakes below. Companion files: `AGENTS.md` (operating rules for agents) and
   `_validate_timestamp` with *different* messages; consolidated into one public
   `ops/common.validate_timestamp`.
 - **A webhook that returns `HTTP 200` has not necessarily worked.** Slack answers
-  `200` for revoked, expired, and malformed webhooks too, and puts the real verdict
-  in the body (`ok` on success, `no_token` / `invalid_payload` / `user_not_found`
-  on failure). Checking only the status line makes a dead webhook look healthy;
-  verify the body. A mistyped webhook path is redirected to Slack's HTML docs site,
-  so collapse whitespace and truncate the verdict or one warning dumps a whole web
-  page into the terminal.
-- **A best-effort side channel must be gated before it does any work.** The Slack
-  hook needs an extra `compose ps` query for service states; guard it on
-  "is a webhook configured?" first so an opted-out stack pays nothing. Same rule as
-  the lazy boto3 import and the lazily resolved secrets.
-- **Secrets belong in environment variables, not in `compman.yml`.** Follow the
-  existing `deploy.auth.value_env` pattern: config names the variable, the value is
-  read at use time, and error messages name only the variable. A config block is
-  committed far more often than a shell profile is rotated. When a config block
-  *does* opt into one variable, do not silently fall back to a global default of the
-  same purpose — that hides a broken per-stack setting.
+  `200` for revoked, expired, malformed, and *misspelled* webhooks — a bad path is
+  even redirected to the HTML docs site — and puts the real verdict in the body
+  (`ok` on success, `no_token` / `invalid_payload` on failure). Verify the body,
+  collapse whitespace, and truncate: an unchecked body dumps a whole web page into
+  the terminal.
 - **Verify against the real tool before designing around its output.** Three
-  assumptions were wrong on the first pass and only a live Docker run caught them:
-  `compose ps` **omits exited containers** unless `--all` is passed (a crashed
-  service would have vanished from the alert and the message would have claimed
-  everything healthy); its `Mounts` column is **truncated to an ellipsis** in
-  `--format json`, so mount paths must be read from the compose files instead; and
-  `Publishers` lists every mapping **twice** (IPv4 and IPv6), which needs
-  deduplicating. A mistyped webhook URL is also not a 404 — Slack serves its HTML
-  docs with `HTTP 200`.
-- **An oversized Slack block is rejected, not truncated.** `invalid_payload` comes
-  back as a 200-with-error-body, so a 40-service stack would silently lose every
-  notification until someone noticed. Cap block bodies and collapse the remainder.
-- **"Allows for 2 columns" is not "renders as 2 columns".** Slack's Block Kit docs
-  describe `section.fields` as rendering "in a compact format that allows for 2
-  columns of side-by-side text" — permissive language, and clients that stack the
-  fields vertically double the message height. Anything that must look the same
-  on desktop web, mobile, and Connect belongs in one `mrkdwn` text block that
-  packs its own columns, not in a grid the client controls.
+  assumptions about `compose ps` were wrong until a live Docker run: it **omits
+  exited containers** without `--all` (a crashed service would vanish from the
+  alert and the message would claim all healthy); its `Mounts` column is
+  **truncated to an ellipsis** in `--format json`, so mount paths must come from
+  the compose files; and `Publishers` lists each mapping **twice** (IPv4 + IPv6).
+- **A best-effort side channel must be gated before it does any work.** The Slack
+  hook needs extra `compose ps` and `system df` queries; guard them on "is a
+  webhook configured?" so an opted-out stack pays nothing. Same rule as the lazy
+  boto3 import and lazily resolved secrets.
+- **Secrets belong in environment variables, not in `compman.yml`.** Follow the
+  `deploy.auth.value_env` pattern: config names the variable, the value is read at
+  use time, errors name only the variable. A config block is committed far more
+  often than a shell profile is rotated. When a block *does* opt into one variable,
+  do not silently fall back to a global default of the same purpose — that hides a
+  broken per-stack setting.
 - **A summary plus exceptions beats a full dump.** An operator does not read 40
-  service lines; they read "3 of 3 healthy" and only need the names of the ones
-  that are not. Same data, a fraction of the noise, and the failure case is where
-  all the detail lands.
-- **SEO regressions are silent, so pin them with tests.** A renamed anchor, a
-  `softwareVersion` that drifts from `pyproject.toml`, a FAQ answer that no
-  longer matches the visible page, or a truncated meta description all ship
-  unnoticed in a static site. `tests/test_site_seo.py` asserts the title and
-  description length bands, one `<h1>`, non-skipping heading levels, resolvable
-  internal anchors, labelled sections, JSON-LD parseability, version agreement
-  with the package, and — because Google's structured-data policy requires it —
-  that every FAQPage question is actually visible on the page.
-- **Grid children default to `min-width: auto`.** One long `<pre>` line in a
-  grid cell widens the whole track past the viewport and the page starts
-  scrolling sideways on a phone, even though the `<pre>` itself has
-  `overflow-x: auto`. Set `min-width: 0` on any grid child that can hold code.
-- **Verify rendering under the real deployment path.** Switching asset hrefs to
-  absolute `/compman/...` is correct on GitHub Pages and silently 404s on a
-  local `http.server` rooted at `docs/site` — which looks like broken CSS and
-  hides real layout bugs. Serve a copy under the `/compman/` prefix and check
-  there.
+  service lines; they read "3 of 3 healthy" and need the names of the ones that are
+  not. Same data, a fraction of the noise, and the failure case is where all the
+  detail lands. Slack's oversized-block rejection (`invalid_payload`, returned as
+  200-with-error-body) makes full dumps worse than merely noisy — they fail
+  silently.
+- **"Allows for 2 columns" is not "renders as 2 columns".** Slack documents
+  `section.fields` as rendering "in a compact format that allows for 2 columns" —
+  permissive language, and clients that stack them vertically double the height.
+  Anything that must look the same on desktop, mobile, and Connect belongs in one
+  `mrkdwn` block that packs its own columns.
+- **SEO regressions are silent, so pin them with tests.** In a static site, a
+  renamed anchor, a `softwareVersion` that drifts from `pyproject.toml`, or a FAQ
+  answer that no longer matches the visible page all ship unnoticed.
+  `tests/test_site_seo.py` asserts the length bands, one `<h1>`, resolvable
+  anchors, JSON-LD validity, version agreement, and — because Google's
+  structured-data policy requires it — that every FAQPage question is visible.
+- **Grid children default to `min-width: auto`, and check the real deployment
+  path.** One long `<pre>` line widened a whole grid track past a 375px viewport,
+  scrolling the page sideways even though the `<pre>` had `overflow-x: auto`. And
+  absolute `/compman/...` asset hrefs, correct on GitHub Pages, silently 404 on a
+  local `http.server` rooted at `docs/site` — which reads as broken CSS and hides
+  the layout bug. Serve a copy under the `/compman/` prefix and measure there.
 
 ## 4. Recurring real-device E2E procedure
 

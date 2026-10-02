@@ -13,10 +13,20 @@ first.
   share image, and `SoftwareApplication` + `FAQPage` JSON-LD. Crawl discovery
   via a new `robots.txt` and `sitemap.xml`, a `favicon.svg`, and a real 404
   page.
-- Added task-oriented "Use cases" and "Install" sections targeting the
-  long-tail queries a product page rarely ranks for, expanded the FAQ to nine
-  entries including when *not* to use compman, and labelled every section for
-  assistive technology.
+- Added task-oriented "Use cases" and "Install" sections targeting the long-tail
+  queries a product page rarely ranks for, expanded the FAQ to nine entries
+  including when *not* to use compman, and labelled every section for assistive
+  technology.
+- Documentation cleanup across the board. `AGENTS.md` is now explicitly an agent
+  operating manual: it keeps the rules, seams, and traps but drops the
+  user-facing restatement of `README.md` (35 duplicate sentences removed, file
+  roughly half its size), and the rot-prone `Generated / Commit / Branch` header
+  and hardcoded package version are gone. `README.md` and `README.ko.md` replace
+  the deploy and AWS Secrets Manager prose walls with scannable guarantee lists,
+  and no longer explain the same thing three times.
+- `SECURITY.md` gained the credential surfaces added since it was written: Slack
+  Incoming Webhook URLs, the SSH backup store, and the on-host registry/journal
+  files with what they do and do not contain.
 
 ### Fixed
 
@@ -28,6 +38,10 @@ first.
   before 1.0; it now states the real minimum and is enforced by a test.
 - Site assets use absolute `/compman/...` paths so the stylesheet and icon still
   resolve from GitHub's 404 page, which is served at the requested URL.
+- Removed `AGENTS.md` metadata that could never stay accurate: a `Generated /
+  Commit / Branch` header pinned to an August commit and a hand-maintained
+  package version. The release pipeline now derives the version from
+  `pyproject.toml`.
 
 ## [1.12.0] - 2026-10-02
 

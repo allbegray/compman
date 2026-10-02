@@ -43,6 +43,20 @@ credential flows:
   invoking user. Authorization is whatever the runtime's own configuration
   grants that user — `compman` does not add or bypass any permission layer.
 
+- **SSH backup stores** (`ssh://[user@]host[:port]/path`): transfer drives `scp`
+  and `ssh` with `BatchMode=yes` and `StrictHostKeyChecking=accept-new`. Keys are
+  assumed to be pre-provisioned in the agent's keyring; `compman` never reads,
+  writes, or generates key material. Because host keys are accepted on first
+  contact, provision them out of band first on hosts you care about.
+
+- **Slack notifications** (`notify.slack`): a Slack Incoming Webhook URL is a
+  write-capable credential for one channel. Prefer `webhook_env`, which names an
+  environment variable read at send time, so the URL never enters `compman.yml`
+  or the repository. A literal `webhook` is accepted but keeps the secret in a
+  tracked file. The URL is never echoed, and failures name only the variable.
+  Rotate a webhook after any exposure and treat it as a secret everywhere,
+  including shell history and CI logs.
+
 - **Authenticated HTTP deploys** (`deploy.auth`): an HTTPS archive fetch can
   send a single credential header, declared in `compman.yml` as
   `deploy: { url, auth: { header, value_env } }`. The header value is read
@@ -94,6 +108,26 @@ does not authenticate the publisher: compute the digest yourself and publish it
 through a channel independent of the storage location. `.sha256` sidecar files
 are not auto-fetched, and redirected endpoints configured via
 `AWS_ENDPOINT_URL_S3`/`AWS_ENDPOINT_URL` are outside this control's scope.
+
+## Activity journal and registries
+
+`compman` writes a small amount of state outside the project directory, under
+`%APPDATA%\compman` when `APPDATA` is set (always on Windows), otherwise
+`~/.config/compman`:
+
+| File | Contents |
+| ---- | -------- |
+| `schedules.json` | registered backup jobs and their config paths |
+| `history.jsonl` | append-only log of deploy/rollback/backup/restore events |
+| `runs/<name>.jsonl` | per-run start/finish records for scheduled jobs |
+| `schedule.log` | stdout/stderr of scheduled jobs (journald under systemd) |
+| `stacks.json` | multi-stack registry: name and directory per deployed stack |
+
+These records contain **paths, stack names, timestamps, and exit codes — never
+secret values**. `history.jsonl` and the run journals exist so an operator can
+audit what happened on a host nobody was watching. Delete them freely; they are
+recreated on demand. Do not commit them if your directory layout is itself
+sensitive.
 
 ## Vulnerability Reporting
 

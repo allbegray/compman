@@ -160,13 +160,15 @@ Public HTTP and HTTPS URLs support archives only. Query strings are allowed, but
 compman deploy --path https://example.com/releases/app.zip --build --tag my-app
 ```
 
-Only the deployment target with the same name is replaced; other user files are retained. With `--build`, the image is built from the temporary source before the swap, so a build failure leaves the existing tree and configuration untouched. If the source-replacement step fails, the previous tree is restored; only a scaffold-generation failure after the swap can leave the new source tree in place.
+Only the deployment target with the same name is replaced; your own files are kept.
 
-The deployment source can be pinned to a known-good artifact with a SHA-256 digest. Pass `--sha256 HEX` for a single invocation, or set `deploy` as a mapping in `compman.yml` (`{ url: ..., sha256: ... }`). The downloaded source is verified before extraction, image build, and the managed-tree swap; a mismatch aborts the deploy with exit status 1 and changes nothing on disk. The pin applies whenever the deployed source URL equals the configured `deploy` URL, so `compman update` inherits it automatically.
+Guarantees:
 
-HTTPS deploy sources can authenticate with an optional `auth` block in the mapping form of `deploy`: `{ url: https://..., sha256?: ..., auth?: { header, value_env } }`. At fetch time compman reads the header value from the environment variable named by `value_env`. The token is never stored in `compman.yml` or echoed in output, and error messages name only the variable. The header is sent exactly as `<env value>`, so for Bearer authentication set the variable to the full `Bearer <token>` string.
-
-Authenticated sources require `https://`; combining plain `http://` with `auth` is a configuration error. On a cross-host redirect compman drops the auth header before following it, so the token never leaks to the redirect target, while same-host redirects keep it. If your CDN requires the header after redirecting, serve the archive from the same host. Authentication applies only when the deployed source URL equals the configured `deploy` URL; an explicit `--path` deploy is unauthenticated (a documented limitation). `compman doctor` warns when `deploy.auth` is configured but its environment variable is unset.
+- **Transactional build.** With `--build` the image builds from the temporary source *before* the managed-tree swap, so a build failure leaves the existing tree and configuration untouched. A failed swap rolls back. Only a scaffold-generation failure after the swap can leave the new tree in place.
+- **Integrity pinning.** `--sha256 HEX`, or `deploy.sha256` in the mapping form, is verified after download and *before* extraction, build, and swap. A mismatch aborts with exit 1 and changes nothing on disk. The pin applies whenever the deployed URL equals the configured `deploy` URL, so `compman update` inherits it.
+- **Token handling.** `deploy.auth: { header, value_env }` reads the header value at fetch time from the variable named by `value_env`. The token is never stored in `compman.yml` nor echoed, and errors name only the variable. The header is sent verbatim, so for Bearer auth set the variable to the full `Bearer <token>` string.
+- **HTTPS required for auth.** `http://` plus `auth` is a configuration error. A cross-host redirect drops the header before following it, so the token cannot leak to the redirect target; same-host redirects keep it. If your CDN needs the header after redirecting, serve the archive from the same host.
+- **Scope.** Auth applies only when the deployed URL equals the configured `deploy` URL, so an explicit `--path` deploy is unauthenticated. `compman doctor` warns when `deploy.auth` is configured but its variable is unset.
 
 ## Configuration file
 
@@ -263,10 +265,10 @@ Long-running Docker/subprocess operations use a 300-second timeout by default; o
 
 ### Environment variables from AWS Secrets Manager
 
-Use the top-level `secrets` key to provide shared secret values. Each entry maps
-a name to `{ arn, key }`. Profile `env` values reference these names with
-`${secrets:NAME}` markers; compman fetches the secret's JSON `SecretString` and
-substitutes the value at `key` when a compose context is built.
+Declare shared secret values under the top-level `secrets` key as `{ arn, key }`
+pairs, then reference them from a profile `env` with `${secrets:NAME}` markers.
+compman fetches the secret's JSON `SecretString` and substitutes the value at
+`key` when it builds a compose context.
 
 ```yaml
 compman:
@@ -274,45 +276,11 @@ compman:
   compose:
     default:
       file: docker-compose.yml
-  secrets:
-    DB_URL:
-      arn: arn:aws:secretsmanager:ap-northeast-2:123456789012:secret:db
-      key: dtx/db/url
-    DB_PASSWORD:
-      arn: arn:aws:secretsmanager:ap-northeast-2:123456789012:secret:db
-      key: dtx/db/password
-```
-
-- Secrets are injected only where a profile `env` value contains a
-  `${secrets:NAME}` marker; they are never passed to compose as standalone
-  variables. A profile `secrets` block merges over the top-level one (profile
-  wins on a name clash).
-- The `key` names the JSON key inside the secret (slash keys like `dtx/db/url`
-  are supported).
-- The same ARN is fetched once per command invocation, even when multiple env
-  vars reference it.
-- A missing secret, unresolvable region, or invalid secret body fails the command
-  with a clear error. Use the standard AWS credential and region environment
-  variables; `compman doctor` reports a warning when secrets are configured but
-  credentials or region are missing.
-
-**Referencing secrets from a profile `env`:** instead of declaring a
-`DB_URL`/`DB_PASSWORD` pair in `secrets` and echoing it in `docker-compose.yml`,
-you can build env values with `${secrets:NAME}` markers. `NAME` must be a name
-declared in the `secrets` block. Partial interpolation is supported, and the
-marker can sit next to system-variable references (which are left untouched for
-docker compose to resolve):
-
-```yaml
-compman:
-  name: my-stack
-  compose:
-    local: docker-compose.local.yml
     dev:
       file: docker-compose.dev.yml
       env:
         DATABASE_URL: postgres://${secrets:DB_USER}:${secrets:DB_PASSWORD}@db.example.com
-        LOG_LEVEL: ${LOG_LEVEL:-info}          # system var, resolved by compose
+        LOG_LEVEL: ${LOG_LEVEL:-info}          # system var, left for compose to resolve
   secrets:
     DB_USER:
       arn: arn:aws:secretsmanager:ap-northeast-2:123456789012:secret:db
@@ -322,13 +290,8 @@ compman:
       key: dtx/db/password
 ```
 
-A marker that references an undeclared name fails the command with a clear
-error.
-
-**Using the injected variables:** declaring them is not enough. compman passes
-the interpolated profile `env` values into the `docker compose` process
-environment, so `docker-compose.yml` must reference them with `${VAR}`
-interpolation:
+The interpolated values are passed into the `docker compose` process
+environment, so the Compose file must still reference them:
 
 ```yaml
 # docker-compose.yml
@@ -336,9 +299,14 @@ services:
   app:
     image: my-app
     environment:
-      - DB_URL=${DB_URL}                  # injected from secrets
-      - LOG_LEVEL=${LOG_LEVEL:-info}      # with a default fallback
+      - DB_USER=${DB_USER}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
 ```
+
+- Secrets are injected **only** where a profile `env` value contains a `${secrets:NAME}` marker, never as standalone compose variables. A marker naming an undeclared secret fails the command.
+- `key` may be a slash path (`dtx/db/user`). Partial interpolation works, and markers can sit next to system-variable references.
+- A profile `secrets` block merges over the top-level one (profile wins on a clash). Each ARN is fetched once per invocation even when several variables reference it.
+- A missing secret, unresolvable region, or invalid body fails the command clearly. Use the standard AWS credential and region variables; `compman doctor` warns when secrets are configured but credentials or region are missing.
 
 ## Commands
 
@@ -392,18 +360,15 @@ View all options for a command with `compman <command> --help`.
 
 ### Behavioral notes
 
-- `update`: When `deploy` is configured, it downloads the S3 or HTTP source, builds images, and starts the stack. Otherwise, it updates the local Compose project with `up -d --build`.
-- `stack down`: Shutting down a stack that does not exist is not an error; compman prints a notice and exits 0, so scripts can call it idempotently.
-- `service log`: Displays the last 50 lines by default and streams output with `-f`. Accepts a Compose service name, resolved to its container via `compose ps -q`; scaled services with multiple instances ask for the exact container name.
-- `ps`: Lists running containers in the selected compman project. Use `-a` to include stopped containers.
-- `stats`: Prints one resource-usage snapshot for the selected project's running containers. Use `-f` to stream continuously.
-- `service connect`: Falls back to `sh` if connecting with `bash` fails.
-- Restoring while every container is stopped works as well: compman temporarily starts the stack, restores the volumes, then stops it again.
-- `volume backup/restore`: By default, brings the stack down during the operation and restores it afterward. Use `--no-stop` only when you understand the consistency risk.
-- `volume restore/push --replace`: Deletes files at the destination that are not in the source (byte-for-byte replace) instead of merging. The destination must be a validated absolute container path; this is destructive, so use it deliberately.
-- `image backup`: By default, commits and saves the state of the running container. Use `--source-image` to save the original image.
-- `volume backup` and `image backup`: gzip level defaults to 6. Use `-z 1` for faster backups or `-z 9` for smaller archives (`-z` applies to gzip only). Add `--zstd` to write a Zstandard `.tar.zst` archive instead; this requires Python 3.14+, and restoring a `.tar.zst` backup does too.
-- `clear`: Runs `image prune -af` for the selected runtime, so it can delete unused images outside the current project. Requires `--yes` confirmation (or an interactive `y` answer).
+- `update`: With `deploy` configured it fetches the source, builds, and starts the stack; otherwise it runs `up -d --build` locally. It is a rebuild plus force-recreate, **not** a zero-downtime rolling deploy.
+- `stack down`: A stack that does not exist is not an error — compman prints a notice and exits 0, so scripts can call it idempotently. Without `--yes` it asks for confirmation.
+- `ps` / `stats`: Project-scoped to the selected compman project, never runtime-wide. `ps -a` includes stopped containers.
+- `service log` / `connect`: Accept a Compose **service** name, resolved to its container via `compose ps -q`. Default tail is 50 lines. A service with zero instances or multiple instances fails with guidance rather than guessing.
+- `service connect`: Falls back to `sh` when `bash` is unavailable.
+- `volume backup` / `restore`: Brings the stack down during the operation and restores it afterward; `--no-stop` opts out of that consistency guarantee. Restoring while everything is stopped also works — compman starts the stack temporarily, restores, and stops it again.
+- `volume restore` / `push --replace`: Byte-for-byte replace instead of merge, deleting destination-only files. The destination must be a validated absolute container path, so this is destructive by design.
+- `volume backup` / `image backup`: gzip level defaults to 6 (`-z 1` faster, `-z 9` smaller; `-z` applies to gzip only). `--zstd` writes a Zstandard `.tar.zst` instead and requires Python 3.14+, including for restore. `image backup` commits container state unless `--source-image` is passed.
+- `clear`: Runs `image prune -af` for the selected runtime, so it can remove unused images outside this project. Requires `--yes` (or an interactive `y`).
 
 ## Diagnostics and status
 
@@ -540,19 +505,18 @@ The message is built to stay short on a healthy stack and to get specific when s
 compman 1.12.0 · stack up
 ```
 
-- The metadata block packs two labelled items per line, three lines in total. Slack's `section.fields` is only documented as rendering "in a compact format that allows for 2 columns", and clients that stack those fields vertically turn six fields into twelve lines — writing the pairs into one text block keeps two per row on every surface.
-- Services are summarized as a healthy count. Only services that are *not* healthy are listed, each with its state, exit code, image tag, and published ports (`18080→80`). Nothing is lost on a broken stack, and a healthy one costs a single line.
-- The headline turns into `⚠️ Stack started — N service(s) need attention` as soon as any service is not healthy, so the push notification itself carries the alarm.
-- Named volumes appear with the services that mount them and their on-disk size. Volumes mounted by a failing service are marked 🔴, which points at the likely culprit.
+The metadata block packs two labelled items per line. Slack's `section.fields` is only documented as rendering "in a compact format that allows for 2 columns", and clients that stack those fields vertically turn six fields into twelve lines — writing the pairs into one text block keeps two per row on every surface.
 
-The fastest setup needs no config change at all — export the webhook and every stack picks it up:
+Services are a healthy count plus only the ones that are *not* healthy, each with state, exit code, image tag, and published ports (`18080→80`). The headline becomes `⚠️ Stack started — N service(s) need attention` as soon as anything is off, so the push notification itself carries the alarm. Named volumes appear with their mount points and on-disk size, and a volume used by a failing service is marked 🔴 to point at the likely cause.
+
+The fastest setup needs no config change — export the webhook and every stack picks it up:
 
 ```bash
 export COMPMAN_SLACK_WEBHOOK_URL='https://hooks.slack.com/services/T000/B000/XXXX'
 # PowerShell: $env:COMPMAN_SLACK_WEBHOOK_URL="https://hooks.slack.com/services/T000/B000/XXXX"
 ```
 
-To scope a webhook per stack, or to keep the URL out of the environment of the calling shell, name the variable in `compman.yml` instead:
+To scope a webhook per stack, name the variable in `compman.yml` instead:
 
 ```yaml
 compman:
@@ -562,16 +526,16 @@ compman:
       # webhook: https://hooks.slack.com/services/...   # literal URL, stores the secret in this file
 ```
 
-`webhook_env` is preferred because the webhook URL is a write-capable credential: `compman.yml` is committed more often than a shell profile is rotated. Prefer `webhook_env` and keep the value in a secret store or an untracked env file. A literal `webhook` must be an `https://` URL.
+`webhook_env` is preferred because a webhook URL can write to a channel, and `compman.yml` is committed far more often than a shell profile is rotated. A literal `webhook` must be `https://`.
 
-Resolution order is `webhook`, then the variable named by `webhook_env`, then `COMPMAN_SLACK_WEBHOOK_URL` — but only when the file has no `notify.slack` block. A stack that configures `webhook_env` never falls back to the global variable, so a per-stack setting cannot be silently replaced by an ambient one.
+Resolution order is `webhook`, then the variable named by `webhook_env`, then `COMPMAN_SLACK_WEBHOOK_URL` — the last only when the file has no `notify.slack` block. A stack that names its own variable never falls back to the global one, so a per-stack setting cannot be silently replaced by an ambient value.
 
-Delivery is best-effort and never affects the exit status. The containers are already running when the notification is sent, so a Slack outage, a revoked webhook, or an unset variable prints a warning on stderr and the command still exits `0`. Slack answers `HTTP 200` even for revoked webhooks and reports the real verdict in the body, so compman checks the body (`ok`) rather than trusting the status line. `compman doctor` warns when `webhook_env` names a variable that is not set.
+Delivery is best-effort and never changes the exit status: the containers are already running when the notification is sent, so a Slack outage, a revoked webhook, or an unset variable warns on stderr and still exits `0`. Slack answers `HTTP 200` even for revoked webhooks and reports the verdict in the body, so compman checks the body (`ok`) rather than the status line. `compman doctor` warns when `webhook_env` names a variable that is not set.
 
 Two consequences worth knowing:
 
-- Volume **sizes** come from `docker system df -v`, the only Docker surface that reports them. It scans every image and volume on the host, so compman runs it only when the compose files actually declare a named volume, and only when notifications are enabled. On a runtime that does not support it (Podman), or when it fails, volumes are still listed with their mount paths — only the sizes are missing.
-- Only `stack up`, `stack update`, and a deploy-driven `compman update` notify. `stack down`, backup, and restore do not, so the temporary restarts that back up the stack stay silent.
+- Volume **sizes** come from `docker system df -v`, the only Docker surface that reports them. It scans every image and volume on the host, so compman runs it only when the compose files declare a named volume and notifications are enabled. On an unsupported runtime (Podman) or on failure, volumes are still listed with their mount paths — only the sizes are missing.
+- Only `stack up`, `stack update`, and a deploy-driven `compman update` notify. `stack down`, backup, and restore do not, so the temporary restarts around a backup stay silent.
 
 ## Runtime selection
 
@@ -604,16 +568,16 @@ Expected operational failures, including Docker Desktop readiness failures, are 
 
 ## S3-compatible storage
 
-Uses standard AWS SDK environment variables.
+Uses standard AWS SDK environment variables. `AWS_ENDPOINT_URL_S3` redirects the
+client; `AWS_ENDPOINT_URL` also works when the former is absent. Both S3 deploys
+and the S3 backup store honor it, so Ministack and LocalStack work out of the box.
 
 ```bash
 export AWS_ACCESS_KEY_ID=...
 export AWS_SECRET_ACCESS_KEY=...
 export AWS_DEFAULT_REGION=ap-northeast-2
-export AWS_ENDPOINT_URL_S3=http://localhost:4566   # Default Ministack/LocalStack port
+export AWS_ENDPOINT_URL_S3=http://localhost:4566   # default Ministack/LocalStack port
 ```
-
-If `AWS_ENDPOINT_URL_S3` is absent, `AWS_ENDPOINT_URL` can also be used.
 
 ## Language and shell completion
 

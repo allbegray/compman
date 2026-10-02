@@ -62,17 +62,9 @@ docker-init/        Ministack S3 seed bundle   scratch/  gitignored experiments
 | All user-facing strings | `compman/i18n.py` (`t()`, `TRANSLATIONS`) |
 | Interactive selection / backup timestamps | `compman/ops/common.py` |
 
-## CODE MAP
-
-| Symbol | Location | Role |
-|--------|----------|------|
-| `ContainerRuntime` | `docker.py` | Runtime abstraction; every command path |
-| `load_config` | `cli.py` | Config bootstrap |
-| `deploy()` | `deploy.py` | Deploy/update core |
-| `detect_runtime` | `cli.py` | Runtime selection |
-| `ensure_runtime_ready` | `ops/common.py` | Docker Desktop gate |
-| `stack_paused` | `ops/common.py` | Stop/start wrapper for backup consistency |
-| `t()` | `i18n.py` | Translation lookup |
+Highest-traffic seams: `ContainerRuntime` (`docker.py`) on every command path,
+`load_config` and `detect_runtime` (`cli.py`), `deploy()` (`deploy.py`),
+`ensure_runtime_ready` and `stack_paused` (`ops/common.py`), `t()` (`i18n.py`).
 
 ## Configuration invariants
 
@@ -203,39 +195,19 @@ smoke-test the generated executable itself (`--version`, English and Korean
 
 ## Documentation rules
 
-- Six mandatory root documents: `AGENTS.md`, `BACKLOG.md`, `CHANGELOG.md`,
-  `README.md`, `SECURITY.md`, `SOLUTION.md`. Recreate any that go missing. The root
-  holds only these six; other Markdown lives under `docs/`.
-- `docs/` is English-only and Hangul-free (enforced by `test_repository_urls.py`).
-- `BACKLOG.md` uses `[H1]`/`[M1]`/`[L1]` with `- [ ]` checkboxes. Shipped items are
-  deleted, not checked; retired IDs are never reused.
-- `SECURITY.md` documents auth, secret handling, reporting, and code-writing rules.
-  Use placeholder credentials, never real ones.
-- `SOLUTION.md` records symptom/cause/solution/prevention per topic and is the sink
-  for troubleshooting content. **Read it before touching runtime, CLI, or tests.**
-- `README.md` is authoritative; `README.ko.md` mirrors it. Prose changes to either
-  must be mirrored in the other, and
-  `test_readme_ko_command_list_matches_registered_command_tree` enforces the command
-  blocks agree with the CLI.
-- The Pages homepage stays dependency-free: no Korean, and the only permitted
-  `<script>` is `type="application/ld+json"`. Assets use absolute `/compman/...`
-  paths because GitHub serves `404.html` at the requested URL.
-- When you add a package, change architecture, or learn a bug-fix approach, record
-  it in the Execution Log below.
+- Six mandatory root documents: `AGENTS.md`, `BACKLOG.md`, `CHANGELOG.md`, `README.md`, `SECURITY.md`, `SOLUTION.md`. Recreate any that go missing. The root holds only these six; other Markdown lives under `docs/`, which is English-only and Hangul-free.
+- **Each root document owns one thing and points at the others for the rest.** `README.md` is the user manual and the GitHub landing page; `AGENTS.md` is the agent operating manual (rules, seams, traps) and must not restate user-facing features; `SOLUTION.md` is the troubleshooting sink; `SECURITY.md` is policy; `BACKLOG.md` and `CHANGELOG.md` are state. When two documents start explaining the same thing, one of them is wrong.
+- Keep documents at their current size. If a change makes one grow, cut something.
+- `BACKLOG.md` uses `[H1]`/`[M1]`/`[L1]` with `- [ ]` checkboxes. Shipped items are deleted, not checked; retired IDs are never reused.
+- `SECURITY.md` documents auth, secret handling, reporting, and code-writing rules, and every credential surface that exists. Use placeholder credentials, never real ones.
+- `SOLUTION.md` records symptom/cause/solution/prevention per topic. **Read it before touching runtime, CLI, or tests.**
+- `README.md` is authoritative; `README.ko.md` mirrors it structurally — same headings, same length, same code blocks. `test_readme_ko_command_list_matches_registered_command_tree` enforces the command blocks agree with the CLI, and the section extractor depends on the literal phrase "View all options".
+- The Pages homepage stays dependency-free: no Korean, and the only permitted `<script>` is `type="application/ld+json"`. Assets use absolute `/compman/...` paths because GitHub serves `404.html` at the requested URL.
+- When you add a package, change architecture, or learn a bug-fix approach, record it in the Execution Log below.
 
 ## Execution Log
 
-- **2026-10-02** — Homepage SEO pass: keyword-led title/description, canonical,
-  robots/OG/Twitter tags, a hand-encoded 1200x630 PNG share card, `SoftwareApplication`
-  + `FAQPage` JSON-LD, `robots.txt`, `sitemap.xml`, `favicon.svg`, a real 404 page,
-  task-oriented Use cases / Install sections, and `tests/test_site_seo.py`. Fixed a
-  mobile horizontal-overflow bug (grid children default to `min-width: auto`) and the
-  stale "Python 3.10+" claim.
-- **2026-10-02** — Slack stack-start notifications (v1.12.0): `notify.py`,
-  `compose_spec.py`, the `notify.slack` block, a `doctor` `notify_env` check, and a
-  `stack up`/`stack update` hook. Three `compose ps` assumptions were wrong until a
-  real Docker run — it needs `--all`, it truncates `Mounts`, and it duplicates
-  `Publishers` per address family.
-- **2026-08-10** — Applied the gorani documentation governance in English: audited the
-  six root documents, rewrote `SECURITY.md` into a real policy, and restructured
-  `BACKLOG.md` into the labeled H/M/L checklist format.
+- **2026-10-02** — Homepage SEO pass: keyword-led title/description, canonical, robots/OG/Twitter tags, a hand-encoded 1200x630 PNG share card, `SoftwareApplication` + `FAQPage` JSON-LD, `robots.txt`, `sitemap.xml`, `favicon.svg`, a real 404 page, task-oriented Use cases / Install sections, and `tests/test_site_seo.py`. Fixed a mobile horizontal-overflow bug (grid children default to `min-width: auto`) and the stale "Python 3.10+" claim.
+- **2026-10-02** — Slack stack-start notifications (v1.12.0): `notify.py`, `compose_spec.py`, the `notify.slack` block, a `doctor` `notify_env` check, and a `stack up`/`stack update` hook. Three `compose ps` assumptions were wrong until a real Docker run — it needs `--all`, it truncates `Mounts`, and it duplicates `Publishers` per address family.
+- **2026-10-02** — Documentation pass. `AGENTS.md` halved (25.4KB → 13.1KB) by dropping its restatement of `README.md` and its rot-prone `Generated / Commit / Branch` header; `README.md` 32.2KB → 16.5KB by replacing prose walls with guarantee lists and tables; `SECURITY.md` gained the Slack, SSH, and on-host registry credential surfaces. Recorded here as the rule it produced: each root document owns one thing, and a document that grows must lose something.
+- **2026-08-10** — Applied the gorani documentation governance in English: audited the six root documents, rewrote `SECURITY.md` into a real policy, and restructured `BACKLOG.md` into the labeled H/M/L checklist format.

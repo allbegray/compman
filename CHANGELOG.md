@@ -17,13 +17,12 @@ first.
   queries a product page rarely ranks for, expanded the FAQ to nine entries
   including when *not* to use compman, and labelled every section for assistive
   technology.
-- Documentation cleanup across the board. `AGENTS.md` is now explicitly an agent
-  operating manual: it keeps the rules, seams, and traps but drops the
-  user-facing restatement of `README.md` (35 duplicate sentences removed, file
-  roughly half its size), and the rot-prone `Generated / Commit / Branch` header
-  and hardcoded package version are gone. `README.md` and `README.ko.md` replace
-  the deploy and AWS Secrets Manager prose walls with scannable guarantee lists,
-  and no longer explain the same thing three times.
+- Documentation condensed to essentials. `README.md` drops the prose walls that
+  said the same thing three times and replaces them with guarantee lists and key
+  tables; `AGENTS.md` stops restating the user manual and keeps only rules, seams,
+  and traps; `SOLUTION.md` merges overlapping lessons. `README.md` goes
+  32.2KB -> 16.5KB and `AGENTS.md` 25.4KB -> 12.7KB, with `README.ko.md` mirroring
+  the new structure exactly.
 - `SECURITY.md` gained the credential surfaces added since it was written: Slack
   Incoming Webhook URLs, the SSH backup store, and the on-host registry/journal
   files with what they do and do not contain.

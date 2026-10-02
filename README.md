@@ -2,137 +2,73 @@
 
 [ English | [한국어](README.ko.md) ]
 
-`compman` manages Docker or Podman Compose stacks—including execution, service operations, volume and image backup, and S3 or HTTP archive deployment—from one CLI.
-
 **Project homepage:** https://allbegray.github.io/compman/
 
-## Who Is This For?
+`compman` manages Docker or Podman Compose stacks from one CLI: run and inspect
+services, back up and restore volumes and images, schedule unattended backups,
+deploy releases from S3 or HTTPS, and post a Slack notification when a stack
+comes up.
 
-This tool is dedicated to the brave, slightly unfortunate souls working in environments where a web GUI is unavailable, the firewall blocks everything useful, heavyweight management software cannot be installed, and somehow only raw Docker commands remain.
-
-If every convenient option has been answered with "not allowed," `compman` is for you.
+No daemon, no web UI, no port opened — it calls the Docker or Podman CLI you
+already have, which is why it fits locked-down hosts, jump boxes, and networks
+where a management platform cannot be installed.
 
 ## Key features
 
-- Automatically detects Docker Compose and Podman Compose runtimes
-- Uses a profile-based `compose` configuration with per-profile env vars and secrets
-- Lists and monitors only the current project's containers with `ps` and `stats`
-- Deploys from an S3 prefix/archive or an HTTP/HTTPS `.tar.gz`/`.tgz`/`.zip` archive, with optional HTTPS header authentication and SHA-256 integrity pinning
-- Automatically creates `compman.yml` and `docker-compose.yml` when deploying into an empty directory
-- Creates and restores timestamped backups of volumes and container images (gzip `.tar.gz` by default, optional Zstandard `.tar.zst` via `--zstd`)
-- Stores backups in a local directory, an S3-compatible bucket (`s3://bucket/prefix`), or a remote host over SSH/SCP (`ssh://[user@]host[:port]/path`) via `dirs.backup`
-- Korean and English help, plus shell completion
-- Posts a Slack notification when `stack up` or `stack update` brings a stack up, with unhealthy-service detail and named-volume sizes
-- Supports Windows, Linux, and macOS
+- Auto-detects Docker Compose, Podman Compose, `podman-compose`, and `docker-compose`
+- Profile-based `compose` config with per-profile env vars and AWS Secrets Manager injection
+- Project-scoped `ps` and `stats`, plus `status`/`doctor` as text or JSON for CI
+- Timestamped volume and image backups, gzip by default or Zstandard with `--zstd`
+- Local, S3, or SSH/SCP backup storage, plus scheduled jobs via launchd/systemd/cron/schtasks
+- Deploys from an S3 prefix or HTTP(S) archive with SHA-256 pinning and HTTPS header auth
+- Slack notification on `stack up` / `stack update` with unhealthy-service and volume detail
+- English and Korean help, shell completion, Windows/macOS/Linux
 
 ## Requirements
 
-- Python 3.12 or later (`--zstd` backups require Python 3.14+, which provides the stdlib `compression.zstd` module)
+- Python 3.12+ (`--zstd` needs 3.14+, which ships the stdlib `compression.zstd`)
 - Docker Compose or Podman Compose
-- For S3 deployments and the S3 backup store: accessible S3-compatible storage and AWS credentials
-- For HTTP deployments: a public archive URL, or an authenticated HTTPS URL via the `deploy.auth` configuration (token supplied through an environment variable)
+- For S3: reachable S3-compatible storage and AWS credentials
+- For authenticated HTTP deploys: an HTTPS archive URL and a token in an environment variable
 
-CI verifies Python 3.12–3.14 on Ubuntu, macOS, and Windows. See the `Python version strategy` section of [BACKLOG.md](BACKLOG.md) for the Python 3.14 support plan and upgrade decision.
+CI runs Python 3.12–3.14 on Ubuntu, macOS, and Windows. Wheels publish to PyPI on
+every tagged release.
 
-Successful CI for a push to `main` automatically creates an annotated tag from
-the version in `pyproject.toml`. Every version bump must include the matching
-dated section in `CHANGELOG.md`; existing tags are never moved. Published wheels
-land on PyPI, so `uv tool install compman` (or `pipx install compman`) installs
-from PyPI.
-
-## Installation
-
-### Automatic installation
-
-```powershell
-# Windows PowerShell
-irm https://raw.githubusercontent.com/allbegray/compman/main/install.ps1 | iex
-```
-
-```cmd
-:: Windows CMD
-curl -fsSL https://raw.githubusercontent.com/allbegray/compman/main/install.cmd -o %TEMP%\install.cmd && call %TEMP%\install.cmd
-```
+## Install
 
 ```bash
-# Linux / macOS
-curl -fsSL https://raw.githubusercontent.com/allbegray/compman/main/install.sh | sh
+uv tool install compman          # recommended, self-contained
+pipx install compman             # equivalent
 ```
 
-Open a new terminal, then verify the installation.
+Or run the bundled installer, which puts the CLI on your `PATH`:
 
 ```bash
-compman -v       # --version also works
-compman -h       # --help also works
+curl -fsSL https://raw.githubusercontent.com/allbegray/compman/main/install.sh | sh          # Linux / macOS
+irm https://raw.githubusercontent.com/allbegray/compman/main/install.ps1 | iex               # Windows PowerShell
 ```
 
-### Install with uv
-
-Let uv manage the Python interpreter for compman (it downloads a managed Python,
-so even a system running an older Python like 3.9 works):
-
-```bash
-uv tool install --force --managed-python git+https://github.com/allbegray/compman.git
-```
-
-To install a development version from the repository, run:
-
-```bash
-uv tool install .
-```
-
-Update an installed CLI using uv's stored tool source with:
-
-```bash
-compman upgrade
-```
-
-This runs `uv tool upgrade compman --reinstall --managed-python --python <current major.minor>` (the Python version compman itself runs on). To install
-upgrades from a different Git repository, pass `--repo URL` (used only for the pip fallback
-when uv is unavailable):
-
-```bash
-compman upgrade --repo https://github.com/your-fork/compman.git
-```
-
-### Recover a damaged installation
-
-If `compman upgrade` cannot run because the installation is damaged, reinstall from
-the upstream Git source. Keeping that source unpinned lets future `uv tool upgrade`
-commands continue moving to newer releases:
+Then `compman --version`. Use `compman upgrade` to refresh an installed tool in
+place. If the installation is damaged, uninstall and reinstall from the
+**unpinned** upstream source so future upgrades keep working:
 
 ```bash
 uv tool uninstall compman
-uv tool install --force --managed-python git+https://github.com/allbegray/compman.git
-compman --version
+uv tool install --managed-python git+https://github.com/allbegray/compman.git
 ```
+
+For a development checkout, use `uv tool install .` and run the CLI from the repo.
 
 ## Quick start
 
-### Existing Compose project
-
 ```bash
 cd my-project
-compman init --scaffold
+compman init --scaffold     # or run `compman init` for an interactive menu
 compman stack up
-compman service status
-compman stack down --yes
+compman status
 ```
 
-Running `compman init` without arguments displays an interactive menu with these three modes.
-
-```bash
-compman init --scaffold                         # Create compman.yml
-compman init --s3 s3://bucket/app.tar.gz --build
-compman init --seed -o project -p 18080         # Create a test project
-compman init --seed -o project -a               # Create a test project and archive
-```
-
-Overwriting existing files requires an explicit `--force`.
-
-### Deploy a new project from S3 or HTTP
-
-Run this from an empty working directory.
+To deploy into an empty directory, `compman deploy` scaffolds the config for you:
 
 ```bash
 mkdir my-app && cd my-app
@@ -140,135 +76,78 @@ compman deploy --path s3://my-bucket/releases/app.tar.gz --build --tag my-app
 compman stack up
 ```
 
-A successful deployment creates this file structure.
-
-```text
+```
 my-app/
 ├── compman.yml
 ├── docker-compose.yml
-└── project/              # Application source downloaded from S3
+└── project/              # source fetched from S3/HTTP
 ```
 
-S3 paths support these two formats.
+## Configuration
 
-- Prefix: Recursively downloads objects beneath the path and preserves their directory structure.
-- Archive: Safely extracts `.tar.gz`, `.tgz`, or `.zip`; a single top-level directory is flattened automatically.
-
-Public HTTP and HTTPS URLs support archives only. Query strings are allowed, but the URL path must end in `.tar.gz`, `.tgz`, or `.zip`.
-
-```bash
-compman deploy --path https://example.com/releases/app.zip --build --tag my-app
-```
-
-Only the deployment target with the same name is replaced; your own files are kept.
-
-Guarantees:
-
-- **Transactional build.** With `--build` the image builds from the temporary source *before* the managed-tree swap, so a build failure leaves the existing tree and configuration untouched. A failed swap rolls back. Only a scaffold-generation failure after the swap can leave the new tree in place.
-- **Integrity pinning.** `--sha256 HEX`, or `deploy.sha256` in the mapping form, is verified after download and *before* extraction, build, and swap. A mismatch aborts with exit 1 and changes nothing on disk. The pin applies whenever the deployed URL equals the configured `deploy` URL, so `compman update` inherits it.
-- **Token handling.** `deploy.auth: { header, value_env }` reads the header value at fetch time from the variable named by `value_env`. The token is never stored in `compman.yml` nor echoed, and errors name only the variable. The header is sent verbatim, so for Bearer auth set the variable to the full `Bearer <token>` string.
-- **HTTPS required for auth.** `http://` plus `auth` is a configuration error. A cross-host redirect drops the header before following it, so the token cannot leak to the redirect target; same-host redirects keep it. If your CDN needs the header after redirecting, serve the archive from the same host.
-- **Scope.** Auth applies only when the deployed URL equals the configured `deploy` URL, so an explicit `--path` deploy is unauthenticated. `compman doctor` warns when `deploy.auth` is configured but its variable is unset.
-
-## Configuration file
-
-Put all configuration under the `compman` key in `compman.yml`.
-
-A JSON Schema is published at
-[`docs/site/compman.schema.json`](docs/site/compman.schema.json), so IDEs like VS Code and IntelliJ can provide autocomplete, validation, and hover descriptions for every key. Add this line at the top of your `compman.yml` to enable it:
+Everything lives under the `compman` key in `compman.yml`. A JSON Schema is
+published at [`docs/site/compman.schema.json`](docs/site/compman.schema.json) —
+add this first line for IDE autocomplete and validation:
 
 ```yaml
 # yaml-language-server: $schema=https://allbegray.github.io/compman/compman.schema.json
 ```
 
-For case-by-case examples, see [`examples/compman-config/`](examples/compman-config/) (index in [`examples/README.md`](examples/README.md)).
+Worked examples: [`examples/compman-config/`](examples/compman-config/) (index in
+[`examples/README.md`](examples/README.md)).
 
-### Profile-based Compose configuration
+### Compose profiles
 
-`compose` is required and must be a mapping of profiles. A single profile is
-enough for one Compose file:
-
-```yaml
-compman:
-  name: my-stack
-  compose:
-    default:
-      file: docker-compose.yml
-```
-
-Multiple profiles select a Compose file and environment variables per
-environment:
+`compose` is required and must be a **mapping of profiles**. One profile is
+enough; add more to switch environment per deployment.
 
 ```yaml
 compman:
   name: my-stack
   compose:
     base: docker-compose.yml
-    local: docker-compose.local.yml
     dev:
       file: docker-compose.dev.yml
       env:
         DATABASE_URL: dev.db.example.com
-        LOG_LEVEL: debug
     prod:
       file: docker-compose.prod.yml
       env:
         DATABASE_URL: prod.db.example.com
 ```
 
-The profile `file` is optional. When omitted, `base` is used; if there is no `base`, `docker-compose.yml` is used. This lets one Compose file use different environment variables per environment.
-
 ```bash
 compman stack up dev
-compman service status --profile dev
-compman stack down --profile dev --yes
 ```
 
-### Deployment and managed directories
+A profile `file` is optional: omitted, it falls back to `base`, then
+`docker-compose.yml`. That lets one Compose file vary only by environment.
 
-```yaml
-compman:
-  name: my-stack
-  deploy: s3://my-bucket/releases/app.tar.gz
-  folder: compose
-  dirs:
-    project: project
-    backup: backup
-    volume: volume
-  compose:
-    default:
-      file: docker-compose.yml
-```
+### Keys
 
-- `folder`: Relative subdirectory containing Compose files
-- `dirs.project`: Relative subdirectory for managed deployment source
-- `dirs.backup`: Directory for backup archives
-- `dirs.volume`: Directory for transferring volume data to and from the host
-- `deploy`: Default S3 URI or public HTTP archive URL for `compman deploy` and `compman update`
+| Key | Purpose |
+|-----|---------|
+| `name` | Stack name; defaults to the config directory name |
+| `folder` | Subdirectory holding the Compose files |
+| `compose` | **Required.** Profile mapping; `base:` adds a shared Compose file |
+| `dirs.project` | Managed deployment source tree |
+| `dirs.backup` | Archive destination: local path, `s3://bucket/prefix`, or `ssh://[user@]host[:port]/path` |
+| `dirs.volume` | Scratch directory for host↔container volume transfers |
+| `deploy` | Default source for `deploy`/`update`: `s3://…`, an HTTPS archive URL, or a mapping (below) |
+| `secrets` | AWS Secrets Manager entries, referenced by `${secrets:NAME}` |
+| `notify.slack` | Slack webhook settings (see [Notifications](#notifications)) |
+| `limits.max_archive_mb` | Cap on fetched deploy source size |
+| `limits.max_backups` | Keep only the newest N archives per stack and kind |
 
-Managed paths cannot escape the directory containing `compman.yml`. `--path` overrides the configured `deploy` value for one invocation only.
+Managed paths resolve relative to the config directory and may never escape it.
+`--path` overrides `deploy` for a single invocation.
 
-To cap the deployed source size, set an optional limit; when configured, the source and its byte size are echoed as provenance:
+### Secrets
 
-```yaml
-compman:
-  name: my-stack
-  deploy: s3://my-bucket/releases/app.tar.gz
-  limits:
-    max_archive_mb: 50
-  compose:
-    default:
-      file: docker-compose.yml
-```
-
-Long-running Docker/subprocess operations use a 300-second timeout by default; override it per process with `COMPMAN_TIMEOUT=<seconds>` (e.g. `COMPMAN_TIMEOUT=600`). Streaming commands (`service log -f`, `service connect`, `stats -f`) intentionally run without a timeout.
-
-### Environment variables from AWS Secrets Manager
-
-Declare shared secret values under the top-level `secrets` key as `{ arn, key }`
-pairs, then reference them from a profile `env` with `${secrets:NAME}` markers.
-compman fetches the secret's JSON `SecretString` and substitutes the value at
-`key` when it builds a compose context.
+Declare `{ arn, key }` pairs under `secrets`, then reference them from a profile
+`env` with `${secrets:NAME}`. compman substitutes the value at `key` when it
+builds a compose context and passes the result to the `docker compose` process
+environment, so the Compose file still uses `${VAR}`.
 
 ```yaml
 compman:
@@ -279,34 +158,40 @@ compman:
     dev:
       file: docker-compose.dev.yml
       env:
-        DATABASE_URL: postgres://${secrets:DB_USER}:${secrets:DB_PASSWORD}@db.example.com
-        LOG_LEVEL: ${LOG_LEVEL:-info}          # system var, left for compose to resolve
+        DATABASE_URL: postgres://${secrets:DB_USER}@db.example.com
   secrets:
     DB_USER:
       arn: arn:aws:secretsmanager:ap-northeast-2:123456789012:secret:db
       key: dtx/db/user
-    DB_PASSWORD:
-      arn: arn:aws:secretsmanager:ap-northeast-2:123456789012:secret:db
-      key: dtx/db/password
 ```
 
-The interpolated values are passed into the `docker compose` process
-environment, so the Compose file must still reference them:
+- Injected **only** where a marker appears, never as standalone compose variables. An undeclared marker name fails the command.
+- `key` may be a slash path. Partial interpolation works, and markers can sit beside system-variable references.
+- A profile `secrets` block wins over the top-level one. Each ARN is fetched once per invocation.
+- `compman doctor` warns when credentials or region are missing.
+
+### Deploy sources and guarantees
+
+S3 accepts a **prefix** (recursive, structure preserved) or a **archive**
+(`.tar.gz`, `.tgz`, `.zip`, with a single top-level directory flattened).
+Public HTTP/HTTPS accepts archives only, and the path must end in one of those
+suffixes. Only the target with the same name is replaced; your own files are kept.
+
+The mapping form adds pinning and auth:
 
 ```yaml
-# docker-compose.yml
-services:
-  app:
-    image: my-app
-    environment:
-      - DB_USER=${DB_USER}
-      - LOG_LEVEL=${LOG_LEVEL:-info}
+compman:
+  deploy:
+    url: s3://my-bucket/releases/app.tar.gz
+    sha256: <64-hex-digest>
+    auth: { header: Authorization, value_env: DEPLOY_TOKEN }   # HTTPS only
 ```
 
-- Secrets are injected **only** where a profile `env` value contains a `${secrets:NAME}` marker, never as standalone compose variables. A marker naming an undeclared secret fails the command.
-- `key` may be a slash path (`dtx/db/user`). Partial interpolation works, and markers can sit next to system-variable references.
-- A profile `secrets` block merges over the top-level one (profile wins on a clash). Each ARN is fetched once per invocation even when several variables reference it.
-- A missing secret, unresolvable region, or invalid body fails the command clearly. Use the standard AWS credential and region variables; `compman doctor` warns when secrets are configured but credentials or region are missing.
+- **Transactional build.** `--build` compiles from the temporary source *before* the managed-tree swap, so a build failure leaves the existing tree and config untouched. A failed swap rolls back.
+- **Integrity pinning.** `--sha256 HEX` or `deploy.sha256` is verified after download, before extraction, build, and swap. A mismatch aborts with exit 1 and changes nothing. It applies whenever the deployed URL equals the configured `deploy` URL, so `update` inherits it.
+- **Token handling.** The header value is read at fetch time from `value_env` — never stored, never echoed, errors name only the variable. It is sent verbatim, so for Bearer auth store the full `Bearer <token>` string.
+- **HTTPS required for auth**, and the header is dropped on a cross-host redirect so the token cannot leak. Serve from one host if your CDN needs it after redirecting.
+- `compman rollback` restores the snapshot from the previous successful deploy.
 
 ## Commands
 
@@ -314,185 +199,101 @@ services:
 compman init [--scaffold | --s3 URI | --seed]
 compman deploy [--path SOURCE_URI] [--sha256 HEX] [--build] [--tag TAG]
 compman update [PROFILE] [-c|--config PATH] [--stack NAME]
+compman rollback
 compman doctor [--profile PROFILE] [-c|--config PATH] [--json] [--stack NAME]
 compman status [--profile PROFILE] [-c|--config PATH] [--json] [--stack NAME]
 compman ps [PROFILE] [-a|--all] [--json] [-c|--config PATH] [--stack NAME]
 compman stats [PROFILE] [-f|--follow] [--json] [-c|--config PATH] [--stack NAME]
+compman history [--limit N] [--json]
+compman stacks list [--json]
+compman stacks remove NAME
+compman clear [--yes]
 compman upgrade [--repo URL]
-compman rollback
-compman version
 compman lang [ko|en]
+compman version
 compman completion [powershell|bash|zsh|fish] --install
 
-compman stack up [PROFILE] [-c|--config PATH] [--stack NAME]
-compman stack update [PROFILE] [-c|--config PATH] [--stack NAME]
-compman stack down [--profile PROFILE] [-c|--config PATH] --yes [--stack NAME]
-compman stack logs [SERVICE...] [-f] [--tail N] [--profile PROFILE] [-c|--config PATH] [--stack NAME]
+compman stack up [PROFILE] [--wait] [-c|--config PATH] [--stack NAME]
+compman stack update [PROFILE] [--wait] [-c|--config PATH] [--stack NAME]
+compman stack down [--profile PROFILE] -c|--config PATH --yes [--stack NAME]
+compman stack logs [SERVICE...] [-f] [--tail N] [--profile PROFILE] [-c|--config PATH]
 
-compman service start [SERVICE...] [--profile PROFILE] [-c|--config PATH] [--stack NAME]
-compman service stop [SERVICE...] [--profile PROFILE] [-c|--config PATH] [--stack NAME]
-compman service restart [SERVICE...] [--profile PROFILE] [-c|--config PATH] [--stack NAME]
-compman service status [--profile PROFILE] [-c|--config PATH] [--stack NAME]
-compman service log [CONTAINER] [-f] [-n 50] [--profile PROFILE] [-c|--config PATH] [--stack NAME]
-compman service connect [CONTAINER] [--profile PROFILE] [-c|--config PATH] [--stack NAME]
+compman service start|stop|restart [SERVICE...] [--profile PROFILE] [-c|--config PATH]
+compman service status [--profile PROFILE] [-c|--config PATH]
+compman service log [SERVICE] [-f] [-n 50] [--profile PROFILE] [-c|--config PATH]
+compman service connect [SERVICE] [--profile PROFILE] [-c|--config PATH]
 
-compman volume backup [-z LEVEL] [--zstd] [--no-stop] [--profile PROFILE] [-c|--config PATH] [--stack NAME]
-compman volume restore [TIMESTAMP] [--no-stop] [--replace] [--profile PROFILE] [-c|--config PATH] [--stack NAME]
-compman volume pull [--profile PROFILE] [-c|--config PATH] [--stack NAME]
-compman volume push [--replace] [--profile PROFILE] [-c|--config PATH] [--stack NAME]
+compman volume backup [-z LEVEL] [--zstd] [--no-stop] [--profile PROFILE] [-c|--config PATH]
+compman volume restore [TIMESTAMP] [--no-stop] [--replace] [--profile PROFILE] [-c|--config PATH]
+compman volume pull [--profile PROFILE] [-c|--config PATH]
+compman volume push [--replace] [--profile PROFILE] [-c|--config PATH]
 
-compman image backup [-z LEVEL] [--zstd] [--source-image] [--profile PROFILE] [-c|--config PATH] [--stack NAME]
-compman image restore [TIMESTAMP] [--profile PROFILE] [-c|--config PATH] [--stack NAME]
+compman image backup [-z LEVEL] [--zstd] [--source-image] [--profile PROFILE] [-c|--config PATH]
+compman image restore [TIMESTAMP] [--profile PROFILE] [-c|--config PATH]
 
-compman schedule add [--every N | --daily HH:MM | --weekly DAY HH:MM | --monthly DD HH:MM] [--no-stop] [-z LEVEL] [--profile PROFILE] [--name TEXT] [--scheduler systemd|cron] [-c|--config PATH]
+compman schedule add [--every N | --daily HH:MM | --weekly DAY HH:MM | --monthly DD HH:MM] [--no-stop] [-z LEVEL] [--name TEXT] [--scheduler systemd|cron]
 compman schedule list [--json]
 compman schedule status NAME
 compman schedule remove NAME
-
-compman stacks list [--json]
-compman stacks remove NAME
-compman history [--limit N] [--json]
-
-compman clear [--yes]
 ```
 
-View all options for a command with `compman <command> --help`.
+`-c/--config` selects the config file, `--profile` the compose profile, and the
+global `--stack NAME` runs any command against a registered stack from any
+directory. View all options for any command with `compman <command> --help`.
 
-### Behavioral notes
+### Behaviors worth knowing
 
-- `update`: With `deploy` configured it fetches the source, builds, and starts the stack; otherwise it runs `up -d --build` locally. It is a rebuild plus force-recreate, **not** a zero-downtime rolling deploy.
-- `stack down`: A stack that does not exist is not an error — compman prints a notice and exits 0, so scripts can call it idempotently. Without `--yes` it asks for confirmation.
-- `ps` / `stats`: Project-scoped to the selected compman project, never runtime-wide. `ps -a` includes stopped containers.
-- `service log` / `connect`: Accept a Compose **service** name, resolved to its container via `compose ps -q`. Default tail is 50 lines. A service with zero instances or multiple instances fails with guidance rather than guessing.
-- `service connect`: Falls back to `sh` when `bash` is unavailable.
-- `volume backup` / `restore`: Brings the stack down during the operation and restores it afterward; `--no-stop` opts out of that consistency guarantee. Restoring while everything is stopped also works — compman starts the stack temporarily, restores, and stops it again.
-- `volume restore` / `push --replace`: Byte-for-byte replace instead of merge, deleting destination-only files. The destination must be a validated absolute container path, so this is destructive by design.
-- `volume backup` / `image backup`: gzip level defaults to 6 (`-z 1` faster, `-z 9` smaller; `-z` applies to gzip only). `--zstd` writes a Zstandard `.tar.zst` instead and requires Python 3.14+, including for restore. `image backup` commits container state unless `--source-image` is passed.
-- `clear`: Runs `image prune -af` for the selected runtime, so it can remove unused images outside this project. Requires `--yes` (or an interactive `y`).
+- `update` is a rebuild plus force-recreate — **not** a zero-downtime rolling deploy. Without `deploy` it runs `up -d --build` locally.
+- `stack down` on a missing stack is not an error: it exits 0, so scripts stay idempotent.
+- `ps` and `stats` are project-scoped by design. `docker ps` / `podman ps` for runtime-wide results.
+- `service log` and `connect` take **service** names, resolved via `compose ps -q`. Zero instances, or a scaled service with several, fails with guidance rather than guessing. `connect` falls back to `sh`.
+- `volume backup`/`restore` stop the stack for consistency; `--no-stop` opts out. Restoring while everything is stopped also works — the stack is started temporarily and stopped again.
+- `volume restore`/`push --replace` is a byte-for-byte replace that deletes destination-only files. Destructive by design; the destination must be an absolute container path.
+- `image backup` commits container state unless `--source-image` is passed. gzip level defaults to 6 (`-z`); `--zstd` writes `.tar.zst` and needs Python 3.14+ for restore too.
+- Archives are named `<stack>.{volume,image}.<YYYYMMDD_HHMMSS>[_<microseconds>].tar.gz`.
+- `clear` runs `image prune -af`, which can remove unused images outside this project. Requires `--yes`.
+- Long operations time out after 300s; override with `COMPMAN_TIMEOUT=<seconds>`. Streaming commands (`log -f`, `connect`, `stats -f`) never time out.
 
-## Diagnostics and status
+## Diagnostics
 
 ```bash
 compman doctor
 compman doctor --json
-compman doctor --config /path/to/compman.yml
-compman doctor -c /path/to/compman.yml
-compman status
-compman status --profile PROFILE
 compman status --json
-compman status --config /path/to/compman.yml
-compman status -c /path/to/compman.yml
 ```
 
-`doctor` checks configuration, Compose files, container-runtime availability and connectivity, managed directories, and AWS credentials. `status` displays the service state of the running stack. `--json` outputs structured JSON suitable for automation.
+`--json` emits schema version `1`. `doctor` exits 1 only when a *required* check
+fails; missing AWS credentials, an unpinned `deploy`, and unset
+`deploy.auth`/`notify.slack` variables are warnings. `status` exits 1 when the
+stack is missing, and 0 when it exists even if every service is stopped.
 
-`ps` and `stats` are deliberately project-scoped. Use `docker ps`, `docker stats`, or the Podman equivalents directly when you need runtime-wide results.
+Operational failures, including Docker Desktop readiness on Windows, print as
+concise messages without a Python traceback.
 
-If a required `doctor` check fails, it returns exit code `1`. `status` returns exit code `1` when the target stack does not exist or status retrieval itself fails. If the stack exists and retrieval succeeds, it returns exit code `0` even if every service is stopped or exited. Missing AWS environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`) are non-failing warnings, so `doctor` returns exit code `0` if all other required checks pass.
+## Notifications
 
-Backup files are stored in `dirs.backup`.
-
-```text
-<stack>.volume.<YYYYMMDD_HHMMSS>[_<microseconds>].tar.gz
-<stack>.image.<YYYYMMDD_HHMMSS>[_<microseconds>].tar.gz
-```
-
-Backups are gzip `.tar.gz` by default. Restores resolve the stored suffix transparently, so `.tar.gz` and `.tar.zst` archives list and restore through the same `volume restore` / `image restore` commands.
-
-Optional retention: set `limits.max_backups` to keep only the newest N archives per stack and kind. After each successful backup, older archives are pruned from the store (local files or S3 objects), and every removal is echoed; a failed deletion warns but never fails the backup.
-
-```yaml
-compman:
-  limits:
-    max_backups: 10
-```
-
-When restoring without a timestamp, choose an available backup interactively. Volume restore and `volume push` merge data into the target; they do not delete files that exist only at the target. Image restore loads the image into the runtime but does not automatically change the Compose `image` tag.
-
-### Remote backup stores (S3 or SSH)
-
-`dirs.backup` accepts either a local relative path or a remote URI. With an
-S3 store, archives live in the bucket; compman stages them locally only while
-a backup or restore runs and deletes the staged copy after a successful upload.
-An `ssh://[user@]host[:port]/path` store behaves the same way, using `scp` and
-`ssh` with pre-provisioned keys (BatchMode; no passwords are stored or prompted).
-
-```yaml
-compman:
-  name: my-stack
-  dirs:
-    backup: s3://my-bucket/backups
-  compose:
-    default:
-      file: docker-compose.yml
-```
-
-An SSH store keeps the same archive naming on the remote path:
-
-```yaml
-compman:
-  name: my-stack
-  dirs:
-    backup: ssh://backup@nas.example:2222/srv/backups
-  compose:
-    default:
-      file: docker-compose.yml
-```
-
-- Every `volume backup` and `image backup` uploads its archive to
-  `<prefix>/<archive-filename>` with `Content-Type: application/gzip`
-  (`application/zstd` for `.tar.zst` archives), then verifies the stored
-  object size against the staged file.
-- Restores list available timestamps from the bucket and download the selected
-  archive automatically; there is no manual sync step.
-- A failed upload exits non-zero, keeps the staged archive, and names its path;
-  a successful upload removes it.
-- The store works with any S3-compatible endpoint via `AWS_ENDPOINT_URL_S3` /
-  `AWS_ENDPOINT_URL` (see [S3-compatible storage](#s3-compatible-storage)).
-- When an S3 backup store is configured but AWS credentials or region are
-  missing, `compman doctor` reports a warning.
-
-Operator note: aborted multipart transfers can leave billed orphaned parts in the bucket. On flaky networks, add a bucket lifecycle rule that aborts incomplete multipart uploads (7 days works well).
-
-### Scheduled backups
-
-`compman schedule add` registers an unattended `volume backup` job with the platform's native scheduler, so backups run on a cadence without a shell loop. With an S3 backup store configured, scheduled backups replicate off-site automatically.
+Set the webhook and every stack reports on `stack up` and `stack update`:
 
 ```bash
-compman schedule add --daily 04:30 --no-stop      # every day at 04:30 local time
-compman schedule add --every 30m                  # every 30 minutes
-compman schedule add --weekly sun 03:00 -z 9     # Sundays at 03:00, gzip level 9
-compman schedule add --monthly 1 05:00           # 1st of every month at 05:00
-compman schedule list [--json]
-compman schedule status my-stack.volume          # install state + last run outcome
-compman schedule remove my-stack.volume           # default job name: <project>.volume
+export COMPMAN_SLACK_WEBHOOK_URL='https://hooks.slack.com/services/T000/B000/XXXX'
 ```
 
-Exactly one cadence option is required: `--every Nm|Nh`, `--daily HH:MM`, `--weekly <day> HH:MM`, or `--monthly <day 1-31> HH:MM` (day names `sun`..`sat`, case-insensitive; all times are local). Pass-through flags mirror `volume backup`: `--no-stop`, `-z LEVEL`, and `--profile`. The job runs through a thin internal wrapper — `[compman, schedule _exec, <job>, volume backup, -c <config>, ...]` — which appends output to `schedule.log` next to the schedule registry (`%APPDATA%\compman\schedule.log` when the `APPDATA` environment variable is set — always the case on Windows — otherwise `~/.config/compman/schedule.log`). On Linux with systemd timers the output goes to journald instead (`journalctl --user -u compman-<name>.service`).
+Or scope it per stack so the secret stays out of the environment of the calling
+shell:
 
-The scheduler mechanism is picked automatically: launchd on macOS, schtasks on Windows, and on Linux a systemd user timer when `systemctl --user show-environment` succeeds, otherwise crontab. Force the Linux mechanism with `--scheduler systemd|cron`. Cron cannot express every interval: `--every` values must divide 60 minutes (or be whole hours), otherwise registration fails and suggests `--scheduler systemd`.
-
-The registry file `schedules.json` lives in that same directory (`%APPDATA%\compman` when `APPDATA` is set, otherwise `~/.config/compman`) and is the source of truth. `schedule list` probes each platform artifact and marks drifted entries `[missing]`; `schedule remove` still deletes the registry entry when the platform artifact is already gone.
-
-`schedule status NAME` probes the platform artifact live (reporting it registered or `MISSING`) and prints the last recorded run — its finish time, exit code, and duration. Jobs added from this release on execute through the internal `schedule _exec` wrapper, which appends a start/finish record per run to `runs/<name>.jsonl` next to the registry. Jobs registered before this upgrade keep their original command line and have no run log yet; status says so and suggests removing and re-adding the job to enable tracking.
-
-Platform limitations to know before relying on this:
-
-- macOS LaunchAgents fire only while the user is logged in; headless servers should use the Linux mechanisms.
-- Windows scheduled tasks run only while the user is logged on.
-- A scheduled backup behaves like any non-interactive run: if Docker Desktop is required and not ready, the job fails concisely instead of hanging.
-
-### Slack notifications
-
-`stack up` and `stack update` can post to a Slack Incoming Webhook when the stack comes up, so a long deploy finishing on a headless host is visible without watching the terminal.
-
-The message is built to stay short on a healthy stack and to get specific when something is wrong:
+```yaml
+compman:
+  notify:
+    slack:
+      webhook_env: COMPMAN_SLACK_WEBHOOK_URL   # recommended
+      # webhook: https://hooks.slack.com/services/...   # literal URL, keeps the secret in this file
+```
 
 ```text
 ✅ Stack started
 
   *Stack* notify-demo  ·  *Profile* default
-  *Runtime* docker     ·  *Host* hongui-MacStudio.local
+  *Runtime* docker     ·  *Host* build-host
   *Started at* 2026-10-02 20:06 KST  ·  *Duration* 681ms
 
   *Services* — 3 of 3 healthy
@@ -505,108 +306,78 @@ The message is built to stay short on a healthy stack and to get specific when s
 compman 1.12.0 · stack up
 ```
 
-The metadata block packs two labelled items per line. Slack's `section.fields` is only documented as rendering "in a compact format that allows for 2 columns", and clients that stack those fields vertically turn six fields into twelve lines — writing the pairs into one text block keeps two per row on every surface.
+Resolution order is `webhook`, then the variable named by `webhook_env`, then
+`COMPMAN_SLACK_WEBHOOK_URL` — the last only when the file has no `notify.slack`
+block. A stack naming its own variable never falls back to the global one.
 
-Services are a healthy count plus only the ones that are *not* healthy, each with state, exit code, image tag, and published ports (`18080→80`). The headline becomes `⚠️ Stack started — N service(s) need attention` as soon as anything is off, so the push notification itself carries the alarm. Named volumes appear with their mount points and on-disk size, and a volume used by a failing service is marked 🔴 to point at the likely cause.
+Services appear as a healthy count plus only the ones that are *not* healthy,
+each with state, exit code, image tag, and published ports. The headline turns
+into `⚠️ … N service(s) need attention` as soon as anything is off, and a volume
+used by a failing service is marked 🔴 to point at the cause.
 
-The fastest setup needs no config change — export the webhook and every stack picks it up:
+Delivery is best-effort and never changes the exit status — the containers are
+already running, so an outage, a revoked webhook, or an unset variable warns on
+stderr and still exits `0`. `stack down`, backup, and restore do not notify, so
+the temporary restarts around a backup stay silent.
 
-```bash
-export COMPMAN_SLACK_WEBHOOK_URL='https://hooks.slack.com/services/T000/B000/XXXX'
-# PowerShell: $env:COMPMAN_SLACK_WEBHOOK_URL="https://hooks.slack.com/services/T000/B000/XXXX"
-```
+Volume **sizes** come from `docker system df -v`, the only Docker surface that
+reports them. It scans the whole host, so compman runs it only when the compose
+files declare a named volume and notifications are enabled; otherwise volumes
+are still listed with their mount paths and only the sizes are dropped.
 
-To scope a webhook per stack, name the variable in `compman.yml` instead:
+## Backups and scheduling
 
-```yaml
-compman:
-  notify:
-    slack:
-      webhook_env: COMPMAN_SLACK_WEBHOOK_URL   # recommended: the URL stays in the environment
-      # webhook: https://hooks.slack.com/services/...   # literal URL, stores the secret in this file
-```
-
-`webhook_env` is preferred because a webhook URL can write to a channel, and `compman.yml` is committed far more often than a shell profile is rotated. A literal `webhook` must be `https://`.
-
-Resolution order is `webhook`, then the variable named by `webhook_env`, then `COMPMAN_SLACK_WEBHOOK_URL` — the last only when the file has no `notify.slack` block. A stack that names its own variable never falls back to the global one, so a per-stack setting cannot be silently replaced by an ambient value.
-
-Delivery is best-effort and never changes the exit status: the containers are already running when the notification is sent, so a Slack outage, a revoked webhook, or an unset variable warns on stderr and still exits `0`. Slack answers `HTTP 200` even for revoked webhooks and reports the verdict in the body, so compman checks the body (`ok`) rather than the status line. `compman doctor` warns when `webhook_env` names a variable that is not set.
-
-Two consequences worth knowing:
-
-- Volume **sizes** come from `docker system df -v`, the only Docker surface that reports them. It scans every image and volume on the host, so compman runs it only when the compose files declare a named volume and notifications are enabled. On an unsupported runtime (Podman) or on failure, volumes are still listed with their mount paths — only the sizes are missing.
-- Only `stack up`, `stack update`, and a deploy-driven `compman update` notify. `stack down`, backup, and restore do not, so the temporary restarts around a backup stay silent.
-
-## Runtime selection
-
-The automatic detection order is:
-
-```text
-docker compose → podman compose → podman-compose → docker-compose
-```
-
-To prefer Podman, set an environment variable.
+`dirs.backup` takes a local path, `s3://bucket/prefix`, or
+`ssh://[user@]host[:port]/path`. Remote stores stage locally, upload, verify, then
+remove the staged copy; SSH mode drives `scp`/`ssh` with `BatchMode=yes` and
+assumes keys are already provisioned.
 
 ```bash
-export CONTAINER_RUNTIME=podman
-# PowerShell: $env:CONTAINER_RUNTIME="podman"
+compman schedule add --daily 04:30 --no-stop
+compman schedule add --every 30m
+compman schedule add --monthly 1 05:00
+compman schedule status my-stack.volume
+compman schedule remove my-stack.volume
 ```
 
-### Windows Docker Desktop readiness
+Exactly one cadence option is required. The platform mechanism is chosen
+automatically: launchd on macOS, schtasks on Windows, and a systemd user timer or
+crontab on Linux (`--scheduler systemd|cron` forces the Linux choice). Cron cannot
+express every interval — `--every` must divide 60 minutes or be whole hours.
+Output and per-run records land beside `schedules.json` under `%APPDATA%\compman`
+when `APPDATA` is set, otherwise `~/.config/compman`; see
+[`docs/site/`](docs/site/) for the registry layout.
 
-On Windows when Docker is the selected runtime, compman checks Docker Desktop before `compman stack up`, `compman update`, `compman stack update`, and a `compman deploy --build` image build. If Docker Desktop is not ready in an interactive terminal, it asks:
+## Runtime and environment
 
-```text
-Docker Desktop is not running. Start it now? [Y/n]
-```
-
-Press Enter (or answer `Y`) to start Docker Desktop. compman waits up to 60 seconds for it to become ready before continuing. Answering `N` exits with guidance to start Docker Desktop manually and retry.
-
-In non-interactive execution, compman never starts Docker Desktop; it exits with a concise error instead. This check does not run for Podman, read-only commands, backup/restore, or stop/down paths.
-
-Expected operational failures, including Docker Desktop readiness failures, are printed as concise messages without Python tracebacks.
-
-## S3-compatible storage
-
-Uses standard AWS SDK environment variables. `AWS_ENDPOINT_URL_S3` redirects the
-client; `AWS_ENDPOINT_URL` also works when the former is absent. Both S3 deploys
-and the S3 backup store honor it, so Ministack and LocalStack work out of the box.
+Detection order is `docker compose` → `podman compose` → `podman-compose` →
+`docker-compose`. Force one with `CONTAINER_RUNTIME=podman`.
 
 ```bash
 export AWS_ACCESS_KEY_ID=...
 export AWS_SECRET_ACCESS_KEY=...
 export AWS_DEFAULT_REGION=ap-northeast-2
-export AWS_ENDPOINT_URL_S3=http://localhost:4566   # default Ministack/LocalStack port
+export AWS_ENDPOINT_URL_S3=http://localhost:4566   # Ministack/LocalStack
+export COMPMAN_TIMEOUT=600                         # seconds; default 300
+export COMPMAN_LANG=ko                             # or --lang ko per invocation
 ```
 
-## Language and shell completion
+On Windows with Docker, `stack up`, `stack update`, and deploy builds check
+Docker Desktop readiness and offer to start it. Non-interactive runs never launch
+it, and read-only, backup, and down paths skip the check entirely.
 
-```bash
-compman lang ko                    # Set the default language for the current process
-compman --lang en --help           # Use English for this invocation only
-export COMPMAN_LANG=ko             # Set the default language in the shell environment
+## Further reading
 
-compman completion powershell --install
-compman completion bash --install
-compman completion zsh --install
-compman completion fish --install
-```
+| Document | Contents |
+|----------|----------|
+| [examples/compman-config/](examples/compman-config/) | 14 case-by-case `compman.yml` files |
+| [CHANGELOG.md](CHANGELOG.md) | Release history |
+| [SECURITY.md](SECURITY.md) | Credential model, secret handling, reporting |
+| [BACKLOG.md](BACKLOG.md) | Constraints and open work |
+| [AGENTS.md](AGENTS.md) | Development, testing, and release rules |
+| [SOLUTION.md](SOLUTION.md) | Debugging and design lessons |
+| [Homepage](https://allbegray.github.io/compman/) | Search-optimized project site |
 
-## Development and verification
+## License
 
-```bash
-uv sync --dev
-uv run ruff check compman tests
-uv run mypy compman
-uv run pytest --cov=compman --cov-report=term-missing
-```
-
-CI verifies:
-
-- Ubuntu, macOS, and Windows × Python 3.12–3.14 tests
-- 100% statement and branch coverage
-- Ruff and mypy
-- Wheel build, isolated installation, and CLI execution
-- Ministack S3 download, Docker image build, and Compose start/stop E2E
-
-For current constraints and the improvement backlog, see [BACKLOG.md](BACKLOG.md). For development, testing, and debugging lessons learned, see [SOLUTION.md](SOLUTION.md).
+MIT — see [LICENSE](LICENSE).

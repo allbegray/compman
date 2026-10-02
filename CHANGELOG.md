@@ -3,7 +3,10 @@
 Major user-visible changes to compman are recorded here, with the newest release
 first.
 
-## [Unreleased]
+## [1.12.1] - 2026-10-02
+
+Patch release: the GitHub Pages site and the documentation. No change to the
+`compman` package's behavior, commands, or configuration.
 
 ### Changed
 

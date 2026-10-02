@@ -24,9 +24,9 @@ above feed the sequence below; re-balance at each minor bump rather than
 planning further ahead.
 
 - **1.12 — Notifications & discoverability, concluded**: Slack stack-start
-  notifications (`notify.slack`, `COMPMAN_SLACK_WEBHOOK_URL`, `doctor` check) plus
-  the homepage SEO pass shipped in v1.12.0. Other providers (Discord, generic
-  webhook) remain open candidates.
+  notifications (`notify.slack`, `COMPMAN_SLACK_WEBHOOK_URL`, `doctor` check) in
+  v1.12.0, plus the homepage SEO pass and documentation condensation in v1.12.1.
+  Other providers (Discord, generic webhook) remain open candidates.
 - **1.11 — Scheduling visibility & audit, concluded**: `schedule status`
   with per-job run tracking, `--monthly` cadence, `compman history` journal,
   and `stack logs` shipped in v1.11.0 (feature ideas adopted from the

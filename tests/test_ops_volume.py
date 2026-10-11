@@ -13,6 +13,7 @@ from conftest import write_config
 from test_backup_store import FakeS3, _patch_stage, _stage
 
 from compman import history
+from compman._gzip import DEFAULT_GZIP_LEVEL
 from compman.backup_store import S3BackupStore, local_root
 from compman.config import Config, Profile
 from compman.errors import CommandError
@@ -27,7 +28,7 @@ def test_volume_backup(dummy_runtime, temp_dir: pathlib.Path):
         assert open_tar.call_args.kwargs["compresslevel"] == 2
 
         volume.backup(dummy_runtime, cfg, no_stop=True)
-        assert open_tar.call_args.kwargs["compresslevel"] == 6
+        assert open_tar.call_args.kwargs["compresslevel"] == DEFAULT_GZIP_LEVEL
 
 
 def test_volume_backup_no_volumes(dummy_runtime, temp_dir: pathlib.Path):

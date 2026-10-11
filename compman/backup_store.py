@@ -349,7 +349,9 @@ def _require_binary(binary: str) -> str:
 def _run_proc(argv: list[str]) -> subprocess.CompletedProcess[str]:
     timeout = _env_timeout()
     try:
-        return subprocess.run(argv, capture_output=True, text=True, timeout=timeout, check=False)
+        return subprocess.run(
+            argv, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout, check=False
+        )
     except subprocess.TimeoutExpired as exc:
         raise CommandError(t("msg.timeout_expired", seconds=int(timeout))) from exc
     except FileNotFoundError as exc:

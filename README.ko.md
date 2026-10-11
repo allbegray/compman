@@ -30,7 +30,7 @@
 - S3 사용 시: 접근 가능한 S3 호환 스토리지와 AWS 자격 증명
 - 인증 HTTP 배포 시: HTTPS 아카이브 URL과 환경 변수에 담은 토큰
 
-CI는 Ubuntu·macOS·Windows에서 Python 3.12–3.14를 실행합니다. 태그가 지정된
+CI는 Ubuntu·macOS·Windows에서 Python 3.12–3.15를 실행합니다. 태그가 지정된
 릴리즈마다 휠이 PyPI에 게시됩니다.
 
 ## 설치

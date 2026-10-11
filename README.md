@@ -31,7 +31,7 @@ where a management platform cannot be installed.
 - For S3: reachable S3-compatible storage and AWS credentials
 - For authenticated HTTP deploys: an HTTPS archive URL and a token in an environment variable
 
-CI runs Python 3.12–3.14 on Ubuntu, macOS, and Windows. Wheels publish to PyPI on
+CI runs Python 3.12–3.15 on Ubuntu, macOS, and Windows. Wheels publish to PyPI on
 every tagged release.
 
 ## Install

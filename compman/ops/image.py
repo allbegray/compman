@@ -5,7 +5,7 @@ from typing import Any
 
 import typer
 
-from compman.archive import create_tar, extract_tar, open_tarball
+from compman.archive import DEFAULT_GZIP_LEVEL, create_tar, extract_tar, open_tarball
 from compman.backup_store import (
     LocalBackupStore,
     archive_location,
@@ -35,7 +35,7 @@ def backup(
     config: Config,
     source_mode: bool = False,
     profile: str | None = None,
-    compression_level: int = 6,
+    compression_level: int = DEFAULT_GZIP_LEVEL,
     zstd_format: bool = False,
 ) -> None:
     context = resolve_compose_context(config, profile)

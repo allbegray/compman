@@ -3,12 +3,14 @@ from __future__ import annotations
 import os
 import pathlib
 import subprocess
+import sys
 from unittest.mock import patch
 
 import pytest
 
 from compman.backup_store import (
     SshBackupStore,
+    _run_proc,
     archive_location,
     delete_archive,
     fetch_archive,
@@ -507,3 +509,18 @@ def test_prune_archives_over_ssh_keeps_newest_max_backups():
         "rm -f bk/app.volume.20260729_1000.tar.gz",
         "rm -f bk/app.volume.20260729_1000.tar.zst",
     ]
+
+
+def test_run_proc_uses_replacement_safe_utf8_decoding():
+    completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="ok", stderr="")
+    with patch("compman.backup_store.subprocess.run", return_value=completed) as run:
+        assert _run_proc(["scp", "a", "b"]) is completed
+    assert run.call_args.kwargs["encoding"] == "utf-8"
+    assert run.call_args.kwargs["errors"] == "replace"
+
+
+def test_run_proc_replaces_invalid_utf8_output():
+    # A remote locale/encoding must surface as replacement characters, never an
+    # uncaught UnicodeDecodeError.
+    result = _run_proc([sys.executable, "-c", "import os; os.write(2, b'\\xff')"])
+    assert result.stderr == "\ufffd"

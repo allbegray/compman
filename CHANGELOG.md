@@ -3,6 +3,47 @@
 Major user-visible changes to compman are recorded here, with the newest release
 first.
 
+## [1.12.2] - 2026-10-11
+
+Patch release: support for the Python 3.15 series.
+
+### Added
+
+- Python 3.15 joins the CI test matrix on Ubuntu, macOS, and Windows, and the
+  wheel classifiers. The quality and packaging jobs now run on 3.15, the newest
+  supported interpreter.
+
+### Changed
+
+- `init --seed --archive` now writes gzip at an explicit compression level (6,
+  the same default as `image backup`). Python 3.15 lowered the stdlib `tarfile`
+  default from 9 to 6, so the implicit default tied the seed archive's
+  compression level to the interpreter that ran `init`.
+
+### Fixed
+
+- The Windows installer now also clears a stale pip-installed `compman` left in
+  a Python315 `Scripts` directory.
+- SSH backup stores now decode ssh/scp output as UTF-8 with replacement, the
+  same as the docker runtime path, instead of following the ambient locale —
+  which Python 3.15's UTF-8-by-default would otherwise flip between interpreters
+  on hosts whose locale is not UTF-8.
+
+### Notes
+
+- On Python 3.15, PyYAML installs from source until upstream publishes cp315
+  wheels, which yields the pure-Python parser instead of the libyaml-accelerated
+  one. Config and compose parsing behave identically; large compose files parse
+  slower on 3.15 only. Every other supported interpreter keeps the accelerated
+  build.
+- The same wheel-lag pattern applies to the dev toolchain on 3.15: mypy and
+  coverage resolve to their pure-Python builds there, so the quality job's
+  type-check and coverage gates run uncompiled.
+- CI resolves the `python-version: "3.15"` entry through uv's managed index,
+  which still served only 3.15.0rc1 at release time; the entry picks up the
+  final build automatically once uv mirrors it. The release itself was verified
+  against the 3.15.0 final.
+
 ## [1.12.1] - 2026-10-02
 
 Patch release: the GitHub Pages site and the documentation. No change to the

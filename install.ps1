@@ -9,6 +9,7 @@ $UvInstallerSha256 = "ca1ad558c65d31e2d3a24464638aff90bfb81d6c72428b4e71d6f55944
 
 # 1. Remove old pip-installed compman from any Python Scripts directory (prevents PATH conflicts)
 $oldPipPaths = @(
+    "$env:USERPROFILE\AppData\Local\Programs\Python\Python315\Scripts\compman.exe",
     "$env:USERPROFILE\AppData\Local\Programs\Python\Python314\Scripts\compman.exe",
     "$env:USERPROFILE\AppData\Local\Programs\Python\Python313\Scripts\compman.exe",
     "$env:USERPROFILE\AppData\Local\Programs\Python\Python312\Scripts\compman.exe",

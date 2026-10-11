@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Annotated
 import typer
 from typer.core import TyperGroup
 
+from compman._gzip import DEFAULT_GZIP_LEVEL
 from compman._proc import _env_timeout
 from compman.completion import register as register_completion
 from compman.errors import CommandError, ConfigError
@@ -668,7 +669,7 @@ def volume_backup(
     no_stop: Annotated[bool, typer.Option("--no-stop", help=t("opt.no_stop"))] = False,
     profile: ProfileOpt = None,
     config: ConfigOpt = None,
-    level: Annotated[int, typer.Option("-z", "--level", min=1, max=9, help=t("opt.compression_level"))] = 6,
+    level: Annotated[int, typer.Option("-z", "--level", min=1, max=9, help=t("opt.compression_level"))] = DEFAULT_GZIP_LEVEL,
     zstd_format: Annotated[bool, typer.Option("--zstd", help=t("opt.zstd"))] = False,
 ) -> None:
     ctx = _load(config)
@@ -727,7 +728,7 @@ def image_backup(
     source_image: Annotated[bool, typer.Option("--source-image", help=t("opt.source_image"))] = False,
     profile: ProfileOpt = None,
     config: ConfigOpt = None,
-    level: Annotated[int, typer.Option("-z", "--level", min=1, max=9, help=t("opt.compression_level"))] = 6,
+    level: Annotated[int, typer.Option("-z", "--level", min=1, max=9, help=t("opt.compression_level"))] = DEFAULT_GZIP_LEVEL,
     zstd_format: Annotated[bool, typer.Option("--zstd", help=t("opt.zstd"))] = False,
 ) -> None:
     ctx = _load(config)
@@ -770,7 +771,7 @@ def schedule_add(
     weekly: Annotated[str | None, typer.Option("--weekly", help=t("opt.weekly"))] = None,
     monthly: Annotated[tuple[str, str] | None, typer.Option("--monthly", help=t("opt.monthly"))] = None,
     no_stop: Annotated[bool, typer.Option("--no-stop", help=t("opt.no_stop"))] = False,
-    level: Annotated[int, typer.Option("-z", "--level", min=1, max=9, help=t("opt.compression_level"))] = 6,
+    level: Annotated[int, typer.Option("-z", "--level", min=1, max=9, help=t("opt.compression_level"))] = DEFAULT_GZIP_LEVEL,
     profile: ProfileOpt = None,
     name: Annotated[str | None, typer.Option("--name", help=t("opt.job_name"))] = None,
     scheduler: Annotated[

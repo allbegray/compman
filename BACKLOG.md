@@ -16,6 +16,35 @@ them. Retired IDs are never reused.
   grouped edge-test files beside the modules they specify while retaining the
   100% gate. Note: the coverage-sweep half of this item shipped in v1.10.1
   ([M16]); only the module splits remain.
+- [ ] [M19] Unify the tar-writing seam — `ops/seed.py` writes its seed archive
+  with a direct `tarfile.open` call while volume/image backups go through
+  `archive.create_tar`; route seed through the shared helper (add an `arcname`
+  option) so one seam owns tar creation and no writer can drift from
+  `DEFAULT_GZIP_LEVEL`.
+- [ ] [M20] Smoke-test the published wheel — `publish.yml` builds the wheel on
+  3.13 and uploads it with only a tag check; install that wheel in a fresh venv
+  and run the packaging job's smoke commands (`--help`, `version`,
+  `init --scaffold`, `--lang ko --help`, `completion bash`) before publishing.
+- [ ] [M21] Locale-decoding sweep for scheduling and completion subprocesses —
+  `compman/scheduling/{crontab,schtasks,launchd,systemd,pick}.py` and
+  `compman/completion.py` still call `subprocess.run(..., text=True)` without
+  `encoding=`, so their parsed output follows the ambient locale; Python 3.15's
+  UTF-8-by-default flips that on non-UTF-8 hosts. `backup_store._run_proc` and
+  the docker path already pass `encoding="utf-8", errors="replace"`; apply the
+  same here, ideally through one shared `_run_text` helper in `_proc.py`.
+
+## Low (L)
+
+- [ ] [L26] PATH-dependent schedule test —
+  `test_add_schedule_rejects_non_divisible_interval_for_cron`
+  (`tests/test_ops_schedule.py`) is the only test in its family that does not
+  patch `resolve_executable`, so a bare `python -m pytest` outside `uv run`
+  fails on PATH resolution; patch it like its siblings.
+- [ ] [L27] Inert uv.lock resolution fork — the lock's `resolution-markers`
+  split at `python_full_version >= '3.15'` produces identical graphs for 3.14
+  and 3.15 (`uv export` diff is header-only); regenerate with `uv lock` and
+  either collapse the fork or record why it exists, so the next lock diff is
+  reviewable.
 
 ## Release roadmap (theme per minor release)
 

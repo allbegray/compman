@@ -1,6 +1,9 @@
 import ast
 import re
+import tomllib
 from pathlib import Path
+
+import yaml
 
 
 def test_official_repository_urls_use_current_owner():
@@ -13,14 +16,14 @@ def test_official_repository_urls_use_current_owner():
         assert "allbegray/compman" in content
 
 
-def test_package_version_is_1_12_1():
+def test_package_version_is_1_12_2():
     root = Path(__file__).parents[1]
     project = (root / "pyproject.toml").read_text(encoding="utf-8")
     lock = (root / "uv.lock").read_text(encoding="utf-8")
 
-    assert re.search(r'(?m)^version = "1\.12\.1"$', project)
-    assert re.search(r'(?m)^name = "compman"\r?\nversion = "1\.12\.1"$', lock)
-    assert "## [1.12.1]" in (root / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert re.search(r'(?m)^version = "1\.12\.2"$', project)
+    assert re.search(r'(?m)^name = "compman"\r?\nversion = "1\.12\.2"$', lock)
+    assert "## [1.12.2]" in (root / "CHANGELOG.md").read_text(encoding="utf-8")
 
 
 def test_successful_main_ci_run_creates_version_tag_once():
@@ -243,3 +246,58 @@ def test_english_is_used_outside_korean_localization_resources():
         for path in candidates
         if path.suffix == ".html" and 'lang="ko"' in path.read_text(encoding="utf-8")
     ] == []
+
+
+def test_supported_python_versions_agree_across_ci_docs_and_metadata():
+    root = Path(__file__).parents[1]
+
+    workflow = yaml.safe_load((root / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8"))
+    matrix = sorted(workflow["jobs"]["test"]["strategy"]["matrix"]["python-version"])
+    assert len(matrix) > 1
+    assert matrix == sorted(set(matrix))
+
+    project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    classifiers = sorted(
+        entry.removeprefix("Programming Language :: Python :: ")
+        for entry in project["project"]["classifiers"]
+        if entry.startswith("Programming Language :: Python :: 3.")
+    )
+    assert matrix == classifiers
+
+    floor = project["project"]["requires-python"].removeprefix(">=")
+    assert matrix[0] == floor
+
+    # Every job that pins an interpreter must pin one the matrix supports; the
+    # release gates (quality, packaging) run on the newest supported interpreter.
+    pins = {}
+    for job, spec in workflow["jobs"].items():
+        for step in spec["steps"]:
+            pin = step.get("with", {}).get("python-version") if isinstance(step, dict) else None
+            if isinstance(pin, str) and not pin.startswith("${{"):
+                pins[job] = pin
+    assert set(pins) == {"quality", "packaging", "integration"}
+    assert pins["quality"] == matrix[-1]
+    assert pins["packaging"] == matrix[-1]
+    assert pins["integration"] in matrix
+
+    enumerated = ", ".join(matrix[:-1]) + f", and {matrix[-1]}"
+    checks = (
+        ("README.md", f"Python {floor}–{matrix[-1]}"),
+        ("README.ko.md", f"Python {floor}–{matrix[-1]}"),
+        ("AGENTS.md", f"Python {floor}-{matrix[-1]}"),
+        ("docs/site/index.html", f"Python {enumerated}"),
+        ("README.md", f"Python {floor}+"),
+        ("README.ko.md", f"Python {floor} \uc774\uc0c1"),
+        ("docs/site/index.html", f"Python {floor}+ · Docker or Podman"),
+        ("docs/site/index.html", f'"runtimePlatform": "Python {floor} or later"'),
+        ("docs/site/index.html", f'"softwareVersion": "{project["project"]["version"]}"'),
+    )
+    for name, expected in checks:
+        assert expected in (root / name).read_text(encoding="utf-8"), name
+
+    # The Windows installer's stale-pip cleanup must cover every supported
+    # interpreter; entries for older interpreters may stay for users who once
+    # installed compman on them.
+    installer = (root / "install.ps1").read_text(encoding="utf-8")
+    cleaned = {f"{major}.{minor}" for major, minor in re.findall(r"Python(\d)(\d\d)\\Scripts\\compman\.exe", installer)}
+    assert set(matrix) <= cleaned

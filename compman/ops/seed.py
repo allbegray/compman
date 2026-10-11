@@ -6,6 +6,7 @@ from pathlib import Path
 import typer
 
 from compman._seed_assets import SEED_INDEX_HTML
+from compman.archive import DEFAULT_GZIP_LEVEL
 from compman.config import sanitize_project_name
 from compman.errors import CommandError
 from compman.i18n import t
@@ -72,6 +73,9 @@ def generate_seed(
 
     if archive:
         archive_file = cwd / f"{output}.tar.gz"
-        with tarfile.open(archive_file, "w:gz") as tar:
+        # Pin the gzip level: Python 3.15 lowered the stdlib tarfile default
+        # from 9 to 6, so an implicit default ties the compression level to the
+        # interpreter that ran init. DEFAULT_GZIP_LEVEL matches the backup writer.
+        with tarfile.open(archive_file, "w:gz", compresslevel=DEFAULT_GZIP_LEVEL) as tar:
             tar.add(target_dir, arcname=target_dir.name)
         typer.echo(t("msg.seed_archive_created", path=archive_file.name))

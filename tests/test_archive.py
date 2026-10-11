@@ -1,15 +1,33 @@
 from __future__ import annotations
 
+import inspect
 import io
+import pathlib
 import sys
 import tarfile
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from compman import archive
-from compman.archive import create_tar, open_tarball
+from compman.archive import DEFAULT_GZIP_LEVEL, create_tar, open_tarball
 from compman.errors import CommandError
+
+
+def test_gzip_level_defaults_are_single_sourced(temp_dir: pathlib.Path):
+    """Every writer must default to DEFAULT_GZIP_LEVEL; a literal would drift."""
+    from compman.ops import image, volume
+
+    for backup in (volume.backup, image.backup):
+        assert inspect.signature(backup).parameters["compression_level"].default == DEFAULT_GZIP_LEVEL
+
+    source_dir = temp_dir / "src"
+    source_dir.mkdir()
+    (source_dir / "a.txt").write_text("x", encoding="utf-8")
+    with patch("tarfile.open") as open_tar:
+        create_tar(source_dir, temp_dir / "out.tar.gz")
+    assert open_tar.call_args.kwargs["compresslevel"] == DEFAULT_GZIP_LEVEL
+
 
 requires_py314 = pytest.mark.skipif(
     sys.version_info < (3, 14), reason="compression.zstd requires Python 3.14+"

@@ -17,7 +17,7 @@ uv run pytest -q          # 1100+ tests, ~5s
   UI via `--lang ko` / `COMPMAN_LANG=ko` and must stay confined to `i18n.py`.
 - Package version lives in `pyproject.toml`. Never hardcode it in a document.
 - Gates: pytest at 100% statement **and** branch coverage, Ruff, mypy.
-- CI: Python 3.12-3.14 on Linux/macOS/Windows, plus packaging and Docker/Ministack
+- CI: Python 3.12-3.15 on Linux/macOS/Windows, plus packaging and Docker/Ministack
   integration jobs.
 
 ## Module map
@@ -207,6 +207,8 @@ smoke-test the generated executable itself (`--version`, English and Korean
 
 ## Execution Log
 
+- **2026-10-11** — Python 3.15 support (v1.12.2): 3.15 added to the CI matrix and the wheel classifiers, quality/packaging moved onto it. `ops/seed.py` now pins gzip `compresslevel` through the new `DEFAULT_GZIP_LEVEL`, single-sourced across `archive.create_tar`, the CLI `-z` options, the schedule
+    command, and the backup ops, because 3.15 lowered the stdlib `tarfile` default from 9 to 6; `backup_store._run_proc` now passes `encoding="utf-8", errors="replace"` (locale-dependent ssh/scp decoding that PEP 686's UTF-8 default flips mid-support-range); `install.ps1` gained the Python315 stale-path entry; `uv lock` moved librt to 0.16.0 for cp315 wheels; a new consistency test guards the supported-version matrix against the classifiers, `requires-python`, the quality/packaging pins, the README/AGENTS/site strings, and the installer's stale-path list. PyYAML still ships no cp315 wheel, so 3.15 installs compile it from source and fall back to the pure-Python parser (noted in the CHANGELOG). Verified on a Homebrew 3.15.0: 1173 tests, 100% branch coverage, ruff, mypy. Two review rounds ran (specialists + red team); the "no source changes needed" claim from the first pass was wrong and four more 3.15-divergence issues were fixed. Deferred: routing seed through `create_tar` [M19], smoke-testing the published wheel [M20], the PATH-dependent schedule test [L26], the inert `>= 3.15` resolution-markers fork [L27].
 - **2026-10-02** — Homepage SEO pass: keyword-led title/description, canonical, robots/OG/Twitter tags, a hand-encoded 1200x630 PNG share card, `SoftwareApplication` + `FAQPage` JSON-LD, `robots.txt`, `sitemap.xml`, `favicon.svg`, a real 404 page, task-oriented Use cases / Install sections, and `tests/test_site_seo.py`. Fixed a mobile horizontal-overflow bug (grid children default to `min-width: auto`) and the stale "Python 3.10+" claim.
 - **2026-10-02** — Slack stack-start notifications (v1.12.0): `notify.py`, `compose_spec.py`, the `notify.slack` block, a `doctor` `notify_env` check, and a `stack up`/`stack update` hook. Three `compose ps` assumptions were wrong until a real Docker run — it needs `--all`, it truncates `Mounts`, and it duplicates `Publishers` per address family.
 - **2026-10-02** — Documentation pass. `AGENTS.md` halved (25.4KB → 13.1KB) by dropping its restatement of `README.md` and its rot-prone `Generated / Commit / Branch` header; `README.md` 32.2KB → 16.5KB by replacing prose walls with guarantee lists and tables; `SECURITY.md` gained the Slack, SSH, and on-host registry credential surfaces. Recorded here as the rule it produced: each root document owns one thing, and a document that grows must lose something.

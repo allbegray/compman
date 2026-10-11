@@ -4,6 +4,7 @@ import tarfile
 import zipfile
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
+from compman._gzip import DEFAULT_GZIP_LEVEL
 from compman.errors import CommandError
 from compman.i18n import t
 
@@ -20,7 +21,7 @@ def _load_zstd(import_module=None):
         raise CommandError(t("msg.zstd_requires_py314")) from exc
 
 
-def create_tar(source_dir: Path, dest: Path, *, zstd_format: bool = False, gzip_level: int = 6) -> None:
+def create_tar(source_dir: Path, dest: Path, *, zstd_format: bool = False, gzip_level: int = DEFAULT_GZIP_LEVEL) -> None:
     """Write ``source_dir`` as a tarball at ``dest`` (gzip default, zstd opt-in)."""
     if not zstd_format:
         with tarfile.open(dest, "w:gz", compresslevel=gzip_level) as tar:

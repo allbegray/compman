@@ -46,7 +46,7 @@
         "url": "https://allbegray.github.io/compman/",
         "downloadUrl": "https://pypi.org/project/compman/",
         "installUrl": "https://pypi.org/project/compman/",
-        "softwareVersion": "1.12.1",
+        "softwareVersion": "1.12.2",
         "applicationCategory": "DeveloperApplication",
         "applicationSubCategory": "Container and Compose Management",
         "operatingSystem": "Linux, macOS, Windows",
@@ -116,7 +116,7 @@
           {
             "@type": "Question",
             "name": "Which Python version and operating systems are supported?",
-            "acceptedAnswer": { "@type": "Answer", "text": "Python 3.12, 3.13, and 3.14 on Linux, macOS, and Windows. The --zstd backup format requires Python 3.14, which ships the standard-library compression.zstd module." }
+            "acceptedAnswer": { "@type": "Answer", "text": "Python 3.12, 3.13, 3.14, and 3.15 on Linux, macOS, and Windows. The --zstd backup format requires Python 3.14, which ships the standard-library compression.zstd module." }
           },
           {
             "@type": "Question",
@@ -319,7 +319,7 @@ irm .../install.ps1 | iex</code></pre><p>Bundled installers for Linux, macOS, an
         <details><summary>Does compman run a daemon or web server?</summary><p>No. compman is an on-demand CLI that delegates container operations to the detected local runtime, so there is no background service to install, secure, or keep running.</p></details>
         <details><summary>Can I back up Docker volumes on a schedule?</summary><p>Yes. <code>compman schedule add</code> registers an unattended volume backup job with the platform scheduler: launchd on macOS, schtasks on Windows, and a systemd user timer or crontab on Linux, with hourly, daily, weekly, or monthly cadences.</p></details>
         <details><summary>Can I get notified when a deployment finishes?</summary><p>Yes. Set <code>COMPMAN_SLACK_WEBHOOK_URL</code> or add a <code>notify.slack</code> block to <code>compman.yml</code> and <code>stack up</code>, <code>stack update</code>, and <code>compman update</code> post a Slack message with the stack, runtime, host, duration, unhealthy services, and named-volume sizes. A failed notification warns but never fails the command.</p></details>
-        <details><summary>Which Python version and operating systems are supported?</summary><p>Python 3.12, 3.13, and 3.14 on Linux, macOS, and Windows. The <code>--zstd</code> backup format requires Python 3.14, which ships the standard-library <code>compression.zstd</code> module.</p></details>
+        <details><summary>Which Python version and operating systems are supported?</summary><p>Python 3.12, 3.13, 3.14, and 3.15 on Linux, macOS, and Windows. The <code>--zstd</code> backup format requires Python 3.14, which ships the standard-library <code>compression.zstd</code> module.</p></details>
         <details><summary>When is compman the wrong tool?</summary><p>compman has no web UI, no multi-host orchestration, no image registry, and no container metrics history. If you need a browser-based management console, scheduling across several hosts, or a built-in registry, a full platform fits better. compman is built for one host, driven from a terminal or a script.</p></details>
       </div>
     </section>

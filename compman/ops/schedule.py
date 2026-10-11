@@ -11,6 +11,7 @@ from typing import Any, Protocol
 
 import typer
 
+from compman._gzip import DEFAULT_GZIP_LEVEL
 from compman.config import Config, sanitize_project_name
 from compman.errors import CommandError
 from compman.i18n import t
@@ -78,7 +79,7 @@ def add_schedule(
     weekly: str | None = None,
     monthly: str | None = None,
     no_stop: bool = False,
-    level: int = 6,
+    level: int = DEFAULT_GZIP_LEVEL,
     profile: str | None = None,
     name: str | None = None,
     scheduler: str | None = None,
@@ -120,7 +121,7 @@ def add_schedule(
     ]
     if no_stop:
         args.append("--no-stop")
-    if level != 6:
+    if level != DEFAULT_GZIP_LEVEL:
         args.extend(["-z", str(level)])
     if profile:
         args.extend(["--profile", profile])

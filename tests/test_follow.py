@@ -95,9 +95,21 @@ def test_watch_quit_interrupts_the_child_on_the_quit_line():
     proc = MagicMock()
     quit_requested = threading.Event()
 
-    follow._watch_quit(proc, io.StringIO("noise\nq\nafter\n"), quit_requested)
+    with patch("sys.platform", "linux"):
+        follow._watch_quit(proc, io.StringIO("noise\nq\nafter\n"), quit_requested)
 
     proc.send_signal.assert_called_once_with(signal.SIGINT)
+    assert quit_requested.is_set()
+
+
+def test_watch_quit_terminates_the_child_on_windows():
+    proc = MagicMock()
+    quit_requested = threading.Event()
+
+    with patch("sys.platform", "win32"):
+        follow._watch_quit(proc, io.StringIO("q\n"), quit_requested)
+
+    proc.terminate.assert_called_once()
     assert quit_requested.is_set()
 
 
@@ -108,6 +120,7 @@ def test_watch_quit_stops_reading_at_end_of_input():
     follow._watch_quit(proc, io.StringIO(""), quit_requested)
 
     proc.send_signal.assert_not_called()
+    proc.terminate.assert_not_called()
     assert not quit_requested.is_set()
 
 
@@ -149,10 +162,21 @@ def test_interrupt_kills_a_stream_that_ignores_the_request():
     proc = MagicMock()
     proc.poll.return_value = None
 
-    with patch.object(follow, "STOP_GRACE", 0.0):
+    with patch("sys.platform", "linux"), patch.object(follow, "STOP_GRACE", 0.0):
         follow._interrupt(proc)
 
     proc.send_signal.assert_called_once_with(signal.SIGINT)
+    proc.kill.assert_called_once()
+
+
+def test_interrupt_kills_a_windows_stream_that_ignores_terminate():
+    proc = MagicMock()
+    proc.poll.return_value = None
+
+    with patch("sys.platform", "win32"), patch.object(follow, "STOP_GRACE", 0.0):
+        follow._interrupt(proc)
+
+    proc.terminate.assert_called_once()
     proc.kill.assert_called_once()
 
 

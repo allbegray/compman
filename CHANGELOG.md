@@ -3,6 +3,23 @@
 Major user-visible changes to compman are recorded here, with the newest release
 first.
 
+## [1.13.0] - 2026-10-15
+
+Minor release: streaming ergonomics. No configuration or command surface changed.
+
+### Added
+
+- Streaming commands (`service log -f`, `stack logs -f`, `stats -f`) now stop when
+  you type `q` and press Enter, exiting 0 with "Stopped streaming." Ctrl-C still
+  works and still exits 130. The quit key needs a terminal on stdin, so piped
+  input keeps Ctrl-C as its only stop.
+
+### Notes
+
+- A tty-attached `docker logs -f` / `docker compose logs -f` ignores both SIGINT and
+  SIGTERM, so the quit key escalates to a kill after a one-second grace. `docker stats`
+  honors the interrupt and stops immediately.
+
 ## [1.12.2] - 2026-10-11
 
 Patch release: support for the Python 3.15 series.

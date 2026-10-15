@@ -69,7 +69,7 @@ def logs(
         args.append("-f")
     args += list(services)
     runtime.passthru_compose(
-        args, project=context.project, compose_files=context.files, env=context.env
+        args, project=context.project, compose_files=context.files, env=context.env, follow=follow
     )
 
 

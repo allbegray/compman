@@ -35,6 +35,14 @@ rules), `BACKLOG.md` (open work).
 - **Verify against the real tool before designing around its output.** Three assumptions about `compose ps` were wrong until a live Docker run: it **omits exited containers** without `--all` (a crashed service would vanish and the message would claim all healthy); its `Mounts` column is **truncated to an ellipsis** in `--format json`, so mount paths must come from the compose files; and `Publishers` lists each mapping **twice** (IPv4 + IPv6).
 - **A best-effort side channel must be gated before it does any work.** The Slack hook needs extra `compose ps` and `system df` queries; guard on "is a webhook configured?" so an opted-out stack pays nothing. Same rule as the lazy boto3 import and lazily resolved secrets.
 - **Secrets belong in environment variables, not in `compman.yml`.** Config names the variable, the value is read at use time, errors name only the variable. When a block opts into one variable, do not silently fall back to a global default of the same purpose — that hides a broken per-stack setting.
+- **A stream attached to a terminal ignores both SIGINT and SIGTERM.** Measured on
+  Docker 29.8: with stdout on a tty, `docker logs -f` and `docker compose logs -f`
+  survive either signal (a pipe makes them die normally); `docker stats` honors
+  SIGINT. So a quit key implemented as "send SIGINT and wait" does nothing exactly
+  where it is most wanted — Ctrl-C works today only because `subprocess.run`
+  `kill()`s the child when the signal raises `KeyboardInterrupt`. Any stop path has
+  to escalate to `kill()` behind a short grace, and it must spawn the child with
+  `stdin=DEVNULL` first or `q` is delivered to the child instead of the parent.
 - **A summary plus exceptions beats a full dump.** An operator reads "3 of 3 healthy" and needs the names of the ones that are not — the failure case is where detail belongs. Slack rejecting an oversized block (`invalid_payload`, returned as 200-with-error-body) makes full dumps worse than noisy: they fail silently.
 - **"Allows for 2 columns" is not "renders as 2 columns".** Slack documents `section.fields` as rendering "in a compact format that allows for 2 columns" — permissive language, and clients that stack them double the height. Anything that must look the same everywhere belongs in one `mrkdwn` block that packs its own columns.
 - **SEO regressions are silent, so pin them with tests.** In a static site a renamed anchor, a `softwareVersion` that drifts from `pyproject.toml`, or a FAQ answer that no longer matches the visible page all ship unnoticed. `tests/test_site_seo.py` asserts length bands, one `<h1>`, resolvable anchors, JSON-LD validity, version agreement, and that every FAQPage question is visible.

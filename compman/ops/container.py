@@ -101,5 +101,5 @@ def stats(
     if not follow:
         args.append("--no-stream")
     runtime.passthru_cli(
-        [*args, *container_ids], timeout=PASSTHRU_UNBOUNDED if follow else None
+        [*args, *container_ids], timeout=PASSTHRU_UNBOUNDED if follow else None, follow=follow
     )

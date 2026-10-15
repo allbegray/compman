@@ -248,6 +248,7 @@ compman schedule remove NAME
 - 존재하지 않는 스택에 대한 `stack down`은 오류가 아니라 exit 0이므로 스크립트가 멱등하게 호출할 수 있습니다.
 - `ps`와 `stats`는 의도적으로 프로젝트 범위입니다. 런타임 전체 결과는 `docker ps` / `podman ps`를 쓰세요.
 - `service log`와 `connect`는 **서비스** 이름을 받아 `compose ps -q`로 찾습니다. 인스턴스가 0개이거나 스케일된 서비스가 여러 개면 추정하지 않고 안내와 함께 실패합니다. `connect`는 `sh`로 폴백합니다.
+- 스트리밍 명령(`service log -f`, `stack logs -f`, `stats -f`)은 터미널에서 `q`를 입력하고 Enter를 누르면 종료하며, 실패가 아닌 exit 0으로 끝납니다. Ctrl-C도 그대로 동작합니다. 파이프 입력(`… | grep`)에서는 `q`를 입력할 사람이 없으므로 Ctrl-C만 종료 수단으로 남습니다.
 - `volume backup`/`restore`는 일관성을 위해 스택을 중지합니다. `--no-stop`은 이를 포기합니다. 모두 중지된 상태에서도 복구할 수 있으며, 스택을 임시로 시작해 복구한 뒤 다시 중지합니다.
 - `volume restore`/`push --replace`는 대상에 없는 파일을 삭제하는 바이트 단위 교체입니다. 설계상 파괴적이며 대상은 절대 컨테이너 경로여야 합니다.
 - `image backup`은 기본적으로 컨테이너 상태를 commit하고, `--source-image`를 주면 원본 이미지를 저장합니다. gzip 레벨 기본값은 6(`-z`)이고 `--zstd`는 `.tar.zst`를 쓰며 복구에도 Python 3.14+가 필요합니다.

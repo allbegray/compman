@@ -335,6 +335,7 @@ def test_stack_logs_default_passthru(dummy_runtime, temp_dir: pathlib.Path):
     assert run["args"] == ["logs"]
     assert run["project"] == "my_stack"
     assert run["compose_files"] == (temp_dir / "docker-compose.yml",)
+    assert run["follow"] is False
 
 
 def test_stack_logs_tail_flag(dummy_runtime, temp_dir: pathlib.Path):
@@ -345,6 +346,7 @@ def test_stack_logs_tail_flag(dummy_runtime, temp_dir: pathlib.Path):
 def test_stack_logs_follow_flag(dummy_runtime, temp_dir: pathlib.Path):
     run = _stack_logs(dummy_runtime, temp_dir, follow=True)
     assert run["args"] == ["logs", "-f"]
+    assert run["follow"] is True
 
 
 def test_stack_logs_services_filter(dummy_runtime, temp_dir: pathlib.Path):

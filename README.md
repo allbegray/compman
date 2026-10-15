@@ -247,6 +247,7 @@ directory. View all options for any command with `compman <command> --help`.
 - `stack down` on a missing stack is not an error: it exits 0, so scripts stay idempotent.
 - `ps` and `stats` are project-scoped by design. `docker ps` / `podman ps` for runtime-wide results.
 - `service log` and `connect` take **service** names, resolved via `compose ps -q`. Zero instances, or a scaled service with several, fails with guidance rather than guessing. `connect` falls back to `sh`.
+- Streaming commands (`service log -f`, `stack logs -f`, `stats -f`) stop when you type `q` and press Enter on a terminal — exit 0, not a failure. Ctrl-C still works. Piped input (`… | grep`) keeps Ctrl-C as the only stop, since nobody is there to type `q`.
 - `volume backup`/`restore` stop the stack for consistency; `--no-stop` opts out. Restoring while everything is stopped also works — the stack is started temporarily and stopped again.
 - `volume restore`/`push --replace` is a byte-for-byte replace that deletes destination-only files. Destructive by design; the destination must be an absolute container path.
 - `image backup` commits container state unless `--source-image` is passed. gzip level defaults to 6 (`-z`); `--zstd` writes `.tar.zst` and needs Python 3.14+ for restore too.

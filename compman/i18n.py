@@ -1011,6 +1011,14 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "en": "Cannot combine --follow with --json.",
         "ko": "--follow와 --json은 함께 사용할 수 없습니다.",
     },
+    "msg.follow_quit_hint": {
+        "en": "Streaming. Type q and press Enter to stop; Ctrl-C also stops.",
+        "ko": "스트리밍 중입니다. q를 입력하고 Enter를 누르면 종료되며, Ctrl-C로도 종료됩니다.",
+    },
+    "msg.follow_stopped": {
+        "en": "Stopped streaming.",
+        "ko": "스트리밍을 종료했습니다.",
+    },
     "msg.unsupported_shell": {
         "en": "Unsupported shell: {shell}",
         "ko": "지원하지 않는 셸: {shell}",

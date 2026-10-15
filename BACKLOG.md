@@ -45,6 +45,11 @@ them. Retired IDs are never reused.
   and 3.15 (`uv export` diff is header-only); regenerate with `uv lock` and
   either collapse the fork or record why it exists, so the next lock diff is
   reviewable.
+- [ ] [L28] Windows verification for the `q` quit key — `follow.py`'s stop path
+  is POSIX-verified against real Docker 29.8 (`q`+Enter exits 0, Ctrl-C still
+  exits 130, no stray child), but the Windows branch only claims `terminate()`
+  where the log streams would need the same live check; also unverified there is
+  whether Windows terminals echo the typed line into the streamed output.
 
 ## Release roadmap (theme per minor release)
 
@@ -52,6 +57,9 @@ Each minor release carries one theme; patch releases stay fix-only. Backlog IDs
 above feed the sequence below; re-balance at each minor bump rather than
 planning further ahead.
 
+- **1.13 — Streaming ergonomics, concluded**: the `q`+Enter quit key for the
+  follow commands (`compman/follow.py`) shipped in v1.13.0. A single-key raw-mode
+  quit remains an open candidate, as do a `watch` mode and log filtering.
 - **1.12 — Notifications & discoverability, concluded**: Slack stack-start
   notifications (`notify.slack`, `COMPMAN_SLACK_WEBHOOK_URL`, `doctor` check) in
   v1.12.0, plus the homepage SEO pass and documentation condensation in v1.12.1.

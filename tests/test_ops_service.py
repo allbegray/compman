@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pathlib
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -33,6 +33,18 @@ def test_service_ops(dummy_runtime, temp_dir: pathlib.Path):
     service.connect(dummy_runtime, cfg, "web")
     assert dummy_runtime.compose_runs[-1]["args"] == ["ps", "-q", "web"]
     assert dummy_runtime.commands_run[-1] == ["exec", "-it", "web-1", "sh", "-c", "shell"]
+
+
+def test_service_log_marks_the_follow_stream_for_the_quit_key(dummy_runtime, temp_dir: pathlib.Path):
+    cfg = Config(name="my_stack", profiles={"default": Profile(file="docker-compose.yml")})
+    dummy_runtime.compose_stdout = "web-1\n"
+
+    with patch.object(dummy_runtime, "logs", return_value=0) as logs:
+        service.log(dummy_runtime, cfg, "web", follow=True, tail=20)
+        service.log(dummy_runtime, cfg, "web")
+
+    assert logs.call_args_list[0].kwargs["follow"] is True
+    assert logs.call_args_list[1].kwargs["follow"] is False
 
 
 def test_service_log_auto_select(dummy_runtime, temp_dir: pathlib.Path):

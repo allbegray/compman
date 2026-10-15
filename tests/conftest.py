@@ -123,6 +123,7 @@ class DummyRuntime(ContainerRuntime):
         args: Any,
         cwd: pathlib.Path | str | None = None,
         timeout: float | None = None,
+        follow: bool = False,
     ) -> int:
         self.commands_run.append(list(args))
         if self._passthru_cli_script:
@@ -135,6 +136,7 @@ class DummyRuntime(ContainerRuntime):
         project: str | None = None,
         compose_files: Any = None,
         env: dict[str, str] | None = None,
+        follow: bool = False,
     ) -> int:
         self.compose_runs.append(
             {
@@ -142,6 +144,7 @@ class DummyRuntime(ContainerRuntime):
                 "project": project,
                 "compose_files": compose_files,
                 "env": env,
+                "follow": follow,
             }
         )
         if self._passthru_compose_script:

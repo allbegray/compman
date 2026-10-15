@@ -28,6 +28,7 @@ compman/
   config.py         compman.yml -> Config dataclass
   docker.py         ContainerRuntime, compose resolution, Docker Desktop gate
   deploy.py         source dispatch, managed-tree swap, optional image build
+  follow.py         streaming quit seam (`q` + Enter stops a follow passthru)
   diagnostics.py    doctor/status report collection (schema v1)
   notify.py         Slack webhook resolution + best-effort delivery
   compose_spec.py   compose introspection (named-volume mounts)
@@ -61,6 +62,7 @@ docker-init/        Ministack S3 seed bundle   scratch/  gitignored experiments
 | Named-volume mounts | `compman/compose_spec.py` |
 | All user-facing strings | `compman/i18n.py` (`t()`, `TRANSLATIONS`) |
 | Interactive selection / backup timestamps | `compman/ops/common.py` |
+| Stopping a `-f` stream (`q` + Enter) | `compman/follow.py` |
 
 Highest-traffic seams: `ContainerRuntime` (`docker.py`) on every command path,
 `load_config` and `detect_runtime` (`cli.py`), `deploy()` (`deploy.py`),
@@ -129,6 +131,12 @@ Only the non-obvious; user-facing flags are in `README.md`.
   credentials, an unpinned `deploy`, an unset `deploy.auth.value_env`, and an unset
   `notify.slack.webhook_env` are warnings, not failures.
 - `ps` and `stats` are project-scoped by design, not whole-runtime.
+- A follow passthru (`log -f`, `stack logs -f`, `stats -f`) routes through `follow.py`
+  **only when stdin is a terminal**: the child loses stdin so `q` cannot reach it, a
+  watcher thread reads the terminal, and `q`+Enter exits 0 with "Stopped streaming."
+  Ctrl-C still exits 130 — it reaches the whole process group and `stream()` kills the
+  child on `KeyboardInterrupt`, as `subprocess.run` did. `service connect` (`exec -it`)
+  must keep its stdin, so it never opts in.
 - The default profile is the first configured one; an explicit unknown name fails.
 - `stack down` requires `--yes`. `service log`/`connect` accept **service** names and
   resolve the container with `compose ps -q <service>`; zero instances and multi-instance
@@ -207,6 +215,17 @@ smoke-test the generated executable itself (`--version`, English and Korean
 
 ## Execution Log
 
+- **2026-10-15** — `q`+Enter quits a follow stream (`compman/follow.py`): a follow
+  passthru now spawns its child with `stdin=DEVNULL` so the keystroke cannot reach it,
+  a daemon watcher thread reads the terminal, and the child is stopped via SIGINT with a
+  1s grace before `kill()`. Two findings from a pty-driven real-Docker session: with
+  stdout on a tty, `docker logs -f` and `docker compose logs -f` **ignore both SIGINT and
+  SIGTERM** (a pipe makes them die normally; `docker stats` honors SIGINT), so a
+  SIGINT-only stop would have silently done nothing — Ctrl-C works today only because
+  `subprocess.run` kills the child on `KeyboardInterrupt`; and the flag rides on
+  `passthru_cli`/`passthru_compose` as `follow=`, which `service connect` must not set
+  because `exec -it` needs real stdin. Recorded in SOLUTION.md §3; Windows live check
+  deferred as [L28].
 - **2026-10-11** — Python 3.15 support (v1.12.2): 3.15 added to the CI matrix and the wheel classifiers, quality/packaging moved onto it. `ops/seed.py` now pins gzip `compresslevel` through the new `DEFAULT_GZIP_LEVEL`, single-sourced across `archive.create_tar`, the CLI `-z` options, the schedule
     command, and the backup ops, because 3.15 lowered the stdlib `tarfile` default from 9 to 6; `backup_store._run_proc` now passes `encoding="utf-8", errors="replace"` (locale-dependent ssh/scp decoding that PEP 686's UTF-8 default flips mid-support-range); `install.ps1` gained the Python315 stale-path entry; `uv lock` moved librt to 0.16.0 for cp315 wheels; a new consistency test guards the supported-version matrix against the classifiers, `requires-python`, the quality/packaging pins, the README/AGENTS/site strings, and the installer's stale-path list. PyYAML still ships no cp315 wheel, so 3.15 installs compile it from source and fall back to the pure-Python parser (noted in the CHANGELOG). Verified on a Homebrew 3.15.0: 1173 tests, 100% branch coverage, ruff, mypy. Two review rounds ran (specialists + red team); the "no source changes needed" claim from the first pass was wrong and four more 3.15-divergence issues were fixed. Deferred: routing seed through `create_tar` [M19], smoke-testing the published wheel [M20], the PATH-dependent schedule test [L26], the inert `>= 3.15` resolution-markers fork [L27].
 - **2026-10-02** — Homepage SEO pass: keyword-led title/description, canonical, robots/OG/Twitter tags, a hand-encoded 1200x630 PNG share card, `SoftwareApplication` + `FAQPage` JSON-LD, `robots.txt`, `sitemap.xml`, `favicon.svg`, a real 404 page, task-oriented Use cases / Install sections, and `tests/test_site_seo.py`. Fixed a mobile horizontal-overflow bug (grid children default to `min-width: auto`) and the stale "Python 3.10+" claim.

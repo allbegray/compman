@@ -12,6 +12,7 @@ from typing import Callable, Sequence
 
 from compman._proc import PASSTHRU_UNBOUNDED, _env_timeout
 from compman.config import Config, ConfigError, Profile
+from compman.follow import can_quit, stream
 
 
 @dataclass
@@ -107,24 +108,26 @@ class ContainerRuntime:
         project: str | None = None,
         compose_files: Sequence[Path] | None = None,
         env: dict[str, str] | None = None,
+        follow: bool = False,
     ) -> int:
         cmd = self._compose_cmd(project, compose_files) + list(args)
-        return _passthru(cmd, extra_env=env)
+        return _passthru(cmd, extra_env=env, follow=follow)
 
     def passthru_cli(
         self,
         args: Sequence[str],
         cwd: Path | str | None = None,
         timeout: float | None = None,
+        follow: bool = False,
     ) -> int:
-        return _passthru(self.cli + list(args), cwd=cwd, timeout=timeout)
+        return _passthru(self.cli + list(args), cwd=cwd, timeout=timeout, follow=follow)
 
     def logs(self, container: str, follow: bool = False, tail: int = 50) -> int:
         args = ["logs"]
         if follow:
             args.append("-f")
         args.extend(["-n", str(tail), container])
-        return self.passthru_cli(args, timeout=PASSTHRU_UNBOUNDED if follow else None)
+        return self.passthru_cli(args, timeout=PASSTHRU_UNBOUNDED if follow else None, follow=follow)
 
     def exec_shell(self, container: str) -> int:
         return self.passthru_cli(
@@ -347,8 +350,11 @@ def _passthru(
     extra_env: dict[str, str] | None = None,
     cwd: Path | str | None = None,
     timeout: float | None = None,
+    follow: bool = False,
 ) -> int:
     env = _merged_env(extra_env)
+    if follow and can_quit(sys.stdin):
+        return stream(cmd, env=env, reader=sys.stdin, cwd=cwd)
     resolved = _env_timeout() if timeout is None else timeout
     kwargs: dict = {"env": env, "cwd": cwd}
     if resolved != PASSTHRU_UNBOUNDED:

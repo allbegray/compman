@@ -959,6 +959,52 @@ def test_container_runtime_passthru_helpers_delegate_to_module_passthru():
     assert passthru.call_args_list[1].args[0] == ["docker", "ps"]
 
 
+def test_container_runtime_passthru_helpers_forward_the_follow_flag():
+    runtime = ContainerRuntime("docker", ["docker"], ["docker", "compose"])
+
+    with patch("compman.docker._passthru", return_value=0) as passthru:
+        runtime.passthru_compose(["logs", "-f"], follow=True)
+        runtime.passthru_cli(["stats"], follow=True)
+        runtime.passthru_compose(["logs"])
+
+    assert passthru.call_args_list[0].kwargs["follow"] is True
+    assert passthru.call_args_list[1].kwargs["follow"] is True
+    assert passthru.call_args_list[2].kwargs["follow"] is False
+
+
+def test_passthru_follow_streams_on_a_terminal():
+    with patch("sys.stdin.isatty", return_value=True), patch(
+        "compman.docker.stream", return_value=0
+    ) as stream:
+        assert _passthru(["docker", "logs", "-f"], follow=True) == 0
+
+    assert stream.call_args.args[0] == ["docker", "logs", "-f"]
+    assert stream.call_args.kwargs["reader"] is sys.stdin
+
+
+def test_passthru_follow_without_a_terminal_keeps_the_child_on_stdin():
+    with patch("sys.stdin.isatty", return_value=False), patch(
+        "compman.docker.stream"
+    ) as stream, patch("subprocess.run", return_value=MagicMock(returncode=0)) as run:
+        assert _passthru(["docker", "logs", "-f"], follow=True) == 0
+
+    stream.assert_not_called()
+    assert "stdin" not in run.call_args.kwargs
+
+
+def test_logs_marks_only_the_follow_passthru_for_the_quit_key():
+    runtime = ContainerRuntime("docker", ["docker"], ["docker", "compose"])
+    with patch.object(runtime, "passthru_cli", return_value=0) as passthru:
+        runtime.logs("cid", follow=True)
+        runtime.logs("cid")
+        runtime.exec_shell("cid")
+
+    assert passthru.call_args_list[0].kwargs["follow"] is True
+    assert passthru.call_args_list[1].kwargs["follow"] is False
+    # `exec -it` needs the real stdin for the shell, so it never opts in.
+    assert "follow" not in passthru.call_args_list[2].kwargs
+
+
 def test_container_runtime_convenience_methods_wire_expected_run_cli_argv(tmp_path):
     runtime = ContainerRuntime(name="docker", cli=["docker"], compose=["docker", "compose"])
     dest = tmp_path / "payload.tar"

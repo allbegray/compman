@@ -75,6 +75,17 @@ def test_stats_timeout_follows_streaming_classification(dummy_runtime, config):
     assert timeouts == [PASSTHRU_UNBOUNDED, None]
 
 
+def test_stats_marks_only_the_follow_stream_for_the_quit_key(dummy_runtime, config):
+    dummy_runtime.compose_stdout = "cid-one\n"
+    follows: list[bool] = []
+
+    with patch.object(dummy_runtime, "passthru_cli", side_effect=lambda *a, **k: follows.append(k["follow"])):
+        container.stats(dummy_runtime, config, follow=True)
+        container.stats(dummy_runtime, config)
+
+    assert follows == [True, False]
+
+
 def test_stats_empty_project_does_not_run_global_stats(dummy_runtime, config, capsys):
     set_lang("en")
     dummy_runtime.compose_stdout = "\n"

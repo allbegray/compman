@@ -54,6 +54,7 @@ Name the variable instead of the URL so the secret stays out of the config
 file that gets committed:
 
 ```yaml
+# yaml-language-server: $schema=https://allbegray.github.io/compman/compman.schema.json
 compman:
   name: my-stack
   compose:

@@ -54,6 +54,7 @@ docker-init/        Ministack S3 seed bundle   scratch/  gitignored experiments
 | Command tree / new CLI command | `compman/cli.py` |
 | Business logic for a command | `compman/ops/<domain>.py` |
 | `compman.yml` parsing/validation | `compman/config.py` |
+| `compman.yml` field contract (JSON Schema) | `docs/site/compman.schema.json` |
 | Runtime detection / docker/podman calls | `compman/docker.py` |
 | `doctor`/`status` JSON (schema v1) | `compman/diagnostics.py` |
 | `${secrets:NAME}` resolution | `compman/env_source.py` |
@@ -203,7 +204,7 @@ smoke-test the generated executable itself (`--version`, English and Korean
 
 ## Documentation rules
 
-- Six mandatory root documents: `AGENTS.md`, `BACKLOG.md`, `CHANGELOG.md`, `README.md`, `SECURITY.md`, `SOLUTION.md`. Recreate any that go missing. The root holds only these six; other Markdown lives under `docs/`, which is English-only and Hangul-free.
+- Six mandatory root documents: `AGENTS.md`, `BACKLOG.md`, `CHANGELOG.md`, `README.md`, `SECURITY.md`, `SOLUTION.md`. Recreate any that go missing. The root holds only these six; other Markdown lives under `docs/`, which is English-only and Hangul-free. The one exception is the distributable agent skill at `skills/compman/SKILL.md`, which keeps the standard `<root>/skills/<name>/SKILL.md` layout so agents and installers can fetch it.
 - **Each root document owns one thing and points at the others for the rest.** `README.md` is the user manual and the GitHub landing page; `AGENTS.md` is the agent operating manual (rules, seams, traps) and must not restate user-facing features; `SOLUTION.md` is the troubleshooting sink; `SECURITY.md` is policy; `BACKLOG.md` and `CHANGELOG.md` are state. When two documents start explaining the same thing, one of them is wrong.
 - Keep documents at their current size. If a change makes one grow, cut something.
 - `BACKLOG.md` uses `[H1]`/`[M1]`/`[L1]` with `- [ ]` checkboxes. Shipped items are deleted, not checked; retired IDs are never reused.
@@ -215,6 +216,22 @@ smoke-test the generated executable itself (`--version`, English and Korean
 
 ## Execution Log
 
+- **2026-10-19** — Agent-facing surfaces for `compman.yml` and the CLI: every
+  `examples/compman-config/*.md` config block now starts with the
+  `# yaml-language-server: $schema=...` directive, pinned to `YAML_SCHEMA_HEADER` by
+  `test_every_example_config_block_carries_the_schema_directive`; the `AGENTS.md`
+  WHERE TO LOOK table points at `docs/site/compman.schema.json`; and
+  `skills/compman/SKILL.md` is a distributable agent skill (Agent Skills layout)
+  that teaches a coding agent to write `compman.yml` and pick commands without
+  consulting compman source. It treats `--help` and the published JSON Schema as
+  the sources of truth (no command or field list to rot), keeps only the
+  invariants operators get wrong (profile `env` vs `${VAR}`, secrets via
+  `${secrets:NAME}`, `compose` mapping required), and gates config edits on
+  `compman doctor --json` exiting 0. Installation is a one-line `curl` in the
+  README, with the per-harness skill directories named there. A `compman skill
+  install` CLI command was prototyped and reverted: distribution must not depend
+  on compman being installed locally, and the skill must stay a plain Markdown
+  file.
 - **2026-10-15** — `q`+Enter quits a follow stream (`compman/follow.py`): a follow
   passthru now spawns its child with `stdin=DEVNULL` so the keystroke cannot reach it,
   a daemon watcher thread reads the terminal, and the child is stopped via SIGINT with a

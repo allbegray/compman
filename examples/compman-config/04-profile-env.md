@@ -8,6 +8,7 @@ Compose file.
 ## `compman.yml`
 
 ```yaml
+# yaml-language-server: $schema=https://allbegray.github.io/compman/compman.schema.json
 compman:
   name: my-stack
   compose:
@@ -54,6 +55,7 @@ When every profile shares one Compose file and only the env values differ, drop
 is absent.
 
 ```yaml
+# yaml-language-server: $schema=https://allbegray.github.io/compman/compman.schema.json
 compman:
   name: my-stack
   compose:

@@ -7,6 +7,7 @@ a request header only while fetching the configured source.
 ## `compman.yml`
 
 ```yaml
+# yaml-language-server: $schema=https://allbegray.github.io/compman/compman.schema.json
 compman:
   name: my-stack
   deploy:

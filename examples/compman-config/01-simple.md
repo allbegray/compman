@@ -5,6 +5,7 @@ One profile with one Compose file.
 ## `compman.yml`
 
 ```yaml
+# yaml-language-server: $schema=https://allbegray.github.io/compman/compman.schema.json
 compman:
   name: my-stack
   compose:
@@ -16,6 +17,7 @@ Multiple Compose files for the same profile use the `base` key plus the profile
 `file`; both are passed as `-f` options in order:
 
 ```yaml
+# yaml-language-server: $schema=https://allbegray.github.io/compman/compman.schema.json
 compman:
   name: my-stack
   compose:

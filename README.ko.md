@@ -96,6 +96,17 @@ my-app/
 실제 예시: [`examples/compman-config/`](examples/compman-config/)
 (목록은 [`examples/README.md`](examples/README.md))
 
+### 에이전트 스킬
+
+[`skills/compman/SKILL.md`](skills/compman/SKILL.md)는 코딩 에이전트가 이 파일을
+작성하고 compman 명령을 고르도록 가르칩니다. 아래 한 줄로 에이전트에 설치할 수
+있습니다(Claude Code 기준. Codex `~/.codex/skills`, OMP `~/.omp/agent/skills`,
+또는 임의의 `.agents/skills` 루트로 디렉터리를 바꾸면 됩니다):
+
+```bash
+mkdir -p ~/.claude/skills/compman && curl -fsSL https://raw.githubusercontent.com/allbegray/compman/main/skills/compman/SKILL.md -o ~/.claude/skills/compman/SKILL.md
+```
+
 ### Compose 프로파일
 
 `compose`는 **필수**이며 **프로파일 매핑**이어야 합니다. 프로파일 하나로도

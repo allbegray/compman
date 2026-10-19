@@ -8,6 +8,7 @@ after a successful upload, so losing the host does not lose the backups.
 ## `compman.yml`
 
 ```yaml
+# yaml-language-server: $schema=https://allbegray.github.io/compman/compman.schema.json
 compman:
   name: my-stack
   dirs:

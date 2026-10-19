@@ -96,6 +96,17 @@ add this first line for IDE autocomplete and validation:
 Worked examples: [`examples/compman-config/`](examples/compman-config/) (index in
 [`examples/README.md`](examples/README.md)).
 
+### Agent skill
+
+[`skills/compman/SKILL.md`](skills/compman/SKILL.md) teaches coding agents to
+write this file and pick compman commands. Install it for your agent in one line
+(Claude Code shown; swap the directory for Codex `~/.codex/skills`, OMP
+`~/.omp/agent/skills`, or any `.agents/skills` root):
+
+```bash
+mkdir -p ~/.claude/skills/compman && curl -fsSL https://raw.githubusercontent.com/allbegray/compman/main/skills/compman/SKILL.md -o ~/.claude/skills/compman/SKILL.md
+```
+
 ### Compose profiles
 
 `compose` is required and must be a **mapping of profiles**. One profile is

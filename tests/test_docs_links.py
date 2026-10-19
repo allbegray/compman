@@ -1,4 +1,4 @@
-"""[L3] Documentation hygiene: every relative Markdown link must resolve."""
+"""Documentation hygiene: every relative Markdown link must resolve."""
 
 from __future__ import annotations
 
@@ -9,11 +9,13 @@ import pytest
 
 ROOT = pathlib.Path(__file__).parents[1]
 LINK_PATTERN = re.compile(r"\[[^\]]*\]\(([^)\s]+(?:\s+\"[^\"]*\")?)\)")
+YAML_BLOCK_PATTERN = re.compile(r"```yaml\n(.*?)```", re.DOTALL)
+EXAMPLE_FILES = sorted((ROOT / "examples").glob("**/*.md"))
 
 SCAN_FILES = [
     *ROOT.glob("*.md"),
     *ROOT.glob("docs/**/*.md"),
-    *ROOT.glob("examples/**/*.md"),
+    *EXAMPLE_FILES,
 ]
 
 
@@ -64,3 +66,21 @@ def test_scaffold_includes_yaml_schema_directive():
     output = dump_default_config("test")
     assert "# yaml-language-server: $schema=" in output
     assert "compman.schema.json" in output
+
+
+def test_every_example_config_block_carries_the_schema_directive():
+    from compman.config import YAML_SCHEMA_HEADER
+
+    checked = 0
+    missing: list[str] = []
+    for path in EXAMPLE_FILES:
+        for block in YAML_BLOCK_PATTERN.findall(content_of(path)):
+            first, _, rest = block.partition("\n")
+            has_header = first == YAML_SCHEMA_HEADER
+            if not (rest if has_header else block).startswith("compman:"):
+                continue
+            checked += 1
+            if not has_header:
+                missing.append(f"{path.relative_to(ROOT)}")
+    assert checked > 0, "no compman: example blocks found"
+    assert missing == [], f"compman.yml example blocks without the schema directive: {missing}"

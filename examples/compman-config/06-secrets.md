@@ -7,6 +7,7 @@ invocation and substitutes the value at `key`.
 ## `compman.yml`
 
 ```yaml
+# yaml-language-server: $schema=https://allbegray.github.io/compman/compman.schema.json
 compman:
   name: my-stack
   compose:

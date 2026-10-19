@@ -7,6 +7,7 @@ S3 backup store (Case 11) and every scheduled backup also replicates off-site.
 ## `compman.yml`
 
 ```yaml
+# yaml-language-server: $schema=https://allbegray.github.io/compman/compman.schema.json
 compman:
   name: my-stack
   dirs:

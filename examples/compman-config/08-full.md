@@ -20,6 +20,7 @@ my-stack/
 ## `compman.yml`
 
 ```yaml
+# yaml-language-server: $schema=https://allbegray.github.io/compman/compman.schema.json
 compman:
   name: my-stack
   deploy: s3://my-bucket/releases/app

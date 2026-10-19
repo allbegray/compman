@@ -7,6 +7,7 @@ wins on a name clash). Secrets are never injected as standalone variables.
 ## `compman.yml`
 
 ```yaml
+# yaml-language-server: $schema=https://allbegray.github.io/compman/compman.schema.json
 compman:
   name: my-stack
   compose:
@@ -39,6 +40,7 @@ A profile `secrets` block replaces an entry for that profile only. The profile
 ARN wins when both define the same name:
 
 ```yaml
+# yaml-language-server: $schema=https://allbegray.github.io/compman/compman.schema.json
 compman:
   name: my-stack
   compose:

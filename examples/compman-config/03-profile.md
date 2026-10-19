@@ -6,6 +6,7 @@ shared `base` file plus a per-profile file, with no environment variables.
 ## `compman.yml`
 
 ```yaml
+# yaml-language-server: $schema=https://allbegray.github.io/compman/compman.schema.json
 compman:
   name: my-stack
   compose:
@@ -46,6 +47,7 @@ Each profile file is used on its own; the default `docker-compose.yml` is the
 fallback for any profile whose file is missing.
 
 ```yaml
+# yaml-language-server: $schema=https://allbegray.github.io/compman/compman.schema.json
 compman:
   name: my-stack
   compose:

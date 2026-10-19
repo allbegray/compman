@@ -220,6 +220,13 @@ smoke-test the generated executable itself (`--version`, English and Korean
 
 ## Execution Log
 
+- **2026-10-19** — CI integration died at "Wait for Ministack" on Ministack
+  1.5.29: `s3api create-bucket` with a non-us-east-1 region now requires a
+  location constraint, and `init-bucket.sh`'s `|| true` hid it until `s3 sync`
+  failed with `NoSuchBucket`. The seed now uses `aws s3 mb`, and
+  `docker-compose.yaml` pins the image to `1.5.29`. Recorded in SOLUTION.md §1;
+  the full integration job (seed → `pytest -m integration` → deploy/stack e2e)
+  was replayed locally before pushing.
 - **2026-10-19** — `compman volume remove` (v1.14.0): removes volumes of the
   current stack, discovered by the `com.docker.compose.project` label; without
   names it removes only the volumes no container uses. In-use detection is the

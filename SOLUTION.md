@@ -11,6 +11,7 @@ rules), `BACKLOG.md` (open work).
 - **PowerShell `\$` is not an escape; use a backtick.** Sending complex bash through PowerShell quoting invites silent corruption (`$HOME`/`$PATH` expand to Windows values and break the Linux PATH). Write a temp `.sh` and run `wsl -d Ubuntu -- bash /mnt/c/.../script.sh`.
 - **WSL Ubuntu often lacks `python3-venv`/`pip`** (ensurepip absent). Use `uv tool install <wheel>`; if uv is missing, download `uv-x86_64-unknown-linux-gnu.tar.gz` on Windows and copy it into `~/.local/bin`.
 - **`$env:TEMP` may be an 8.3 short path** (`C:\Users\AIMMED~1\...`); WSL reaches it as `/mnt/c/Users/AIMMED~1/...`.
+- **Ministack changed S3 bucket creation under `latest`.** On 1.5.29, `aws s3api create-bucket --region ap-northeast-2` without a `CreateBucketConfiguration` fails with `IllegalLocationConstraintException`; the CI seed script swallowed it with `|| true`, so the job failed 60s later at "Wait for Ministack" with `NoSuchBucket` from `s3 sync`. Use `aws s3 mb s3://<bucket> ...` (it sends the location constraint) and pin the image tag in `docker-compose.yaml`, so an upstream change cannot silently break the seed.
 
 ## 2. Test traps
 

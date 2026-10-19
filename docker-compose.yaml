@@ -1,6 +1,6 @@
 services:
   ministack-compman:
-    image: ministackorg/ministack:latest
+    image: ministackorg/ministack:1.5.29
     container_name: ministack-compman
     ports:
       - "4566:4566"

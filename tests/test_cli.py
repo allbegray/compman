@@ -294,6 +294,22 @@ def test_cli_volume_commands(runner: CliRunner, dummy_runtime, temp_dir: pathlib
         assert invalid.exit_code == 2
 
 
+def test_cli_volume_remove(runner: CliRunner, dummy_runtime, temp_dir: pathlib.Path):
+    write_config(temp_dir / "compman.yml")
+    (temp_dir / "docker-compose.yml").touch()
+    with patch("compman.cli.detect_runtime", return_value=dummy_runtime):
+        res = runner.invoke(app, ["volume", "remove", "--yes"])
+        assert res.exit_code == 0
+        assert "Removed volume: vol1" in res.output
+
+        declined = runner.invoke(app, ["volume", "remove"], input="n\n")
+        assert declined.exit_code != 0
+
+        confirmed = runner.invoke(app, ["volume", "remove", "vol1"], input="y\n")
+        assert confirmed.exit_code == 0
+        assert confirmed.output.count("Removed volume: vol1") == 1
+
+
 def test_cli_image_commands(runner: CliRunner, dummy_runtime, temp_dir: pathlib.Path):
     write_config(temp_dir / "compman.yml")
     (temp_dir / "docker-compose.yml").touch()

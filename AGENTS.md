@@ -161,6 +161,10 @@ Only the non-obvious; user-facing flags are in `README.md`.
   Registry and log live under `%APPDATA%\compman` when `APPDATA` is set, else
   `~/.config/compman`. Default job name is `<sanitized project>.volume`.
 - `history` reads an append-only JSONL journal; write failures warn, never fail.
+- `volume remove` deletes only volumes labelled with the config's compose project.
+  Without names it targets the volumes no container uses (`ps -a --filter volume=`),
+  and named volumes that are missing from the stack or still in use fail before
+  anything is deleted.
 - Slack notifications fire only after a successful `stack up`/`stack update` or a
   deploy-driven `update`. Data comes from one `compose ps --all --format json`, plus
   one `docker system df -v --format json` **only** when the compose files declare a
@@ -216,6 +220,15 @@ smoke-test the generated executable itself (`--version`, English and Korean
 
 ## Execution Log
 
+- **2026-10-19** — `compman volume remove` (v1.14.0): removes volumes of the
+  current stack, discovered by the `com.docker.compose.project` label; without
+  names it removes only the volumes no container uses. In-use detection is the
+  new `ContainerRuntime.list_volume_users` (`ps -a --filter volume=<name>`);
+  named volumes that are missing from the stack or still in use fail before any
+  deletion. The PowerShell completion snippet lists the new subcommand, which
+  `test_completion_snippet_matches_registered_command_tree` enforces. Verified
+  against real Docker: in-use refusal, an unused-only sweep that left the in-use
+  volume, and named removal once its container was gone.
 - **2026-10-19** — Agent-facing surfaces for `compman.yml` and the CLI: every
   `examples/compman-config/*.md` config block now starts with the
   `# yaml-language-server: $schema=...` directive, pinned to `YAML_SCHEMA_HEADER` by

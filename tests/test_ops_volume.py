@@ -663,3 +663,67 @@ def test_volume_backup_journal_failure_keeps_backup_successful(
     captured = capsys.readouterr()
     assert "Is a directory" in captured.err
     assert list(local_root(cfg.backup_store).glob("my_stack.volume.*.tar.gz"))
+
+
+def _remove_cfg() -> Config:
+    return Config(name="my_stack", profiles={"default": Profile(file="docker-compose.yml")})
+
+
+def test_volume_remove_without_names_removes_only_unused(dummy_runtime, temp_dir: pathlib.Path):
+    cfg = _remove_cfg()
+    dummy_runtime.list_volumes = MagicMock(return_value=["my_stack_data", "my_stack_cache"])
+    dummy_runtime.list_volume_users = MagicMock(side_effect=[["app-db-1"], []])
+
+    volume.remove(dummy_runtime, cfg, yes=True)
+
+    assert ["volume", "rm", "my_stack_cache"] in dummy_runtime.commands_run
+
+
+def test_volume_remove_without_unused_volumes_reports_and_stops(
+    dummy_runtime, temp_dir: pathlib.Path, capsys
+):
+    cfg = _remove_cfg()
+    dummy_runtime.list_volumes = MagicMock(return_value=["my_stack_data"])
+    dummy_runtime.list_volume_users = MagicMock(return_value=["app-db-1"])
+
+    volume.remove(dummy_runtime, cfg, yes=True)
+
+    assert "No unused volumes" in capsys.readouterr().out
+    assert ["volume", "rm", "my_stack_data"] not in dummy_runtime.commands_run
+
+
+def test_volume_remove_named_volumes_removes_them_all(dummy_runtime, temp_dir: pathlib.Path, capsys):
+    cfg = _remove_cfg()
+    dummy_runtime.list_volumes = MagicMock(return_value=["my_stack_data", "my_stack_cache"])
+    dummy_runtime.list_volume_users = MagicMock(return_value=[])
+
+    volume.remove(dummy_runtime, cfg, names=["my_stack_data", "my_stack_cache"], yes=True)
+
+    assert ["volume", "rm", "my_stack_data", "my_stack_cache"] in dummy_runtime.commands_run
+    out = capsys.readouterr().out
+    assert "Removed volume: my_stack_data" in out
+    assert "Removed volume: my_stack_cache" in out
+
+
+def test_volume_remove_rejects_unknown_name(dummy_runtime, temp_dir: pathlib.Path):
+    cfg = _remove_cfg()
+    dummy_runtime.list_volumes = MagicMock(return_value=["my_stack_data"])
+
+    with pytest.raises(CommandError) as excinfo:
+        volume.remove(dummy_runtime, cfg, names=["my_stack_data", "other"], yes=True)
+
+    assert "not found" in excinfo.value.message
+    assert "other" in excinfo.value.message
+    assert dummy_runtime.commands_run == []
+
+
+def test_volume_remove_rejects_in_use_name(dummy_runtime, temp_dir: pathlib.Path):
+    cfg = _remove_cfg()
+    dummy_runtime.list_volumes = MagicMock(return_value=["my_stack_data"])
+    dummy_runtime.list_volume_users = MagicMock(return_value=["app-db-1"])
+
+    with pytest.raises(CommandError) as excinfo:
+        volume.remove(dummy_runtime, cfg, names=["my_stack_data"], yes=True)
+
+    assert "in use" in excinfo.value.message
+    assert dummy_runtime.commands_run == []

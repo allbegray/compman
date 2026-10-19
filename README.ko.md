@@ -239,6 +239,7 @@ compman volume backup [-z LEVEL] [--zstd] [--no-stop] [--profile PROFILE] [-c|--
 compman volume restore [TIMESTAMP] [--no-stop] [--replace] [--profile PROFILE] [-c|--config PATH]
 compman volume pull [--profile PROFILE] [-c|--config PATH]
 compman volume push [--replace] [--profile PROFILE] [-c|--config PATH]
+compman volume remove [NAME...] [--yes] [-c|--config PATH]
 
 compman image backup [-z LEVEL] [--zstd] [--source-image] [--profile PROFILE] [-c|--config PATH]
 compman image restore [TIMESTAMP] [--profile PROFILE] [-c|--config PATH]
@@ -262,6 +263,7 @@ compman schedule remove NAME
 - 스트리밍 명령(`service log -f`, `stack logs -f`, `stats -f`)은 터미널에서 `q`를 입력하고 Enter를 누르면 종료하며, 실패가 아닌 exit 0으로 끝납니다. Ctrl-C도 그대로 동작합니다. 파이프 입력(`… | grep`)에서는 `q`를 입력할 사람이 없으므로 Ctrl-C만 종료 수단으로 남습니다.
 - `volume backup`/`restore`는 일관성을 위해 스택을 중지합니다. `--no-stop`은 이를 포기합니다. 모두 중지된 상태에서도 복구할 수 있으며, 스택을 임시로 시작해 복구한 뒤 다시 중지합니다.
 - `volume restore`/`push --replace`는 대상에 없는 파일을 삭제하는 바이트 단위 교체입니다. 설계상 파괴적이며 대상은 절대 컨테이너 경로여야 합니다.
+- `volume remove`는 현재 스택의 볼륨만 삭제합니다. 이미지, 컨테이너, 다른 프로젝트는 건드리지 않습니다. 이름을 주지 않으면 어떤 컨테이너도 쓰지 않는 볼륨만 제거하고, `--yes`는 확인 프롬프트를 건너뜁니다.
 - `image backup`은 기본적으로 컨테이너 상태를 commit하고, `--source-image`를 주면 원본 이미지를 저장합니다. gzip 레벨 기본값은 6(`-z`)이고 `--zstd`는 `.tar.zst`를 쓰며 복구에도 Python 3.14+가 필요합니다.
 - 아카이브 이름은 `<stack>.{volume,image}.<YYYYMMDD_HHMMSS>[_<microseconds>].tar.gz` 형식입니다.
 - `clear`는 `image prune -af`를 실행하므로 현재 프로젝트 밖의 미사용 이미지도 삭제할 수 있습니다. `--yes`가 필요합니다.

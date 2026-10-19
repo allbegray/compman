@@ -238,6 +238,7 @@ compman volume backup [-z LEVEL] [--zstd] [--no-stop] [--profile PROFILE] [-c|--
 compman volume restore [TIMESTAMP] [--no-stop] [--replace] [--profile PROFILE] [-c|--config PATH]
 compman volume pull [--profile PROFILE] [-c|--config PATH]
 compman volume push [--replace] [--profile PROFILE] [-c|--config PATH]
+compman volume remove [NAME...] [--yes] [-c|--config PATH]
 
 compman image backup [-z LEVEL] [--zstd] [--source-image] [--profile PROFILE] [-c|--config PATH]
 compman image restore [TIMESTAMP] [--profile PROFILE] [-c|--config PATH]
@@ -261,6 +262,7 @@ directory. View all options for any command with `compman <command> --help`.
 - Streaming commands (`service log -f`, `stack logs -f`, `stats -f`) stop when you type `q` and press Enter on a terminal — exit 0, not a failure. Ctrl-C still works. Piped input (`… | grep`) keeps Ctrl-C as the only stop, since nobody is there to type `q`.
 - `volume backup`/`restore` stop the stack for consistency; `--no-stop` opts out. Restoring while everything is stopped also works — the stack is started temporarily and stopped again.
 - `volume restore`/`push --replace` is a byte-for-byte replace that deletes destination-only files. Destructive by design; the destination must be an absolute container path.
+- `volume remove` deletes volumes of the current stack only — never images, containers, or other projects. Without names it removes just the volumes no container uses; `--yes` skips the confirmation prompt.
 - `image backup` commits container state unless `--source-image` is passed. gzip level defaults to 6 (`-z`); `--zstd` writes `.tar.zst` and needs Python 3.14+ for restore too.
 - Archives are named `<stack>.{volume,image}.<YYYYMMDD_HHMMSS>[_<microseconds>].tar.gz`.
 - `clear` runs `image prune -af`, which can remove unused images outside this project. Requires `--yes`.

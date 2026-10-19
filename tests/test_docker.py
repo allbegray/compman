@@ -258,6 +258,23 @@ def test_fix_permissions_handles_failure_and_parse_branches():
         assert run.call_args.args[0] == ["exec", "-u", "root", "c", "chown", "-R", "1000:1000", "/data"]
 
 
+def test_list_volume_users_reports_container_names():
+    rt = ContainerRuntime(name="docker", cli=["docker"], compose=["docker", "compose"])
+    result = subprocess.CompletedProcess(["docker"], 0, "app-db-1\napp-cache-1\n", "")
+
+    with patch.object(rt, "run_cli", return_value=result) as run:
+        assert rt.list_volume_users("my_stack_pgdata") == ["app-db-1", "app-cache-1"]
+
+    assert run.call_args.args[0] == [
+        "ps",
+        "-a",
+        "--filter",
+        "volume=my_stack_pgdata",
+        "--format",
+        "{{.Names}}",
+    ]
+
+
 def test_container_runtime_methods():
     rt = ContainerRuntime(name="docker", cli=["docker"], compose=["docker", "compose"])
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -222,6 +223,42 @@ def push(
         runtime.copy_to_container(f"{src}/.", container, dest)
         runtime.fix_permissions(container, dest)
     typer.echo(t("msg.restore_done", kind="Volume push"))
+
+
+def remove(
+    runtime: ContainerRuntime,
+    config: Config,
+    names: Sequence[str] | None = None,
+    yes: bool = False,
+) -> None:
+    """Remove this stack's volumes; without names, only the unused ones."""
+    available = runtime.list_volumes(config.name)
+    if names:
+        missing = [name for name in names if name not in available]
+        if missing:
+            raise CommandError(
+                t("msg.volume_not_found", names=", ".join(missing), stack=config.name)
+            )
+        targets = list(dict.fromkeys(names))
+        blocked = [name for name in targets if runtime.list_volume_users(name)]
+        if blocked:
+            raise CommandError(t("msg.volume_in_use", names=", ".join(blocked)))
+    else:
+        targets = [name for name in available if not runtime.list_volume_users(name)]
+        if not targets:
+            typer.echo(t("msg.no_unused_volumes", stack=config.name))
+            return
+
+    if not yes:
+        typer.confirm(
+            t("msg.volume_remove_confirm", count=len(targets), names=", ".join(targets)),
+            abort=True,
+        )
+
+    runtime.run_cli(["volume", "rm", *targets])
+    for name in targets:
+        typer.echo(t("msg.volume_removed", name=name))
+    _journal("remove", kind="volume", stack=config.name, volumes=",".join(targets))
 
 
 def _inspect_mount(

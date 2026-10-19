@@ -217,6 +217,9 @@ class DummyRuntime(ContainerRuntime):
     def list_volumes(self, project: str) -> list[str]:
         return ["vol1"]
 
+    def list_volume_users(self, volume: str) -> list[str]:
+        return []
+
     def list_containers(self, project: str, compose_files: Any = None, env: Any = None) -> list[str]:
         return ["container1"]
 

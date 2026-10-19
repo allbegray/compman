@@ -3,6 +3,21 @@
 Major user-visible changes to compman are recorded here, with the newest release
 first.
 
+## [1.14.0] - 2026-10-19
+
+Minor release: volume removal and the agent skill.
+
+### Added
+
+- `compman volume remove [NAME...]` deletes volumes of the current stack —
+  never images, containers, or other projects. Without names it removes only
+  the volumes no container is using. Named volumes that do not belong to the
+  stack, or that are still in use, fail before anything is deleted; `--yes`
+  skips the confirmation prompt.
+- `skills/compman/SKILL.md` is an agent skill (Agent Skills layout) that
+  teaches coding agents to write `compman.yml` and pick commands. The README
+  installs it into a harness skill directory in one line.
+
 ## [1.13.0] - 2026-10-15
 
 Minor release: streaming ergonomics. No configuration or command surface changed.

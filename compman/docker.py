@@ -266,6 +266,14 @@ class ContainerRuntime:
         _raise_probe_failure(result)
         return [v for v in result.stdout.strip().splitlines() if v]
 
+    def list_volume_users(self, volume: str) -> list[str]:
+        result = self.run_cli(
+            ["ps", "-a", "--filter", f"volume={volume}", "--format", "{{.Names}}"],
+            check=False,
+        )
+        _raise_probe_failure(result)
+        return [c for c in result.stdout.strip().splitlines() if c]
+
     def get_container_id(self, name: str, project: str | None = None) -> str:
         filters = [f"name=^{name}$"]
         if project:

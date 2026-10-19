@@ -108,7 +108,7 @@ def _ps_completion_snippet() -> str:
         "            [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)\n"
         "        }\n"
         "    } elseif ($words[1] -eq 'volume') {\n"
-        "        @('backup', 'restore', 'pull', 'push') | Where-Object { $_ -like \"$wordToComplete*\" } | ForEach-Object {\n"
+        "        @('backup', 'restore', 'pull', 'push', 'remove') | Where-Object { $_ -like \"$wordToComplete*\" } | ForEach-Object {\n"
         "            [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)\n"
         "        }\n"
         "    } elseif ($words[1] -eq 'image') {\n"

@@ -716,6 +716,16 @@ def volume_push(
     _volume_ops().push(ctx["runtime"], ctx["config"], profile, replace=replace)
 
 
+@volume_app.command("remove", help=t("cmd.volume.remove"))
+def volume_remove(
+    names: Annotated[list[str] | None, typer.Argument(help=t("opt.volume_names"))] = None,
+    yes: Annotated[bool, typer.Option("--yes", help=t("opt.volume_yes"))] = False,
+    config: ConfigOpt = None,
+) -> None:
+    ctx = _load(config)
+    _volume_ops().remove(ctx["runtime"], ctx["config"], names, yes=yes)
+
+
 app.add_typer(volume_app, name="volume")
 
 

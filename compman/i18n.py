@@ -321,8 +321,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         ),
     },
     "cmd.volume": {
-        "en": "Backup, restore, pull, or push Docker persistent volumes.",
-        "ko": "Docker 파시스턴트 볼륨 백업, 복원, 풀, 푸시를 관리합니다.",
+        "en": "Backup, restore, pull, push, or remove Docker persistent volumes.",
+        "ko": "Docker 파시스턴트 볼륨 백업, 복원, 풀, 푸시, 제거를 관리합니다.",
     },
     "cmd.volume.backup": {
         "en": (
@@ -382,6 +382,22 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "로컬 ./volume 디렉터리의 파일들을 컨테이너 볼륨으로 업로드합니다.\n\n"
             "사용 예시:\n"
             "  compman volume push"
+        ),
+    },
+    "cmd.volume.remove": {
+        "en": (
+            "Remove this stack's volumes.\n\n"
+            "Without names, removes every volume of the stack that no container is using.\n\n"
+            "Examples:\n"
+            "  compman volume remove\n"
+            "  compman volume remove my-stack_pgdata --yes"
+        ),
+        "ko": (
+            "이 스택의 볼륨을 제거합니다.\n\n"
+            "이름을 지정하지 않으면 사용 중인 컨테이너가 없는 볼륨만 제거합니다.\n\n"
+            "사용 예시:\n"
+            "  compman volume remove\n"
+            "  compman volume remove my-stack_pgdata --yes"
         ),
     },
     "cmd.image": {
@@ -508,6 +524,14 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "opt.clear_yes": {
         "en": "Confirm removal of all unused images",
         "ko": "사용하지 않는 모든 이미지 제거 확인",
+    },
+    "opt.volume_names": {
+        "en": "Volume names to remove (default: unused volumes of this stack)",
+        "ko": "제거할 볼륨 이름 (기본값: 이 스택의 미사용 볼륨)",
+    },
+    "opt.volume_yes": {
+        "en": "Skip the confirmation prompt",
+        "ko": "확인 프롬프트를 건너뜁니다",
     },
     "opt.profile": {
         "en": "Compose profile",
@@ -758,6 +782,26 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "msg.no_volumes": {
         "en": "Info: No volumes found to back up.",
         "ko": "안내: 백업할 볼륨이 없습니다.",
+    },
+    "msg.no_unused_volumes": {
+        "en": "No unused volumes in stack '{stack}'.",
+        "ko": "스택 '{stack}'에 사용하지 않는 볼륨이 없습니다.",
+    },
+    "msg.volume_not_found": {
+        "en": "Volume not found in stack '{stack}': {names}",
+        "ko": "스택 '{stack}'에서 볼륨을 찾을 수 없습니다: {names}",
+    },
+    "msg.volume_in_use": {
+        "en": "Volume is in use by a container: {names}",
+        "ko": "볼륨이 컨테이너에서 사용 중입니다: {names}",
+    },
+    "msg.volume_remove_confirm": {
+        "en": "Remove {count} volume(s) and delete their data? {names}",
+        "ko": "볼륨 {count}개를 제거하고 데이터를 삭제할까요? {names}",
+    },
+    "msg.volume_removed": {
+        "en": "Removed volume: {name}",
+        "ko": "볼륨 제거됨: {name}",
     },
     "msg.backup_done": {
         "en": "{kind} backup done: {path}",
